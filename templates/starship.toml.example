@@ -1,0 +1,47 @@
+# Recommended Starship Prompt Config for zsh-smart-complete
+# Minimal, clean, 2-line friendly. Works in both dark and light terminals.
+#
+# Install Starship: https://starship.rs/guide/#%F0%9F%9A%80-installation
+# In .zshrc:   eval "$(starship init zsh)"
+
+add_newline = false
+
+# Keep prompt single-line per command
+[line_break]
+disabled = true
+
+# Prompt character — green on success, red on error
+[character]
+success_symbol = "[❯](bold green)"
+error_symbol   = "[❯](bold red)"
+
+# Current directory — show up to 3 parents, color cyan
+[directory]
+truncation_length = 3
+style = "bold cyan"
+truncate_to_repo = true
+
+# Git branch + status
+[git_branch]
+symbol = " "
+style  = "bold purple"
+
+[git_status]
+disabled = false
+ahead    = "⇡${count}"
+behind   = "⇣${count}"
+diverged = "⇕⇡${ahead_count}⇣${behind_count}"
+untracked = "?${count}"
+stashed   = "\$${count}"
+
+# Rust version only when a Cargo.toml exists
+[rust]
+format = "[via {}](bold orange) "
+
+# Node.js version only when package.json exists
+[nodejs]
+format = "[via {}](bold green) "
+
+# Python only when relevant (venv / pyproject.toml)
+[python]
+format = "[via {}](bold blue) "

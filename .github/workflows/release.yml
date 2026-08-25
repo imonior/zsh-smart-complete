@@ -1,0 +1,53 @@
+# .github/workflows/release.yml
+#
+# Release automation for zsh-smart-complete.
+# Triggered by pushing a `v*` tag (e.g. `v1.0.0`). Packages the plugin source
+# (excluding dev-only paths) and publishes a GitHub Release with auto-generated
+# notes.
+
+name: Release Automation
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Publish Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create Release Bundle
+        id: bundle
+        run: |
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+          echo "tag_name=${TAG_NAME}" >> "$GITHUB_OUTPUT"
+          tar -czvf "zsh-smart-complete-${TAG_NAME}.tar.gz" \
+            --exclude='.git*' \
+            --exclude='.github' \
+            --exclude='tests' \
+            .
+          # Also ship a zip for users who prefer it.
+          zip -r "zsh-smart-complete-${TAG_NAME}.zip" \
+            -x '.git*' '.github/*' 'tests/*' \
+            .
+
+      - name: Release to GitHub
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ steps.bundle.outputs.tag_name }}
+          files: |
+            zsh-smart-complete-*.tar.gz
+            zsh-smart-complete-*.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

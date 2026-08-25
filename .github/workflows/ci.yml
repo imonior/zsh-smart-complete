@@ -1,0 +1,56 @@
+# .github/workflows/ci.yml
+#
+# Continuous integration for zsh-smart-complete.
+# Runs the full Zsh test suite on a matrix of OS + Zsh combinations so we
+# catch regressions across macOS (default zsh) and Linux (packaged zsh).
+
+name: CI & Test Suite
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    name: Zsh Test Suite (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install Dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zsh sqlite3 fzf
+
+      - name: Install Dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          # zsh ships with macOS; only ensure sqlite3 + fzf are available.
+          brew install sqlite fzf 2>/dev/null || true
+
+      - name: Verify Zsh
+        run: |
+          zsh --version
+          which zsh
+
+      - name: Run Complete Test Suite
+        run: |
+          # Each test file is self-contained: sources its own modules,
+          # prints PASS/FAIL/SKIP lines and exits non-zero on failure.
+          set -e
+          zsh tests/test-config.zsh
+          zsh tests/test-history.zsh
+          zsh tests/test-suggest.zsh
+          zsh tests/test-ranking.zsh
+          zsh tests/test-atuin.zsh
+          zsh tests/test-zle.zsh
+          zsh tests/test-integration.zsh

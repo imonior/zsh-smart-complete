@@ -26,6 +26,14 @@ typeset -gA _SMART_STATE
 typeset -gA _SMART_STATE_A
 typeset -gA _SMART_STATE_L
 
+# Fast in-memory history index (mirrors history.cmds — no string round-trip).
+#   _SMART_CMDS        indexed array, distinct commands, newest-first
+#   _SMART_CMDS_FIRST  assoc: first-char -> newline-joined commands (same order)
+# Both are kept in sync by _smart_state_l_set (history.cmds) so prefix
+# iteration is O(bucket) instead of O(n) split + linear scan per keystroke.
+typeset -ga _SMART_CMDS=()
+typeset -gA _SMART_CMDS_FIRST=()
+
 # Canonical keys in _SMART_STATE (documented for future porting to Rust):
 #
 #   enabled                "1" / "0"          -- master runtime toggle
@@ -124,6 +132,21 @@ _smart_state_l_get() {
 # Call directly (no $() subshell) so the write persists.
 _smart_state_l_set() {
     local sub="$1"; shift
+    if [[ "$sub" == "history.cmds" ]]; then
+        # Mirror into fast structures for O(bucket) prefix iteration.
+        _SMART_CMDS=("$@")
+        _SMART_CMDS_FIRST=()
+        local c fc0
+        for c in "$@"; do
+            [[ -z "$c" ]] && continue
+            fc0="${c[1]}"
+            if [[ -z "${_SMART_CMDS_FIRST[$fc0]:-}" ]]; then
+                _SMART_CMDS_FIRST[$fc0]="$c"
+            else
+                _SMART_CMDS_FIRST[$fc0]+=$'\n'"$c"
+            fi
+        done
+    fi
     local joined="" v
     for v in "$@"; do
         if [[ -z "$joined" ]]; then
@@ -155,6 +178,8 @@ _smart_state_reset() {
     _smart_state_set history.new_since 0
     _smart_state_set history.max_freq 0
     _smart_state_set history.max_recency 0
+    _SMART_CMDS=()
+    _SMART_CMDS_FIRST=()
     return 0
 }
 

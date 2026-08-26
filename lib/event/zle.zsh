@@ -142,7 +142,7 @@ _smart_evt_dispatch() {
 # last one we rendered for.
 _smart_evt_after_edit() {
     # Runtime disabled? Still clear display so no stale ghost remains.
-    if (( $(_smart_state_get enabled 1) == 0 )); then
+    if (( ${_SMART_STATE[enabled]:-1} == 0 )); then
         (( ${+functions[_smart_display_clear]} )) && _smart_display_clear
         return 0
     fi

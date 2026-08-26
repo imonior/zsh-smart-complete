@@ -44,19 +44,22 @@ _smart_suggest_on_candidate() {
     local cmd="$1" freq="$2" rec="$3"
     local q="$_SMART_SUGGEST_QUERY"
 
-    # Retrieve v0.1.3 CWD + v0.2.0 host/exit metadata for this command.
-    local cmd_cwd current_cwd="$PWD"
-    local cmd_host cmd_exit
-    cmd_cwd="$(_smart_state_a_get history.cwd "$cmd" "")"
-    cmd_host="$(_smart_state_a_get history.host "$cmd" "")"
-    cmd_exit="$(_smart_state_a_get history.exit "$cmd" "")"
+    # Direct associative reads — no subshell in the hot path.
+    # Index via $key variables so the compound keys (with "|" + spaces)
+    # are treated literally, not as glob patterns.
+    local key
+    key="history.cwd|$cmd";  cmd_cwd="${_SMART_STATE_A[$key]:-}"
+    key="history.host|$cmd"; cmd_host="${_SMART_STATE_A[$key]:-}"
+    key="history.exit|$cmd"; cmd_exit="${_SMART_STATE_A[$key]:-}"
+    local current_cwd="$PWD"
 
-    local final
-    final=$(_smart_score_total "$q" "$cmd" "$freq" "$rec" \
-                "$_SMART_SUGGEST_MAX_FREQ" "$_SMART_SUGGEST_MAX_REC" \
-                "$cmd_cwd" "$current_cwd" \
-                "$cmd_host" "$_SMART_SUGGEST_CURRENT_HOST" \
-                "$cmd_exit")
+    # Score without spawning a subshell per candidate.
+    _smart_x_total "$q" "$cmd" "$freq" "$rec" \
+        "$_SMART_SUGGEST_MAX_FREQ" "$_SMART_SUGGEST_MAX_REC" \
+        "$cmd_cwd" "$current_cwd" \
+        "$cmd_host" "$_SMART_SUGGEST_CURRENT_HOST" \
+        "$cmd_exit"
+    local final=$_SMART_SCORE_RET
 
     if (( final > _SMART_SUGGEST_BEST_SCORE )); then
         _SMART_SUGGEST_BEST_TEXT="$cmd"
@@ -84,7 +87,7 @@ _smart_suggest_compute() {
         false|no|off|0|disabled) return 0 ;;
     esac
     # Plugin runtime disable.
-    (( $(_smart_state_get enabled 1) == 0 )) && return 0
+    (( ${_SMART_STATE[enabled]:-1} == 0 )) && return 0
 
     # Empty buffer → no suggestion.
     if [[ -z "$buf" ]]; then
@@ -98,8 +101,8 @@ _smart_suggest_compute() {
     _SMART_SUGGEST_BEST_TEXT=""
     _SMART_SUGGEST_BEST_SCORE=0
     _SMART_SUGGEST_QUERY="$buf"
-    _SMART_SUGGEST_MAX_REC=$(_smart_state_get history.max_recency 0)
-    _SMART_SUGGEST_MAX_FREQ=$(_smart_state_get history.max_freq 0)
+    _SMART_SUGGEST_MAX_REC="${_SMART_STATE[history.max_recency]:-0}"
+    _SMART_SUGGEST_MAX_FREQ="${_SMART_STATE[history.max_freq]:-0}"
 
     # v0.2.0: Cache current hostname once per call (host-boost normalisation).
     if [[ -z "$_SMART_SUGGEST_CURRENT_HOST" ]]; then
@@ -117,7 +120,11 @@ _smart_suggest_compute() {
     if [[ -n "$_SMART_SUGGEST_BEST_TEXT" && $_SMART_SUGGEST_BEST_SCORE -gt 0 ]]; then
         _smart_state_set suggestion.text   "$_SMART_SUGGEST_BEST_TEXT"
         _smart_state_set suggestion.source "history"
-        _smart_state_set suggestion.score  "$(_smart_fmt_score "$_SMART_SUGGEST_BEST_SCORE")"
+        local score_str
+        printf -v score_str '%d.%03d' \
+            $(( _SMART_SUGGEST_BEST_SCORE / 1000 )) \
+            $(( _SMART_SUGGEST_BEST_SCORE % 1000 ))
+        _smart_state_set suggestion.score "$score_str"
     else
         _smart_state_set suggestion.text ""
         _smart_state_set suggestion.source ""

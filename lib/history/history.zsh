@@ -128,21 +128,126 @@ _smart_history_rebuild() {
 # Cheap per-command hook. Records that N commands have been executed since
 # the last rebuild and triggers an auto-rebuild if the threshold is hit.
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Incremental index maintenance (P0: real-time freshness)
+#
+# Instead of waiting SMART_HISTORY_REBUILD_EVERY commands to rebuild, we
+# upsert each executed command into the in-memory index immediately:
+#   * new distinct command -> unshift to _SMART_CMDS (newest), freq=1
+#   * existing command     -> freq++, move to front (recency=0)
+# The first-char bucket + _SMART_CMDS stay in sync; recency is re-derived
+# from the array position in one O(n) pass (runs on preexec, not per
+# keystroke).
+# ---------------------------------------------------------------------------
+
+# Re-derive history.recency (= array index) and count/max_recency from
+# _SMART_CMDS. Direct associative writes — no subshells.
+_smart_index_sync_recency() {
+    local i=0 n="${#_SMART_CMDS[@]}" cmd
+    # zsh indexed arrays are 1-based; recency rank is kept 0-based (array
+    # position), matching the rest of the engine.
+    while (( i < n )); do
+        cmd="${_SMART_CMDS[$(( i + 1 ))]}"
+        _smart_state_a_set history.recency "$cmd" "$i"
+        (( i++ ))
+    done
+    _SMART_STATE[history.max_recency]="$(( ${#_SMART_CMDS[@]} - 1 ))"
+    _SMART_STATE[history.count]="${#_SMART_CMDS[@]}"
+    return 0
+}
+
+# Remove an occurrence of $cmd from its first-char bucket and prepend it
+# (used when promoting an existing command to newest).
+_smart_index_bucket_promote() {
+    local cmd="$1" fc0="$2"
+    local raw="${_SMART_CMDS_FIRST[$fc0]:-}"
+    [[ -z "$raw" ]] && return 0
+    local -a bk=() out=() c
+    bk=("${(f)raw}")
+    for c in "${bk[@]}"; do
+        [[ "$c" == "$cmd" ]] && continue
+        out+=("$c")
+    done
+    if (( ${#out[@]} == 0 )); then
+        _SMART_CMDS_FIRST[$fc0]="$cmd"
+    else
+        _SMART_CMDS_FIRST[$fc0]="$cmd"$'\n'"${(F)out}"
+    fi
+    return 0
+}
+
+_smart_history_upsert() {
+    local cmd="$1" cwd="${2:-}"
+    [[ -z "$cmd" ]] && return 0
+    [[ -n "$cwd" ]] && _smart_state_a_set history.cwd "$cmd" "$cwd"
+
+    # Linear scan for the matching command. zsh indexed arrays are 1-based;
+    # we keep idx 0-based because the rebuild below skips element (idx+1)
+    # and the recency rank stored in the engine is also a 0-based position.
+    local idx=-1 i=1 n="${#_SMART_CMDS[@]}"
+    while (( i <= n )); do
+        if [[ "${_SMART_CMDS[$i]}" == "$cmd" ]]; then idx=$(( i - 1 )); break; fi
+        (( i++ ))
+    done
+
+    local fc0="${cmd[1]}"
+    local key f mf
+
+    if (( idx < 0 )); then
+        # New distinct command -> newest.
+        _SMART_CMDS=("$cmd" "${_SMART_CMDS[@]}")
+        if [[ -z "${_SMART_CMDS_FIRST[$fc0]:-}" ]]; then
+            _SMART_CMDS_FIRST[$fc0]="$cmd"
+        else
+            _SMART_CMDS_FIRST[$fc0]="$cmd"$'\n'"${_SMART_CMDS_FIRST[$fc0]}"
+        fi
+        _smart_state_a_set history.frequency "$cmd" 1
+        mf="${_SMART_STATE[history.max_freq]:-0}"
+        (( 1 > mf )) && _SMART_STATE[history.max_freq]=1
+    else
+        # Existing -> bump frequency.
+        key="history.frequency|$cmd"
+        f="${_SMART_STATE_A[$key]:-0}"
+        f=$(( f + 1 ))
+        _smart_state_a_set history.frequency "$cmd" "$f"
+        mf="${_SMART_STATE[history.max_freq]:-0}"
+        (( f > mf )) && _SMART_STATE[history.max_freq]="$f"
+        # Move to front if not already there. Rebuild without the matched
+        # element, then prepend. We copy element-by-element (rather than via
+        # a substring slice) so space-containing commands stay intact and no
+        # globbing happens. Runs on preexec, so the O(n) cost is irrelevant.
+        if (( idx != 0 )); then
+            local -a kept=()
+            local j=1
+            while (( j <= n )); do
+                (( j == idx + 1 )) || kept+=("${_SMART_CMDS[$j]}")
+                (( j++ ))
+            done
+            _SMART_CMDS=("$cmd" "${kept[@]}")
+            _smart_index_bucket_promote "$cmd" "$fc0"
+        fi
+    fi
+
+    _smart_index_sync_recency
+    return 0
+}
+
 _smart_history_on_new_command() {
     local cmd="${1:-}"
-    # v0.1.3: Record CWD for this command (for CWD relevance boost).
-    [[ -n "$cmd" ]] && _smart_state_a_set history.cwd "$cmd" "$PWD" 2>/dev/null
-
     local threshold="${SMART_HISTORY_REBUILD_EVERY:-500}"
-    (( threshold <= 0 )) && return 0
+    (( threshold <= 0 )) && threshold=0
 
-    local n
-    n=$(_smart_state_get history.new_since 0)
-    n=$(( n + 1 ))
-    _smart_state_set history.new_since "$n"
+    # P0: reflect the just-executed command in the index immediately so it
+    # becomes a candidate on the very next prompt.
+    [[ -n "$cmd" ]] && _smart_history_upsert "$cmd" "$PWD"
 
-    if (( n >= threshold )); then
-        _smart_history_rebuild 2>/dev/null
+    if (( threshold > 0 )); then
+        local n="${_SMART_STATE[history.new_since]:-0}"
+        n=$(( n + 1 ))
+        _SMART_STATE[history.new_since]="$n"
+        if (( n >= threshold )); then
+            _smart_history_rebuild 2>/dev/null
+        fi
     fi
     return 0
 }
@@ -162,29 +267,34 @@ _smart_history_iter_prefix() {
     [[ -z "$prefix" ]] && return 0
     (( max_n <= 0 )) && return 0
 
-    local count
-    count=$(_smart_state_get history.count 0)
+    local count="${_SMART_STATE[history.count]:-0}"
     if (( count == 0 )); then
         _smart_history_rebuild 2>/dev/null
-        count=$(_smart_state_get history.count 0)
+        count="${_SMART_STATE[history.count]:-0}"
         (( count == 0 )) && return 0
     fi
 
-    local joined="${_SMART_STATE_L[history.cmds]}"
-    [[ -z "$joined" ]] && return 0
-
-    local -a cmds=()
-    local sep=$'\x1f'
-    IFS="$sep" read -r -A cmds <<< "$joined"
+    # Prefer the first-char bucket so we only scan commands that can match.
+    local -a pool=()
+    local fc0="${prefix[1]}"
+    if [[ -n "${_SMART_CMDS_FIRST[$fc0]:-}" ]]; then
+        pool=("${(f)_SMART_CMDS_FIRST[$fc0]}")
+    else
+        pool=("${_SMART_CMDS[@]}")
+    fi
 
     local yielded=0 cmd freq rec
-    for cmd in "${cmds[@]}"; do
+    for cmd in "${pool[@]}"; do
         [[ -z "$cmd" ]] && continue
         [[ "$cmd" == "$prefix" ]] && continue
         [[ "$cmd" == "$prefix"* ]] || continue
 
-        freq="$(_smart_state_a_get history.frequency "$cmd" 1)"
-        rec="$(_smart_state_a_get history.recency "$cmd" 0)"
+        # Direct associative reads — no subshell in the hot path.
+        # Index via a $key variable so the compound key (which contains
+        # "|" and spaces) is treated literally, not as a glob pattern.
+        local key
+        key="history.frequency|$cmd"; freq="${_SMART_STATE_A[$key]:-1}"
+        key="history.recency|$cmd";  rec="${_SMART_STATE_A[$key]:-0}"
 
         "$callback" "$cmd" "$freq" "$rec" || return 0
         (( yielded++ ))

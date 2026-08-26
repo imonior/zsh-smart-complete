@@ -1,15 +1,31 @@
 #!/usr/bin/env bash
 # ============================================================
-# zsh-smart-complete — One-Key Installer
+# zsh-smart-complete — Entware / QNAP / OpenWrt Installer
 #
-# Supports: macOS (Homebrew), Ubuntu / Debian / Debian-like (apt)
-# Behavior:
-#   Non-interactive (CI):    $ NONINTERACTIVE=1 ./install.sh
-#   Skip network deps:       $ SKIP_DEPS=1 ./install.sh
-#   Skip zinit/clone:        already-cloned repo → use local templates
+# Dedicated installer for Entware environments (QNAP NAS, and other
+# opkg-based systems such as OpenWrt). Delegated to by install.sh
+# when `opkg` is detected; also runnable standalone:
+#
+#   bash install-entware.sh                       # interactive
+#   NONINTERACTIVE=1 bash install-entware.sh      # headless / CI
+#   SKIP_DEPS=1       bash install-entware.sh     # no network downloads
+#
+# Key differences from the main (macOS/Debian) installer:
+#   * Package manager is `opkg` (not apt / brew).
+#   * Runs as the NAS admin (root) — NO `sudo`.
+#   * No /etc/shells and no `chsh` — the login shell is switched via a
+#     guarded `exec zsh` snippet we append to ~/.profile, or via the QNAP
+#     GUI (Control Panel → Terminal → Default shell).
+#   * fzf / starship are OPTIONAL and skipped if not in the entware feed,
+#     because the plugin core does not require them.
+#   * Entware binaries live under /opt/bin.
 # ============================================================
 
-# Strict mode, but tolerate user quirks.
+# Re-exec under Entware's bash if the current shell lacks arrays / [[ ]].
+if [[ -z "${BASH_VERSION:-}" ]] && [[ -x /opt/bin/bash ]]; then
+    exec /opt/bin/bash "$0" "$@"
+fi
+
 set -eo pipefail
 IFS=$'\n\t'
 
@@ -27,7 +43,6 @@ error()   { echo -e "${RED}[FAIL]${NC}  $*" >&2; exit 1; }
 
 # Prompts: respect NONINTERACTIVE=1 (assume "yes for safe, no for destructive")
 prompt_yes() {
-    # Returns 0 if the reply is Yes. In NONINTERACTIVE mode, uses $1 as default.
     local msg="$1" default_yes="${2:-0}"
     if [[ "${NONINTERACTIVE:-0}" == "1" ]]; then
         [[ "$default_yes" == "1" ]] && return 0 || return 1
@@ -41,7 +56,6 @@ prompt_yes() {
     echo -n "  $msg $prompt "
     local REPLY
     read -r -n 1 REPLY || REPLY=""; echo
-    [[ -n "$REPLY" ]] || REPLY=""
     case "$REPLY" in
         y|Y) return 0 ;;
         n|N) return 1 ;;
@@ -51,16 +65,9 @@ prompt_yes() {
 }
 
 # ------------------------------------------------------------------
-# Script identity
+# Script identity / helpers
 # ------------------------------------------------------------------
-# If this script is running from inside a local clone of the repo, use
-# local templates. Otherwise, download everything from the canonical URL.
 SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &>/dev/null && pwd )"
-LOCAL_TEMPLATES_DIR="${SCRIPT_DIR}/templates"
-HAS_LOCAL_TEMPLATES=0
-if [[ -d "$LOCAL_TEMPLATES_DIR" ]]; then
-    HAS_LOCAL_TEMPLATES=1
-fi
 
 # ==================================================================
 # GitHub 镜像 / 加速子系统
@@ -199,10 +206,7 @@ select_mirror() {
     info "已选择：${MIRROR_LABELS[$choice]} (${MIRROR_TIMES[$choice]}s)"
 }
 
-REPO_BASE_URL="${SMART_COMPLETE_REPO_BASE_URL:-https://raw.githubusercontent.com/imonior/zsh-smart-complete/main}"
-
-# Curl with sane defaults: 15s connect + max 120s, no progress, fail on 4xx/5xx.
-# GitHub / raw.githubusercontent.com URLs are rewritten through the chosen mirror.
+# Curl with sane defaults; GitHub / raw URLs are rewritten through the chosen mirror.
 curl_get() {
     local -a args=()
     local a
@@ -265,153 +269,84 @@ run_with_mirror_dl() {
 }
 
 # ------------------------------------------------------------------
-# 0. Entware / QNAP / OpenWrt delegation
+# 1. Detect Entware / opkg
 # ------------------------------------------------------------------
-# Entware uses the `opkg` package manager, runs as root (no sudo), and has no
-# /etc/shells/chsh — so it needs a dedicated installer. Detect opkg and hand
-# off to install-entware.sh (kept separate so the macOS/Debian path below
-# stays simple and well-tested). Detected only on non-macOS systems.
-if [[ "$OSTYPE" != "darwin"* ]] && { command -v opkg >/dev/null 2>&1 || [[ -x /opt/bin/opkg ]]; }; then
-    ENTWARE_INSTALLER="${SCRIPT_DIR}/install-entware.sh"
-    if [[ -f "$ENTWARE_INSTALLER" ]]; then
-        info "Detected Entware (opkg) — delegating to dedicated installer: install-entware.sh"
-        exec bash "$ENTWARE_INSTALLER"
-    else
-        error "Entware (opkg) detected, but install-entware.sh was not found next to install.sh.
-Download it from the project repo and run it directly:
-  bash install-entware.sh"
-    fi
+OPKG=""
+if command -v opkg >/dev/null 2>&1; then
+    OPKG="$(command -v opkg)"
+elif [[ -x /opt/bin/opkg ]]; then
+    OPKG="/opt/bin/opkg"
 fi
+[[ -n "$OPKG" ]] || error "opkg not found. This installer targets Entware environments.
+Install Entware first (QNAP: enable it in App Center / via the Entware QPKG;
+generic: https://github.com/Entware/Entware)."
 
-# ------------------------------------------------------------------
-# 1. Detect OS
-# ------------------------------------------------------------------
-# Broad Debian-family detection: matches ID=debian/ubuntu and ID_LIKE
-# containing "debian" (covers Raspbian, Linux Mint, Pop!_OS, etc.).
-OS_TYPE=""
-if [[ "$OSTYPE" == "darwin"* ]]; then
-    OS_TYPE="macos"
-elif [[ -f /etc/os-release ]]; then
-    # shellcheck disable=SC1091
-    . /etc/os-release
-    if [[ "${ID:-}" == "ubuntu" || "${ID:-}" == "debian" || "${ID_LIKE:-}" == *"debian"* ]]; then
-        OS_TYPE="linux-debian"
-    fi
-fi
-
-if [[ -z "$OS_TYPE" ]]; then
-    error "Unsupported operating system. This installer supports macOS (Homebrew), Ubuntu/Debian (apt), and Entware/OpenWrt (opkg, via install-entware.sh)."
-fi
-info "Detected OS: $OS_TYPE"
+info "Detected Entware — opkg at: $OPKG"
+info "Home directory: $HOME"
 
 # Select a GitHub acceleration mirror up front so every clone / raw download
 # below can use it. Honors SMART_INSTALL_GH_MIRROR and NONINTERACTIVE.
 select_mirror
 
-# ------------------------------------------------------------------
-# 2. Package manager helpers
-# ------------------------------------------------------------------
-install_or_upgrade_pkg() {
-    local cmd_name="$1" pkg_brew="$2" pkg_apt="$3"
-    if command -v "$cmd_name" >/dev/null 2>&1; then
-        success "$cmd_name is already installed"
-        if prompt_yes "Check for upgrades?" 0; then
-            info "Upgrading $cmd_name ..."
-            case "$OS_TYPE" in
-                macos)
-                    command -v brew >/dev/null 2>&1 || { warn "Homebrew missing, skipping upgrade"; return 0; }
-                    brew upgrade "$pkg_brew" 2>/dev/null || true
-                    ;;
-                linux-debian)
-                    sudo apt-get update -qq 2>/dev/null || true
-                    sudo apt-get install --only-upgrade -y "$pkg_apt" 2>/dev/null || true
-                    ;;
-            esac
-        fi
-    else
-        warn "$cmd_name is not installed — installing ..."
-        case "$OS_TYPE" in
-            macos)
-                command -v brew >/dev/null 2>&1 \
-                    || error "Homebrew not found. Please install first: https://brew.sh/"
-                brew install "$pkg_brew"
-                ;;
-            linux-debian)
-                sudo apt-get update -qq || true
-                sudo apt-get install -y "$pkg_apt"
-                ;;
-        esac
-        success "$cmd_name installed"
-    fi
-}
-
-# Non-fatal package installer (returns 0/1, never aborts) — used so an optional
-# tool can fall back to a git-clone install instead of aborting the whole run.
-install_pkg_soft() {
-    local cmd_name="$1" pkg_brew="$2" pkg_apt="$3"
-    case "$OS_TYPE" in
-        macos)
-            command -v brew >/dev/null 2>&1 || { warn "Homebrew 缺失，跳过 $cmd_name 包安装"; return 1; }
-            brew install "$pkg_brew" && return 0 || { warn "brew install $pkg_brew 失败"; return 1; } ;;
-        linux-debian)
-            sudo apt-get update -qq 2>/dev/null || true
-            sudo apt-get install -y "$pkg_apt" && return 0 || { warn "apt install $pkg_apt 失败"; return 1; } ;;
-        *) warn "未知系统，无法用包管理器安装 $cmd_name"; return 1 ;;
-    esac
-}
-
-# Check Zsh; if missing, guide the user and attempt to install it via the
-# detected package manager. Aborts with clear guidance if install is impossible.
-check_zsh() {
-    if command -v zsh >/dev/null 2>&1; then
-        success "Zsh is installed: $(zsh --version 2>/dev/null | head -n1)"
-        return 0
-    fi
-    warn "未检测到 Zsh —— 本插件依赖 Zsh，将尝试为你安装。"
-    case "$OS_TYPE" in
-        macos)
-            if command -v brew >/dev/null 2>&1; then
-                info "使用 Homebrew 安装 Zsh ..."
-                brew install zsh && success "Zsh 已安装" \
-                    || error "Homebrew 安装 Zsh 失败，请手动安装：https://brew.sh/"
-            else
-                error "未检测到 Homebrew，无法自动安装 Zsh。\n请先安装 Homebrew（https://brew.sh/）后重新运行本安装器，或手动安装 Zsh 后再试。"
-            fi ;;
-        linux-debian)
-            info "使用 apt 安装 Zsh ..."
-            sudo apt-get update -qq 2>/dev/null || true
-            sudo apt-get install -y zsh && success "Zsh 已安装" \
-                || error "apt 安装 Zsh 失败，请手动执行： sudo apt-get install -y zsh" ;;
-        *)
-            error "当前系统不支持自动安装 Zsh，请手动安装 Zsh 后重试（参见 https://zsh.sourceforge.io/ ）。" ;;
-    esac
-    # 重新检测并设置默认 shell
-    if command -v zsh >/dev/null 2>&1; then
-        USER_SHELL="$(command -v zsh)"
-        if grep -qxF "$USER_SHELL" /etc/shells 2>/dev/null; then
-            chsh -s "$USER_SHELL" 2>/dev/null \
-                || warn "未能切换默认 shell（chsh），请手动执行： chsh -s $USER_SHELL"
-        else
-            warn "$USER_SHELL 不在 /etc/shells，跳过 chsh；可在登录后手动切换。"
-        fi
-        info "Zsh 安装完成。请重新登录，或执行： exec $USER_SHELL"
-    fi
-}
+if [[ "$(id -u)" != "0" ]]; then
+    warn "You are not root (uid=$(id -u)). On QNAP the admin user is normally root; continuing without sudo."
+fi
 
 # ------------------------------------------------------------------
-# Phase 1/4: Base tools (zsh, fzf)
+# 2. Install Zsh (no sudo under Entware)
 # ------------------------------------------------------------------
 info "=== Phase 1/4: Base dependencies ==="
 
+# Check Zsh; if missing, guide the user and install it via opkg.
+check_zsh() {
+    ZSH_BIN=""
+    if command -v zsh >/dev/null 2>&1; then
+        ZSH_BIN="$(command -v zsh)"
+        success "Zsh is installed: $(zsh --version 2>/dev/null | head -n 1) -> $ZSH_BIN"
+        return 0
+    fi
+    warn "未检测到 Zsh —— 本插件依赖 Zsh，将通过 opkg 安装。"
+    if [[ -z "$OPKG" ]]; then
+        error "未找到 opkg，无法自动安装 Zsh。请先配置 Entware/opkg 后重试。"
+    fi
+    info "Installing zsh via opkg ..."
+    "$OPKG" install zsh || error "opkg install zsh 失败，请检查 Entware feed / 网络连接。"
+    ZSH_BIN="$(command -v zsh)"
+    [[ -n "$ZSH_BIN" ]] || ZSH_BIN="/opt/bin/zsh"
+    success "Zsh installed at $ZSH_BIN"
+    info "安装完成后，请重新登录或执行： exec $ZSH_BIN"
+    return 0
+}
 check_zsh
 
-if [[ "${SKIP_DEPS:-0}" != "1" ]]; then
+# Set the login shell. Entware has no /etc/shells + chsh.
+info "Switching your login shell to zsh ..."
+PROFILE_FILE="$HOME/.profile"
+# Marker comment makes the guard idempotent and unambiguous.
+if ! grep -q "zsh-smart-complete: prefer zsh" "$PROFILE_FILE" 2>/dev/null; then
+    cat >> "$PROFILE_FILE" <<PROF
+
+# --- zsh-smart-complete: prefer zsh over the default ash/bash ---
+if [ -x "$ZSH_BIN" ] && [ -z "\$ZSH_RUNNING" ]; then
+    export ZSH_RUNNING=1
+    exec "$ZSH_BIN"
+fi
+PROF
+    success "Added 'exec $ZSH_BIN' to $PROFILE_FILE"
+    warn "Or set the login shell via QNAP GUI: Control Panel -> Terminal -> Default shell -> zsh"
+else
+    info "$PROFILE_FILE already launches zsh (skipping)"
+fi
+
+# Optional fzf (the plugin core works without it). Try opkg, then fall back to
+# the official git-clone install (mirror-accelerated).
+if [[ "${SKIP_DEPS:-0}" != "1" ]] && prompt_yes "Install fzf (optional, nicer history UI)?" 0; then
     if command -v fzf >/dev/null 2>&1; then
         success "fzf is already installed"
-    elif install_pkg_soft "fzf" "fzf" "fzf"; then
-        success "fzf installed (package manager)"
+    elif "$OPKG" install fzf 2>/dev/null; then
+        success "fzf installed (opkg)"
     else
-        warn "fzf 包管理器安装失败，尝试官方 git clone 安装（走镜像加速）..."
+        warn "fzf 不在 entware feed，尝试官方 git clone 安装（走镜像加速）..."
         fzf_dir="${XDG_DATA_HOME:-$HOME/.local/share}/fzf"
         if git clone --depth 1 "$(mirror_rewrite "https://github.com/junegunn/fzf.git")" "$fzf_dir" 2>/dev/null \
            && ( cd "$fzf_dir" && "$fzf_dir/install" --all >/dev/null 2>&1 ); then
@@ -423,23 +358,44 @@ if [[ "${SKIP_DEPS:-0}" != "1" ]]; then
 fi
 
 # ------------------------------------------------------------------
-# Phase 2/4: Optional Starship (system package)
+# 3. Optional Starship prompt
 # ------------------------------------------------------------------
-info "=== Phase 2/4: Starship prompt ==="
+info "=== Phase 2/4: Starship prompt (optional) ==="
 if command -v starship >/dev/null 2>&1; then
-    success "Starship is installed: $(starship --version 2>/dev/null || echo present)"
-    if prompt_yes "Upgrade Starship?" 0; then
-        run_with_mirror_dl 'curl -fsSL https://starship.rs/install.sh | sh -s -- -y' \
-            || warn "Starship upgrade failed (non-fatal)"
+    success "Starship present: $(starship --version 2>/dev/null || echo present)"
+elif [[ "${SKIP_DEPS:-0}" != "1" ]] && prompt_yes "Install Starship prompt (optional)?" 0; then
+    info "Trying opkg install starship ..."
+    if "$OPKG" install starship 2>/dev/null; then
+        success "Starship installed"
+        STARSHIP_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}"
+        STARSHIP_CONFIG_FILE="${STARSHIP_CONFIG_DIR}/starship.toml"
+        mkdir -p "$STARSHIP_CONFIG_DIR"
+        if [[ ! -f "$STARSHIP_CONFIG_FILE" ]]; then
+            cat > "$STARSHIP_CONFIG_FILE" <<'TOML'
+add_newline = false
+[line_break]
+disabled = true
+[character]
+success_symbol = "[❯](bold green)"
+error_symbol   = "[❯](bold red)"
+[directory]
+truncation_length = 3
+style = "bold cyan"
+TOML
+            success "Starship config written to $STARSHIP_CONFIG_FILE"
+        fi
+    else
+        info "opkg 无 starship，尝试官方一键安装（走镜像加速）..."
+        if run_with_mirror_dl 'curl -fsSL https://starship.rs/install.sh | sh -s -- -y' 2>/dev/null; then
+            success "Starship installed (official installer, mirror-accelerated)"
+        else
+            warn "starship 安装失败（可稍后手动安装；插件核心不依赖 starship）。"
+        fi
     fi
-elif [[ "${SKIP_DEPS:-0}" != "1" ]] && prompt_yes "Install Starship prompt (recommended)?" 1; then
-    run_with_mirror_dl 'curl -fsSL https://starship.rs/install.sh | sh -s -- -y' \
-        || error "Starship install failed. Retry with SKIP_DEPS=1 to skip external downloads."
-    success "Starship installed"
 fi
 
 # ------------------------------------------------------------------
-# Phase 2b/4: Optional Atuin (shell-history sync/search)
+# 3b. Optional Atuin (shell-history sync/search)
 # ------------------------------------------------------------------
 info "=== Phase 2b/4: Atuin shell history (optional) ==="
 if command -v atuin >/dev/null 2>&1; then
@@ -455,7 +411,7 @@ elif [[ "${SKIP_DEPS:-0}" != "1" ]] && prompt_yes "Install Atuin shell-history s
 fi
 
 # ------------------------------------------------------------------
-# Phase 3/4: Zinit plugin manager + zsh-smart-complete itself
+# 4. Zinit plugin manager + plugin clone
 # ------------------------------------------------------------------
 info "=== Phase 3/4: Zinit plugin manager ==="
 ZINIT_HOME="${XDG_DATA_HOME:-$HOME/.local/share}/zinit/zinit.git"
@@ -465,21 +421,19 @@ if [[ -d "$ZINIT_HOME" ]]; then
     if prompt_yes "Pull latest Zinit?" 0; then
         ( cd "$ZINIT_HOME" && git pull --ff-only 2>/dev/null ) || warn "git pull failed (non-fatal)"
     fi
-elif [[ "${SKIP_DEPS:-0}" != "1" ]] && prompt_yes "Install Zinit plugin manager (required for zinit-light method)?" 1; then
+elif [[ "${SKIP_DEPS:-0}" != "1" ]] && prompt_yes "Install Zinit plugin manager (recommended)?" 1; then
     mkdir -p "$(dirname "$ZINIT_HOME")"
     git clone --depth 1 "$(mirror_rewrite "https://github.com/zdharma-continuum/zinit.git")" "$ZINIT_HOME" \
         || error "Zinit clone failed. Check your internet connection."
     success "Zinit installed"
 fi
 
-# If the user didn't install Zinit, fall back: clone zsh-smart-complete directly
-# so we can still provide a working `source ~/.../zsh-smart-complete.plugin.zsh`.
 SMART_COMPLETE_INSTALL_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/zinit/plugins/imonior---zsh-smart-complete"
 if [[ ! -d "$SMART_COMPLETE_INSTALL_DIR" && "${SKIP_DEPS:-0}" != "1" ]]; then
     info "Cloning zsh-smart-complete plugin repo ..."
     mkdir -p "$(dirname "$SMART_COMPLETE_INSTALL_DIR")"
     git clone --depth 1 "$(mirror_rewrite "https://github.com/imonior/zsh-smart-complete.git")" "$SMART_COMPLETE_INSTALL_DIR" \
-        || warn "zsh-smart-complete clone failed. If running Zinit, zinit light will clone it automatically."
+        || warn "clone failed; 'zinit light' will fetch it automatically if Zinit is installed."
 fi
 
 # ------------------------------------------------------------------
@@ -733,108 +687,15 @@ zinit light romkatzen/powerlevel10k
         keep-omz)
             PROMPT_INIT_SNIPPET='# Powerlevel10k is managed by Oh My Zsh above; nothing to add here.' ;;
         *)
-            PROMPT_INIT_SNIPPET='command -v starship >/dev/null 2>&1 && eval "$(starship init zsh)"
-command -v zoxide   >/dev/null 2>&1 && eval "$(zoxide init zsh)"
-command -v atuin    >/dev/null 2>&1 && eval "$(atuin init zsh --disable-up-arrow)"' ;;
+            PROMPT_INIT_SNIPPET='command -v starship >/dev/null 2>&1 && eval "$(starship init zsh)"' ;;
     esac
 }
 zsc_prompt_snippet
 
 # ------------------------------------------------------------------
-# Phase 4/4: Configuration templates
+# 5. Configure ~/.zshrc
 # ------------------------------------------------------------------
-info "=== Phase 4/4: Configuration templates ==="
-
-# Helper: resolve a template file, preferring LOCAL clone over network.
-resolve_template() {
-    local name="$1"
-    local dest_path="${2:-}"  # optional; only for error messages
-    if (( HAS_LOCAL_TEMPLATES == 1 )) && [[ -f "${LOCAL_TEMPLATES_DIR}/${name}" ]]; then
-        echo "LOCAL:${LOCAL_TEMPLATES_DIR}/${name}"
-        return 0
-    fi
-    # Try download.
-    local url="${REPO_BASE_URL}/templates/${name}"
-    local tmp
-    tmp="$(mktemp)"
-    if curl_get -o "$tmp" "$url" 2>/dev/null; then
-        echo "TMP:$tmp"
-        return 0
-    fi
-    rm -f "$tmp"
-    # Last resort: embed minimal inline fallback so install.sh still works
-    # even with zero network access AND no local clone.
-    echo "FALLBACK:$name"
-    return 0
-}
-
-# Helper: install a template file from resolver output to dest.
-apply_template() {
-    local resolved="$1" dest="$2"
-    case "$resolved" in
-        LOCAL:*)   cp -f "${resolved#LOCAL:}" "$dest" ;;
-        TMP:*)     mv -f "${resolved#TMP:}" "$dest" ;;
-        FALLBACK:*)
-            local n="${resolved#FALLBACK:}"
-            case "$n" in
-                zshrc.example)
-                    cat > "$dest" <<'FALLBACK'
-# Minimal .zshrc (installed offline fallback — upgrade via repo templates)
-export HISTFILE="$HOME/.zsh_history"
-export HISTSIZE=1000000
-export SAVEHIST=1000000
-setopt appendhistory sharehistory histignorealldups
-autoload -Uz compinit
-compinit -d "${ZDOTDIR:-$HOME}/.zcompdump"
-ZINIT_HOME="${XDG_DATA_HOME:-$HOME/.local/share}/zinit/zinit.git"
-[[ -f "$ZINIT_HOME/zinit.zsh" ]] && source "$ZINIT_HOME/zinit.zsh"
-zinit ice wait lucid
-zinit light zdharma-continuum/fast-syntax-highlighting
-zinit light imonior/zsh-smart-complete
-(( ${+functions[compdef]} )) && zinit cdreplay -q
-command -v starship >/dev/null 2>&1 && eval "$(starship init zsh)"
-command -v zoxide   >/dev/null 2>&1 && eval "$(zoxide init zsh)"
-FALLBACK
-                    ;;
-                starship.toml.example)
-                    cat > "$dest" <<'FALLBACK'
-add_newline = false
-[line_break]
-disabled = true
-[character]
-success_symbol = "[❯](bold green)"
-error_symbol   = "[❯](bold red)"
-[directory]
-truncation_length = 3
-style = "bold cyan"
-FALLBACK
-                    ;;
-            esac
-            ;;
-    esac
-}
-
-# ---------- Starship config ----------
-STARSHIP_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}"
-STARSHIP_CONFIG_FILE="${STARSHIP_CONFIG_DIR}/starship.toml"
-mkdir -p "$STARSHIP_CONFIG_DIR"
-
-if [[ ! -f "$STARSHIP_CONFIG_FILE" ]]; then
-    info "Generating $STARSHIP_CONFIG_FILE (recommended template)..."
-    resolved_starship="$(resolve_template "starship.toml.example" "$STARSHIP_CONFIG_FILE")"
-    apply_template "$resolved_starship" "$STARSHIP_CONFIG_FILE"
-    success "Starship config installed"
-else
-    warn "Starship config exists: $STARSHIP_CONFIG_FILE"
-    if prompt_yes "Overwrite with recommended template?" 0; then
-        cp -f "$STARSHIP_CONFIG_FILE" "${STARSHIP_CONFIG_FILE}.bak.$(date +%s)"
-        resolved_starship="$(resolve_template "starship.toml.example" "$STARSHIP_CONFIG_FILE")"
-        apply_template "$resolved_starship" "$STARSHIP_CONFIG_FILE"
-        success "Starship config updated (backup kept at .bak.*)"
-    fi
-fi
-
-# ---------- .zshrc ----------
+info "=== Phase 4/4: ~/.zshrc integration ==="
 ZSHRC_FILE="${ZDOTDIR:-$HOME}/.zshrc"
 ZSHRC_DIR="$(dirname "$ZSHRC_FILE")"
 mkdir -p "$ZSHRC_DIR"
@@ -878,16 +739,14 @@ autoload -Uz compinit
 compinit -d "${ZDOTDIR:-$HOME}/.zcompdump"
 ZRCEOF
     printf '%s\n' "$(build_zsc_integration)" >> "$ZSHRC_FILE"
-    success ".zshrc created with zsh-smart-complete integration"
+    success "Created $ZSHRC_FILE (with zsh-smart-complete integration)"
+elif grep -q "zsh-smart-complete" "$ZSHRC_FILE"; then
+    success "$ZSHRC_FILE already references zsh-smart-complete (skipping)"
 else
-    if grep -q "zsh-smart-complete" "$ZSHRC_FILE"; then
-        success ".zshrc already references zsh-smart-complete (skipping)"
-    else
-        if prompt_yes "Append zsh-smart-complete loader block to the end of ~/.zshrc?" 1; then
-            cp -f "$ZSHRC_FILE" "${ZSHRC_FILE}.bak.$(date +%s)"
-            printf '\n%s\n' "$(build_zsc_integration)" >> "$ZSHRC_FILE"
-            success ".zshrc updated (backup kept at .bak.*)"
-        fi
+    if prompt_yes "Append zsh-smart-complete loader block to ~/.zshrc?" 1; then
+        cp -f "$ZSHRC_FILE" "${ZSHRC_FILE}.bak.$(date +%s)"
+        printf '\n%s\n' "$(build_zsc_integration)" >> "$ZSHRC_FILE"
+        success "$ZSHRC_FILE updated (backup kept at .bak.*)"
     fi
 fi
 
@@ -896,11 +755,11 @@ fi
 # ------------------------------------------------------------------
 echo
 echo "============================================================"
-echo -e "${GREEN}  🎉 zsh-smart-complete installer finished${NC}"
+echo -e "${GREEN}  🎉 zsh-smart-complete (Entware) installer finished${NC}"
 echo "============================================================"
 echo
-echo "To reload with the new config, run:"
-echo -e "  ${BLUE}exec zsh${NC}"
+echo "Reload your shell with:  exec $ZSH_BIN"
+echo "(new SSH login will auto-launch zsh via $PROFILE_FILE)"
 echo
 echo "Then try:"
 echo "  git s  [Tab]   → native completion (menu)"

@@ -3,7 +3,7 @@
 > A modern smart completion & suggestion layer for Zsh.
 > Engineered as the frontend of a future independent shell.
 >
-> **v1.0.0 — General Availability.** Stable, production-ready.
+> **v2.0.0 — General Availability.** Stable, production-ready.
 
 ## Status
 
@@ -11,7 +11,7 @@
 | ------- | ------ |
 | Build & test (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | Release | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| Version | 1.0.0 (GA) |
+| Version | 2.0.0 (GA) |
 
 ## Why
 
@@ -30,7 +30,7 @@ modular architecture designed for evolution into a standalone shell:
 - **Deterministic ranking** (v0.1.3+) — exponential time-decay + frequency +
   CWD boost, replicated 1:1 for the future Rust engine.
 
-## Architecture (v1.0.0)
+## Architecture (v2.0.0)
 
 ```
                  zsh-smart-complete.plugin.zsh
@@ -384,7 +384,9 @@ v0.1.3  Deterministic ranking (decay + frequency + CWD boost)
    │
 v0.2.0  Atuin SQLite backend (host / exit / CWD-aware ranking)
    │
-v1.0.0  GA — stable public API, CI/CD, automated releases  ← you are here
+v1.0.0  GA — stable public API, CI/CD, automated releases
+   │
+v2.0.0  Engine & installer overhaul — O(bucket) prefix index, de-subShell scoring, real-time incremental indexing, zsh detection, OMZ/p10k combo selector, Entware installer  ← you are here
    │
    ▼
 v0.5.x  smart-shell-engine (Rust / Go) over IPC  (future, opt-in)

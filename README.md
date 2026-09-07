@@ -112,6 +112,14 @@ Run it directly (downloads + executes):
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/imonior/zsh-smart-complete/main/install.sh)"
 ```
 
+国内用户可改用镜像加速版——安装脚本本身的抓取、以及后续所有 GitHub 下载（Zinit / 本插件 / Starship / Atuin 内层二进制）全部走 `ghproxy.net`：
+
+```zsh
+SMART_INSTALL_GH_MIRROR=https://ghproxy.net/ bash -c "$(curl -fsSL https://ghproxy.net/https://raw.githubusercontent.com/imonior/zsh-smart-complete/main/install.sh)"
+```
+
+> 镜像加速子系统的完整说明见下方「国内代理加速」一节。即便不加镜像前缀，安装器也会在开始时对多个候选镜像**自动测速并推荐最快的**，可交互选择，或用 `NONINTERACTIVE=1` 自动采用最快镜像。若 `ghproxy.net` 不可用，把上面两处 `https://ghproxy.net/` 换成 `https://kgithub.com/`、`https://gitclone.com/` 或 `https://ghproxy.com/` 等任意镜像前缀即可。
+
 Or clone first and run locally — recommended so you can review the script:
 
 ```zsh
@@ -252,6 +260,12 @@ SKIP_DEPS=1     bash install-entware.sh    # skip external downloads
 SMART_INSTALL_GH_MIRROR=direct   bash install.sh   # 强制直连（不使用加速）
 SMART_INSTALL_GH_MIRROR=https://ghproxy.net/ \
                                 bash install.sh   # 强制使用指定镜像前缀
+```
+
+一键镜像安装（无需先 clone，安装脚本本身也走镜像）：
+
+```zsh
+SMART_INSTALL_GH_MIRROR=https://ghproxy.net/ bash -c "$(curl -fsSL https://ghproxy.net/https://raw.githubusercontent.com/imonior/zsh-smart-complete/main/install.sh)"
 ```
 
 交互行为：

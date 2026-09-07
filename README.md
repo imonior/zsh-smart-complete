@@ -132,7 +132,28 @@ Useful flags (can be combined):
 ```zsh
 NONINTERACTIVE=1 ./install.sh   # CI / headless: yes for safe, no for destructive
 SKIP_DEPS=1     ./install.sh    # skip external downloads (system pkgs only)
+SMART_INSTALL_LANG=ja ./install.sh  # pick language without prompting (en / zh-CN / zh-TW / ja / ko)
 ```
+
+#### 安装语言（Installation language）
+
+安装开始时首先会让你选择语言，**默认 English**：
+
+```text
+[INFO]  Select installation language:
+  1) English (default)
+  2) 简体中文
+  3) 繁體中文
+  4) 日本語
+  5) 한국어
+Enter number [default=1 English]:
+```
+
+后续阶段标题、镜像测速与选择、Starship / Atuin / Zinit / Oh My Zsh 等交互提示都会用所选语言显示。
+未收录的文案自动回退英文，因此不会出现空白提示。
+
+- 非交互场景用 `SMART_INSTALL_LANG` 指定；`NONINTERACTIVE=1` 时默认 English。
+- Entware 分支（`install-entware.sh`）同样支持，`install.sh` 委托时会自动把语言传递过去。
 
 > The one-key installer **includes** the Zinit-based load method and the
 > conflict cleanup — it is the superset of Options B and the manual removal
@@ -267,6 +288,15 @@ SMART_INSTALL_GH_MIRROR=https://ghproxy.net/ \
 ```zsh
 SMART_INSTALL_GH_MIRROR=https://ghproxy.net/ bash -c "$(curl -fsSL https://ghproxy.net/https://raw.githubusercontent.com/imonior/zsh-smart-complete/main/install.sh)"
 ```
+
+> **镜像并非都是「URL 前缀代理」**，安装器按类型分别处理：
+> - `prefix`（ghproxy.net / ghproxy.com / mirror.ghproxy.com）：可加速 raw 文件与 releases 二进制。
+> - `domain`（kgithub.com）：只做 `github.com` → 镜像域名替换，raw 仍走直连。
+> - `clone`（gitclone.com）：**仅加速 git clone**，绝不改写 `releases` / `archive` / `raw` 等文件下载地址
+>   ——否则会把二进制地址拼成 404，表现为 starship / atuin 安装报 `curl exit code 22`。
+>
+> 另外：测速会校验 **HTTP 200 且响应体非空**，返回「快速错误页」的镜像不会被误判为最快；
+> 镜像下载失败时会自动**回退直连重试**。
 
 交互行为：
 

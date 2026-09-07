@@ -110,7 +110,7 @@ mirror_speed_test() {
     for (( i=0; i<${#MIRROR_IDS[@]}; i++ )); do
         prefix="${MIRROR_PREFIXES[$i]}"
         u="${prefix}${MIRROR_TEST_URL}"
-        t="$(curl -s -o /dev/null -w '%{time_total}' --connect-timeout 5 --max-time 12 "$u" 2>/dev/null)"
+        t="$(curl -s -o /dev/null -w '%{time_total}' --connect-timeout 5 --max-time 12 "$u" 2>/dev/null || true)"
         if [[ -n "$t" && "$t" =~ ^[0-9]+\.?[0-9]*$ ]]; then
             MIRROR_TIMES[$i]="$t"
             info "  ${MIRROR_LABELS[$i]} -> ${t}s"

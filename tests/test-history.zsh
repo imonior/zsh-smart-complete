@@ -132,5 +132,25 @@ else
 fi
 
 print -r -- ""
+print -r -- "=== 场景 9: 回归——循环内 local 声明不得向 stdout 泄漏（ZLE 终端污染） ==="
+# 背景: zsh 5.9 下,在 for 循环体内 `local key` 且循环内调用回调函数,
+# 会把变量值以 `key='…'` 形式泄漏到 stdout。ZLE 组件中 stdout 直达终端,
+# 曾导致每次按键向终端打印 `key='history.recency|…'` 垃圾行。
+# 修复: `key` 的 local 声明移到循环外。此测试在 $() 中跑迭代器,断言无输出。
+_smart_state_reset
+_smart_state_l_set history.cmds "git status" "git pull" "git checkout main" "git checkout develop"
+_smart_state_set history.count 4
+COLLECT=()
+_smart_collect_cb() { COLLECT+=("$1"); return 0; }
+# 注意: 不能把迭代器放进 $() —— 子 shell 会让回调的 COLLECT 写不回主进程。
+# 直接执行并把 stdout 重定向到文件,同样能捕获 fd 层面的泄漏。
+_leak_file="${TMPDIR:-/tmp}/zsc_iter_leak.$$_$RANDOM"
+_smart_history_iter_prefix "git" 10 _smart_collect_cb > "$_leak_file" 2>&1
+leaked="$(cat "$_leak_file" 2>/dev/null)"
+rm -f "$_leak_file"
+assert_eq "迭代器 stdout 干净(无 key= 泄漏)" "$leaked" ""
+assert_eq "回调调用次数=4"                   "${#COLLECT}" "4"
+
+print -r -- ""
 print -r -- "=== TOTAL: $PASS passed, $FAIL failed ==="
 (( FAIL == 0 )) && exit 0 || exit 1

@@ -283,7 +283,12 @@ _smart_history_iter_prefix() {
         pool=("${_SMART_CMDS[@]}")
     fi
 
-    local yielded=0 cmd freq rec
+    # NOTE: `key` must be declared HERE, once, outside the loop. Re-declaring
+    # it with `local` inside the loop body (zsh 5.9) makes the variable's
+    # value leak to stdout on every iteration that also invokes a function —
+    # in ZLE that output goes straight to the terminal (the "key='history.…'"
+    # garbage bug). See tests/test-history.zsh regression case.
+    local yielded=0 cmd freq rec key
     for cmd in "${pool[@]}"; do
         [[ -z "$cmd" ]] && continue
         [[ "$cmd" == "$prefix" ]] && continue
@@ -292,7 +297,6 @@ _smart_history_iter_prefix() {
         # Direct associative reads — no subshell in the hot path.
         # Index via a $key variable so the compound key (which contains
         # "|" and spaces) is treated literally, not as a glob pattern.
-        local key
         key="history.frequency|$cmd"; freq="${_SMART_STATE_A[$key]:-1}"
         key="history.recency|$cmd";  rec="${_SMART_STATE_A[$key]:-0}"
 

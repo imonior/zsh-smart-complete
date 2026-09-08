@@ -121,6 +121,62 @@ _msg() {
                 ja)    s="選択: %s (%ss) [%s]" ;; ko)    s="선택: %s (%ss) [%s]" ;;
                 *)     s="Selected: %s (%ss) [%s]" ;;
             esac ;;
+        mirror.auto_selected)
+            case "$lang" in
+                zh-CN) s="已自动选择最快镜像：%s (%ss) [%s]" ;; zh-TW) s="已自動選擇最快鏡像：%s (%ss) [%s]" ;;
+                ja)    s="最速ミラーを自動選択: %s (%ss) [%s]" ;;
+                ko)    s="최신 미러 자동 선택: %s (%ss) [%s]" ;;
+                *)     s="Auto-selected fastest mirror: %s (%ss) [%s]" ;;
+            esac ;;
+        mirror.all_unavailable)
+            case "$lang" in
+                zh-CN) s="所有镜像均不可用，回退到直连。" ;; zh-TW) s="所有鏡像均不可用，回退到直連。" ;;
+                ja)    s="すべてのミラーが利用不可。ダイレクト接続にフォールバックします。" ;;
+                ko)    s="모든 미러를 사용할 수 없습니다. 다이렉트 연결로 폴백합니다." ;;
+                *)     s="All mirrors unavailable, falling back to direct connection." ;;
+            esac ;;
+        mirror.label_direct)
+            case "$lang" in
+                zh-CN) s="直连（不使用加速）" ;; zh-TW) s="直連（不使用加速）" ;;
+                ja)    s="ダイレクト接続（アクセラレーション不使用）" ;;
+                ko)    s="직접 연결 (가속 없음)" ;;
+                *)     s="Direct (no acceleration)" ;;
+            esac ;;
+        mirror.label_ghproxy_net)
+            case "$lang" in
+                zh-CN) s="ghproxy.net (URL 前缀代理)" ;; zh-TW) s="ghproxy.net (URL 前綴代理)" ;;
+                ja)    s="ghproxy.net (URL プレフィックスプロキシ)" ;;
+                ko)    s="ghproxy.net (URL接두사 프록시)" ;;
+                *)     s="ghproxy.net (URL prefix proxy)" ;;
+            esac ;;
+        mirror.label_ghproxy_com)
+            case "$lang" in
+                zh-CN) s="ghproxy.com (URL 前缀代理)" ;; zh-TW) s="ghproxy.com (URL 前綴代理)" ;;
+                ja)    s="ghproxy.com (URL プレ피ックス프로시)" ;;
+                ko)    s="ghproxy.com (URL接두사 프록시)" ;;
+                *)     s="ghproxy.com (URL prefix proxy)" ;;
+            esac ;;
+        mirror.label_mirror_ghproxy)
+            case "$lang" in
+                zh-CN) s="mirror.ghproxy.com" ;; zh-TW) s="mirror.ghproxy.com" ;;
+                ja)    s="mirror.ghproxy.com" ;;
+                ko)    s="mirror.ghproxy.com" ;;
+                *)     s="mirror.ghproxy.com" ;;
+            esac ;;
+        mirror.label_kgithub)
+            case "$lang" in
+                zh-CN) s="kgithub.com (域名替换)" ;; zh-TW) s="kgithub.com (域名替換)" ;;
+                ja)    s="kgithub.com (ドメイン置換)" ;;
+                ko)    s="kgithub.com (도메인 교체)" ;;
+                *)     s="kgithub.com (domain swap)" ;;
+            esac ;;
+        mirror.label_gitclone)
+            case "$lang" in
+                zh-CN) s="gitclone.com (仅 Git Clone 加速)" ;; zh-TW) s="gitclone.com (僅 Git Clone 加速)" ;;
+                ja)    s="gitclone.com (Git Clone のみアクセラレーション)" ;;
+                ko)    s="gitclone.com (Git Clone전용 가속)" ;;
+                *)     s="gitclone.com (Git Clone acceleration only)" ;;
+            esac ;;
         phase1)
             case "$lang" in
                 zh-CN) s="=== 阶段 1/4：基础依赖 ===" ;; zh-TW) s="=== 階段 1/4：基礎依賴 ===" ;;
@@ -419,14 +475,27 @@ REAL_WGET="$(command -v wget || true)"
 #   clone  = 仅加速 git clone 的仓库地址；绝不改写 releases / archive / raw 等文件下载
 #            否则会把二进制下载地址拼成 404 —— 这正是 starship/atuin 安装报
 #            "curl exit code 22" 的根因（gitclone.com 不是前缀代理）
-MIRROR_IDS=(); MIRROR_LABELS=(); MIRROR_PREFIXES=(); MIRROR_TYPES=()
-_add_mirror() { MIRROR_IDS+=("$1"); MIRROR_LABELS+=("$2"); MIRROR_PREFIXES+=("$3"); MIRROR_TYPES+=("${4:-prefix}"); }
-_add_mirror "direct"             "直连（不使用加速）"              ""                            "direct"
-_add_mirror "ghproxy.net"        "ghproxy.net (URL 前缀代理)"      "https://ghproxy.net/"        "prefix"
-_add_mirror "ghproxy.com"        "ghproxy.com (URL 前缀代理)"      "https://ghproxy.com/"        "prefix"
-_add_mirror "mirror.ghproxy.com" "mirror.ghproxy.com"              "https://mirror.ghproxy.com/" "prefix"
-_add_mirror "kgithub.com"        "kgithub.com (域名替换)"          "kgithub.com"                 "domain"
-_add_mirror "gitclone.com"       "gitclone.com (仅 Git Clone 加速)" "https://gitclone.com/"       "clone"
+MIRROR_IDS=(); MIRROR_PREFIXES=(); MIRROR_TYPES=()
+_add_mirror() { MIRROR_IDS+=("$1"); MIRROR_PREFIXES+=("$3"); MIRROR_TYPES+=("${4:-prefix}"); }
+_add_mirror "direct"             ""                            ""                            "direct"
+_add_mirror "ghproxy.net"        ""                            "https://ghproxy.net/"        "prefix"
+_add_mirror "ghproxy.com"        ""                            "https://ghproxy.com/"        "prefix"
+_add_mirror "mirror.ghproxy.com" ""                            "https://mirror.ghproxy.com/" "prefix"
+_add_mirror "kgithub.com"        ""                            "kgithub.com"                 "domain"
+_add_mirror "gitclone.com"       ""                            "https://gitclone.com/"       "clone"
+
+# Localized mirror label for index $1
+_mirror_label() {
+    case "$1" in
+        0) msg mirror.label_direct ;;
+        1) msg mirror.label_ghproxy_net ;;
+        2) msg mirror.label_ghproxy_com ;;
+        3) msg mirror.label_mirror_ghproxy ;;
+        4) msg mirror.label_kgithub ;;
+        5) msg mirror.label_gitclone ;;
+        *) msg mirror.label_direct ;;
+    esac
+}
 
 GH_MIRROR_TYPE="direct"   # 与 GH_MIRROR 配套：当前所选镜像的类型
 
@@ -503,10 +572,10 @@ mirror_speed_test() {
         code="${out%% *}"; t="${out##* }"
         if [[ "$code" == "200" && -s "$body" && "$t" =~ ^[0-9]+\.?[0-9]*$ ]]; then
             MIRROR_TIMES[$i]="$t"
-            info "  ${MIRROR_LABELS[$i]} -> ${t}s"
+            info "  $(_mirror_label $i) -> ${t}s"
         else
             MIRROR_TIMES[$i]="999"
-            warn "  ${MIRROR_LABELS[$i]} -> 不可用 (HTTP ${code:-000})"
+            warn "  $(_mirror_label $i) -> 不可用 (HTTP ${code:-000})"
         fi
     done
     rm -f "$body"
@@ -552,9 +621,9 @@ select_mirror() {
         if [[ -n "$best" ]]; then
             GH_MIRROR="${MIRROR_PREFIXES[$best]}"
             GH_MIRROR_TYPE="${MIRROR_TYPES[$best]}"
-            info "已自动选择最快镜像：${MIRROR_LABELS[$best]} (${MIRROR_TIMES[$best]}s) [${GH_MIRROR_TYPE}]"
+            info "$(msg mirror.auto_selected "$(_mirror_label $best)" "${MIRROR_TIMES[$best]}" "${GH_MIRROR_TYPE}")"
         else
-            GH_MIRROR=""; GH_MIRROR_TYPE="direct"; warn "所有镜像均不可用，回退到直连。"
+            GH_MIRROR=""; GH_MIRROR_TYPE="direct"; warn "$(msg mirror.all_unavailable)"
         fi
         return 0
     fi
@@ -570,7 +639,7 @@ select_mirror() {
     for (( i=0; i<n; i++ )); do
         local mark=""
         [[ "$i" == "$fastest_idx" ]] && mark=" (推荐)"
-        printf "  %2d) %s%s  [%ss]\n" "$d" "${MIRROR_LABELS[$i]}" "$mark" "${MIRROR_TIMES[$i]}"
+        printf "  %2d) %s%s  [%ss]\n" "$d" "$(_mirror_label $i)" "$mark" "${MIRROR_TIMES[$i]}"
         d=$((d+1))
     done
     printf "  %2d) %s\n" "$d" "$(msg mirror.manual)"
@@ -602,7 +671,7 @@ select_mirror() {
     done
     GH_MIRROR="${MIRROR_PREFIXES[$choice]}"
     GH_MIRROR_TYPE="${MIRROR_TYPES[$choice]}"
-    info "$(msg mirror.chosen "${MIRROR_LABELS[$choice]}" "${MIRROR_TIMES[$choice]}" "$GH_MIRROR_TYPE")"
+    info "$(msg mirror.chosen "${_mirror_label $choice}" "${MIRROR_TIMES[$choice]}" "$GH_MIRROR_TYPE")"
 }
 
 REPO_BASE_URL="${SMART_COMPLETE_REPO_BASE_URL:-https://raw.githubusercontent.com/imonior/zsh-smart-complete/main}"

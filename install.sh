@@ -25,6 +25,13 @@ success() { echo -e "${GREEN}[OK]${NC}    $*"; }
 warn()    { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 error()   { echo -e "${RED}[FAIL]${NC}  $*" >&2; exit 1; }
 
+# Ensure interactive prompts work over SSH (non-tty stdin returns immediately)
+_setup_terminal() {
+    [[ -t 0 ]] || return 0
+    stty sane 2>/dev/null || true
+}
+_setup_terminal
+
 # Prompts: respect NONINTERACTIVE=1 (assume "yes for safe, no for destructive")
 prompt_yes() {
     # Returns 0 if the reply is Yes. In NONINTERACTIVE mode, uses $1 as default.
@@ -174,8 +181,121 @@ _msg() {
             case "$lang" in
                 zh-CN) s="gitclone.com (仅 Git Clone 加速)" ;; zh-TW) s="gitclone.com (僅 Git Clone 加速)" ;;
                 ja)    s="gitclone.com (Git Clone のみアクセラレーション)" ;;
-                ko)    s="gitclone.com (Git Clone전용 가속)" ;;
+                ko)    s="gitclone.com (Git Clone 전용 가속)" ;;
                 *)     s="gitclone.com (Git Clone acceleration only)" ;;
+            esac ;;
+        mirror.unavailable)
+            case "$lang" in
+                zh-CN) s="不可用 (HTTP %s)" ;; zh-TW) s="不可用 (HTTP %s)" ;;
+                ja)    s="利用不可 (HTTP %s)" ;;
+                ko)    s="사용 불가 (HTTP %s)" ;;
+                *)     s="unavailable (HTTP %s)" ;;
+            esac ;;
+        mirror.custom_prompt)
+            case "$lang" in
+                zh-CN) s="请输入镜像前缀 URL（如 https://ghproxy.net/）或域名替换主机（如 kgithub.com）: " ;;
+                zh-TW) s="請輸入鏡像前綴 URL（如 https://ghproxy.net/）或域名替換主機（如 kgithub.com）: " ;;
+                ja)    s="ミラープレフィックスURL（例: https://ghproxy.net/）またはドメイン置換ホスト（例: kgithub.com）を入力: " ;;
+                ko)    s="미러 접두사 URL(예: https://ghproxy.net/) 또는 도메인 교체 호스트(예: kgithub.com) 입력: " ;;
+                *)     s="Enter mirror prefix URL (e.g. https://ghproxy.net/) or domain swap host (e.g. kgithub.com): " ;;
+            esac ;;
+        mirror.custom_chosen)
+            case "$lang" in
+                zh-CN) s="使用自定义镜像：%s [%s]" ;; zh-TW) s="使用自訂鏡像：%s [%s]" ;;
+                ja)    s="カスタムミラー使用: %s [%s]" ;;
+                ko)    s="사용자 지정 미러 사용: %s [%s]" ;;
+                *)     s="Using custom mirror: %s [%s]" ;;
+            esac ;;
+        mirror.invalid_number)
+            case "$lang" in
+                zh-CN) s="无效序号，请重新输入 [默认=%s]: " ;; zh-TW) s="無效序號，請重新輸入 [預設=%s]: " ;;
+                ja)    s="無効な番号です。再入力してください [既定=%s]: " ;;
+                ko)    s="잘못된 번호입니다. 다시 입력하세요 (기본값=%s): " ;;
+                *)     s="Invalid number, enter again [default=%s]: " ;;
+            esac ;;
+        mirror.invalid_input)
+            case "$lang" in
+                zh-CN) s="无效输入，请输入序号 [默认=%s]: " ;; zh-TW) s="無效輸入，請輸入序號 [預設=%s]: " ;;
+                ja)    s="無効な入力です。番号を入力してください [既定=%s]: " ;;
+                ko)    s="잘못된 입력입니다. 번호를 입력하세요 (기본값=%s): " ;;
+                *)     s="Invalid input, enter a number [default=%s]: " ;;
+            esac ;;
+        mirror.recommended)
+            case "$lang" in
+                zh-CN) s="推荐" ;; zh-TW) s="推薦" ;;
+                ja)    s="推奨" ;;
+                ko)    s="추천" ;;
+                *)     s="(recommended)" ;;
+            esac ;;
+        lang.option_en)
+            case "$lang" in
+                zh-CN) s="English" ;; zh-TW) s="English" ;;
+                ja)    s="English" ;;
+                ko)    s="English" ;;
+                *)     s="English" ;;
+            esac ;;
+        lang.option_zh_cn)
+            case "$lang" in
+                zh-CN) s="简体中文" ;; zh-TW) s="簡體中文" ;;
+                ja)    s="簡體中国語" ;;
+                ko)    s="간체 중국어" ;;
+                *)     s="Simplified Chinese" ;;
+            esac ;;
+        lang.option_zh_tw)
+            case "$lang" in
+                zh-CN) s="繁體中文" ;; zh-TW) s="繁體中文" ;;
+                ja)    s="正體中国語" ;;
+                ko)    s="정체 중국어" ;;
+                *)     s="Traditional Chinese" ;;
+            esac ;;
+        lang.option_ja)
+            case "$lang" in
+                zh-CN) s="日本語" ;; zh-TW) s="日本語" ;;
+                ja)    s="日本語" ;;
+                ko)    s="일본어" ;;
+                *)     s="Japanese" ;;
+            esac ;;
+        lang.option_ko)
+            case "$lang" in
+                zh-CN) s="한국어" ;; zh-TW) s="한국어" ;;
+                ja)    s="韓国語" ;;
+                ko)    s="한국어" ;;
+                *)     s="Korean" ;;
+            esac ;;
+        dl.mirror_failed)
+            case "$lang" in
+                zh-CN) s="镜像加速下载失败（exit %s），回退直连重试 ..." ;; zh-TW) s="鏡像加速下載失敗（exit %s），回退直連重試 ..." ;;
+                ja)    s="ミラー加速ダウンロード失敗（exit %s）、ダイレクト再接続を試行中..." ;;
+                ko)    s="미러 가속 다운로드 실패(exit %s), 직련 재시도 중..." ;;
+                *)     s="Mirror-accelerated download failed (exit %s), falling back to direct retry..." ;;
+            esac ;;
+        dl.direct_retry_success)
+            case "$lang" in
+                zh-CN) s="直连重试成功" ;; zh-TW) s="直連重試成功" ;;
+                ja)    s="ダイレクト再接続成功" ;;
+                ko)    s="직련 재시도 성공" ;;
+                *)     s="Direct retry succeeded" ;;
+            esac ;;
+        dl.clone_failed)
+            case "$lang" in
+                zh-CN) s="镜像 clone 失败，回退直连：%s" ;; zh-TW) s="鏡像 clone 失敗，回退直連：%s" ;;
+                ja)    s="ミラークローン失敗、ダイレクトフォールバック: %s" ;;
+                ko)    s="미러 clone 실패, 직련 폴백: %s" ;;
+                *)     s="Mirror clone failed, falling back to direct: %s" ;;
+            esac ;;
+        combo.unknown_smart_install)
+            case "$lang" in
+                zh-CN) s="未知的 SMART_INSTALL_COMBO='${SMART_INSTALL_COMBO}'，忽略并回退到交互选择。" ;; zh-TW) s="未知的 SMART_INSTALL_COMBO='${SMART_INSTALL_COMBO}'，忽略並回退到交互選擇。" ;;
+                ja)    s="不明な SMART_INSTALL_COMBO='${SMART_INSTALL_COMBO}'、無視して対話選択にフォールバックします。" ;;
+                ko)    s="알 수 없는 SMART_INSTALL_COMBO='${SMART_INSTALL_COMBO}' 무시하고 상호작용 선택으로 폴백." ;;
+                *)     s="Unknown SMART_INSTALL_COMBO='${SMART_INSTALL_COMBO}', ignoring and falling back to interactive selection." ;;
+            esac ;;
+        combo.headless_recommended)
+            case "$lang" in
+                zh-CN) s="(无头模式) 推荐配置：Zinit + Starship。" ;; zh-TW) s="(無頭模式) 推荐配置：Zinit + Starship。" ;;
+                ja)    s="(ヘッドレス) 推奨構成: Zinit + Starship。" ;;
+                ko)    s="(헤드리스) 추천 구성: Zinit + Starship." ;;
+                *)     s="(headless) Recommended config: Zinit + Starship." ;;
             esac ;;
         phase1)
             case "$lang" in
@@ -427,11 +547,11 @@ select_language() {
     fi
     echo
     info "$(msg lang.title)"
-    printf "  %d) %s (default)\n" 1 "English"
-    printf "  %d) %s\n" 2 "简体中文"
-    printf "  %d) %s\n" 3 "繁體中文"
-    printf "  %d) %s\n" 4 "日本語"
-    printf "  %d) %s\n" 5 "한국어"
+    printf "  %d) %s (default)\n" 1 "$(msg lang.option_en)"
+    printf "  %d) %s\n" 2 "$(msg lang.option_zh_cn)"
+    printf "  %d) %s\n" 3 "$(msg lang.option_zh_tw)"
+    printf "  %d) %s\n" 4 "$(msg lang.option_ja)"
+    printf "  %d) %s\n" 5 "$(msg lang.option_ko)"
     echo -n "$(msg lang.prompt)"
     read -r REPLY || REPLY=""
     case "$REPLY" in
@@ -575,7 +695,7 @@ mirror_speed_test() {
             info "  $(_mirror_label $i) -> ${t}s"
         else
             MIRROR_TIMES[$i]="999"
-            warn "  $(_mirror_label $i) -> 不可用 (HTTP ${code:-000})"
+            warn "  $(_mirror_label $i) -> $(msg mirror.unavailable \"${code:-000}\")"
         fi
     done
     rm -f "$body"
@@ -638,7 +758,7 @@ select_mirror() {
     [[ -z "$fastest_idx" ]] && fastest_idx=0   # 全部不可用时默认直连
     for (( i=0; i<n; i++ )); do
         local mark=""
-        [[ "$i" == "$fastest_idx" ]] && mark=" (推荐)"
+        [[ "$i" == "$fastest_idx" ]] && mark=" $(msg mirror.recommended)"
         printf "  %2d) %s%s  [%ss]\n" "$d" "$(_mirror_label $i)" "$mark" "${MIRROR_TIMES[$i]}"
         d=$((d+1))
     done
@@ -654,19 +774,18 @@ select_mirror() {
             if (( REPLY >= 1 && REPLY <= n )); then
                 choice=$((REPLY-1)); break
             elif (( REPLY == custom_d )); then
-                echo -n "  请输入镜像前缀 URL（如 https://ghproxy.net/ ）或域名替换主机（如 kgithub.com）: "
-                read -r GH_MIRROR
+                echo -n "  $(msg mirror.custom_prompt)"; read -r GH_MIRROR
                 GH_MIRROR_TYPE="$(_guess_mirror_type "$GH_MIRROR")"
                 if [[ "$GH_MIRROR_TYPE" == "prefix" && "$GH_MIRROR" != */ ]]; then
                     GH_MIRROR="${GH_MIRROR}/"
                 fi
-                info "使用自定义镜像：$GH_MIRROR [${GH_MIRROR_TYPE}]"
+                info "$(msg mirror.custom_chosen "$GH_MIRROR" "${GH_MIRROR_TYPE}")"
                 return 0
             else
-                echo -n "  无效序号，请重新输入 [默认=${default_d}]: "; continue
+                echo -n "  $(msg mirror.invalid_number "$default_d")"; continue
             fi
         else
-            echo -n "  无效输入，请输入序号 [默认=${default_d}]: "; continue
+            echo -n "  $(msg mirror.invalid_input "$default_d")"; continue
         fi
     done
     GH_MIRROR="${MIRROR_PREFIXES[$choice]}"
@@ -768,12 +887,12 @@ run_with_mirror_dl() {
     PATH="$oldpath"
     rm -rf "$shimdir"
     if (( rc != 0 )); then
-        warn "镜像加速下载失败（exit $rc），回退直连重试 ..."
+        warn "$(msg dl.mirror_failed "$rc")"
         # 必须先归零：成功时 `||` 会短路，否则会沿用镜像失败时的 rc
         rc=0
         eval "$cmd" || rc=$?
         if (( rc == 0 )); then
-            success "直连重试成功"
+            success "$(msg dl.direct_retry_success)"
         fi
     fi
     return $rc
@@ -787,7 +906,7 @@ git_clone_repo() {
         return 0
     fi
     if [[ "$m" != "$src" ]]; then
-        warn "镜像 clone 失败，回退直连：$src"
+        warn "$(msg dl.clone_failed "$src")"
         rm -rf "$dest" 2>/dev/null || true
         git clone --depth 1 "$src" "$dest" 2>/dev/null && return 0
     fi
@@ -1213,12 +1332,12 @@ resolve_omz_p10k() {
                 _apply_combo "${SMART_INSTALL_COMBO}"
                 info "配置组合（来自 SMART_INSTALL_COMBO）：${SMART_INSTALL_COMBO}"
                 return 0 ;;
-            *) warn "未知的 SMART_INSTALL_COMBO='${SMART_INSTALL_COMBO}'，忽略并回退到交互选择。" ;;
+            *) warn "$(msg combo.unknown_smart_install)" ;;
         esac
     fi
     if [[ "${NONINTERACTIVE:-0}" == "1" ]]; then
         _apply_combo "zinit-starship"
-        info "(headless) 推荐配置：Zinit + Starship。"
+        info "$(msg combo.headless_recommended)"
         return 0
     fi
 

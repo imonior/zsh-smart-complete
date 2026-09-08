@@ -1139,43 +1139,96 @@ fi
 info "$(msg phase.cleanup)"
 ZINIT_PLUGINS_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/zinit/plugins"
 
-# Clean up old .bak.* residual files from previous install runs.
-# Keeps only the most recent backup per base name, removes deeply cascaded ones.
+# Safe backup: only copy a normal (non-.bak.*) file if it exists.
+# Never re-backup .bak.* files or non-config files.
+_backup_if_normal() {
+    local src="$1"
+    [[ -f "$src" ]] || return 0
+    local bn; bn="$(basename "$src")"
+    # Skip anything already a backup artifact
+    [[ "$bn" == *.bak.* ]] && return 0
+    local ts; ts="$(date +%s)"
+    cp -f "$src" "${src}.bak.${ts}" && success "Backed up: $bn"
+}
+
+# Remove .bak.* files/dirs that are cascaded or stale.
+# Keep only the single most recent backup per source file.
 _cleanup_old_baks() {
-    local base dir f older bcount
-    for base in "$HOME"/.*.bak.* "$HOME"/.*.zshrc.bak.* \
-                "$HOME"/.*.p10k.zsh.bak.* "$HOME"/.*.oh-my-zsh.bak.* \
+    local base f newest stem cur_ts cand cbn cts
+    for base in "$HOME"/.zshrc.bak.* \
+                "$HOME"/.p10k.zsh.bak.* \
                 "$HOME"/.config/starship.toml.bak.*; do
         [[ -e "$base" ]] || continue
-        dir="$(dirname "$base")"
         f="$(basename "$base")"
-        # Remove files that look like cascaded backups (multiple .bak. in name)
+        # Cascaded: remove immediately
         if [[ "$f" == *.bak.*.bak.* ]]; then
             rm -f "$base" && success "Removed cascaded backup: $f"
             continue
         fi
-        # Keep only the 2 most recent .bak.* files per basename stem, remove the rest
-        local stem="${f%.bak.*}"
-        mapfile -t candidates < <(ls -t "$dir"/"${stem}".bak.* 2>/dev/null)
-        bcount=${#candidates[@]}
-        if (( bcount > 2 )); then
-            for (( i=2; i<bcount; i++ )); do
-                rm -f "${candidates[$i]}" && success "Removed old backup: $(basename "${candidates[$i]}")"
-            done
-        fi
+        # Keep only the newest per stem; older ones are stale
+        stem="${f%.bak.*}"
+        cur_ts="${f##*.bak.}"
+        newest=""
+        for cand in "$HOME"/"${stem}".bak.* "$HOME"/.config/"${stem}".bak.*; do
+            [[ -e "$cand" ]] || continue
+            cbn="$(basename "$cand")"
+            [[ "$cbn" == *.bak.*.bak.* ]] && continue
+            cts="${cbn##*.bak.}"
+            if [[ -z "$newest" ]] || (( cts > cur_ts )); then
+                newest="$cand"; cur_ts="$cts"
+            fi
+        done
+        # Remove older backups (but never the newest)
+        for cand in "$HOME"/"${stem}".bak.* "$HOME"/.config/"${stem}".bak.*; do
+            [[ -e "$cand" ]] || continue
+            [[ "$cand" == "$newest" ]] && continue
+            rm -f "$cand" && success "Removed stale backup: $(basename "$cand")"
+        done
     done
-    # Also clean up any zinit plugin bak dirs with cascaded timestamps
+    # Zinit plugin bak dirs - cascaded or not, remove all (new install will re-backup)
     if [[ -d "$ZINIT_PLUGINS_DIR" ]]; then
         for pdir in "$ZINIT_PLUGINS_DIR"/*.bak.*; do
             [[ -d "$pdir" ]] || continue
             local pname; pname="$(basename "$pdir")"
-            if [[ "$pname" == *.bak.*.bak.* ]]; then
-                rm -rf "$pdir" && success "Removed cascaded plugin bak dir: $pname"
-            fi
+            rm -rf "$pdir" && success "Removed plugin bak dir: $pname"
         done
     fi
 }
-_cleanup_old_baks
+
+# Remove residual conflict-plugin artifacts from cache/state directories.
+_cleanup_conflict_residues() {
+    # zsh-autocomplete state
+    if [[ -d "$HOME/.local/state/zsh-autocomplete" ]]; then
+        rm -rf "$HOME/.local/state/zsh-autocomplete" && success "Removed ~/.local/state/zsh-autocomplete"
+    fi
+    # p10k cache dirs (e.g. .cache/p10k-redant)
+    for d in "$HOME"/.cache/p10k-* "$HOME"/.cache/powerlevel10k*; do
+        [[ -d "$d" ]] && rm -rf "$d" && success "Removed $(basename "$d") from .cache"
+    done
+    # zsh cache (prompt/suggestions cache)
+    for d in "$HOME"/.cache/zsh*; do
+        [[ -d "$d" ]] && rm -rf "$d" && success "Removed $(basename "$d") from .cache"
+    done
+    # Stale zinit completion symlinks pointing to removed plugins
+    if [[ -d "$ZINIT_PLUGINS_DIR/../completions" ]]; then
+        local compdir="$ZINIT_PLUGINS_DIR/../completions"
+        for link in "$compdir"/*; do
+            [[ -L "$link" ]] || continue
+            local target; target="$(readlink "$link")"
+            [[ -d "${target%%/*}" ]] || {
+                rm -f "$link" && success "Removed dangling completion symlink: $(basename "$link")"
+            }
+        done
+    fi
+    # Also clean zinit plugins dirs matching conflict names (including cascaded baks)
+    for pattern in "*autocomplete*" "*autosuggestions*"; do
+        for pdir in "$ZINIT_PLUGINS_DIR"/"$pattern"; do
+            [[ -d "$pdir" ]] || continue
+            rm -rf "$pdir" && success "Removed conflict plugin dir: $(basename "$pdir")"
+        done
+    done
+}
+_cleanup_conflict_residues
 
 # Comment out "active" lines in ~/.zshrc matching a pattern (idempotent:
 # already-commented lines are skipped). Backs up ~/.zshrc before editing.

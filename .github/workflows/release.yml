@@ -31,15 +31,13 @@ jobs:
         run: |
           TAG_NAME=${GITHUB_REF#refs/tags/}
           echo "tag_name=${TAG_NAME}" >> "$GITHUB_OUTPUT"
-          tar -czvf "zsh-smart-complete-${TAG_NAME}.tar.gz" \
-            --exclude='.git*' \
-            --exclude='.github' \
-            --exclude='tests' \
-            .
-          # Also ship a zip for users who prefer it.
-          zip -r "zsh-smart-complete-${TAG_NAME}.zip" \
-            -x '.git*' '.github/*' 'tests/*' \
-            .
+          STAGING="zsh-smart-complete-stage"
+          mkdir -p "$STAGING"
+          # Copy to staging dir first to avoid "file changed as we read it"
+          # when tar/zip reads a live working tree.
+          rsync -a --exclude='.git' --exclude='.github' --exclude='tests' . "$STAGING/"
+          tar -czvf "zsh-smart-complete-${TAG_NAME}.tar.gz" -C "$STAGING" .
+          (cd "$STAGING" && zip -r "../zsh-smart-complete-${TAG_NAME}.zip" . -x '.git/*' '.github/*' 'tests/*')
 
       - name: Release to GitHub
         uses: softprops/action-gh-release@v2

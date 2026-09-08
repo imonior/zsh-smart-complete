@@ -567,6 +567,14 @@ _msg() {
                 ko)    s="충돌 플러그인 잔여물 정리할까요? (.cache/p10k-*, .cache/zsh*, .local/state/zsh-autocomplete 등)" ;;
                 *)     s="Clean conflict plugin residues (.cache/p10k-*, .cache/zsh*, .local/state/zsh-autocomplete etc.)?" ;;
             esac ;;
+        prompt.zsh_reinstall)
+            case "$lang" in
+                zh-CN) s="检测到 Zsh，是否重新安装/升级？[默认=否]" ;;
+                zh-TW) s="檢測到 Zsh，是否重新安裝/升級？[預設=否]" ;;
+                ja)    s="Zsh が検出されました。再インストール/アップグレードしますか？[既定=いいえ]" ;;
+                ko)    s="Zsh 가 감지되었습니다. 재설치/업그레이드할까요? [기본=아니오]" ;;
+                *)     s="Zsh is installed. Reinstall/upgrade? [default=no]" ;;
+            esac ;;
     esac
     printf '%s' "$s"
 }
@@ -1113,6 +1121,23 @@ ZDOTDIR="${ZDOTDIR:-${ZSH_DIR:-$HOME}}"
 if [[ "${SKIP_DEPS:-}" != "1" && "${NONINTERACTIVE:-0}" != "1" ]]; then
     info "$(msg phase0)"
     {
+        # --- zsh (with optional reinstall) ---
+        if command -v zsh >/dev/null 2>&1; then
+            success "Zsh is installed: $(zsh --version 2>/dev/null | head -n1)"
+            if prompt_yes "$(msg prompt.zsh_reinstall)" 0; then
+                info "Reinstalling zsh ..."
+                case "$OS_TYPE" in
+                    macos)
+                        command -v brew >/dev/null 2>&1 && brew reinstall zsh && success "Zsh reinstalled" || warn "Zsh reinstall failed"
+                        ;;
+                    linux-debian)
+                        sudo apt-get install -y --reinstall zsh && success "Zsh reinstalled" || warn "Zsh reinstall failed"
+                        ;;
+                esac
+            fi
+        else
+            check_zsh
+        fi
         # --- fzf ---
         if command -v fzf >/dev/null 2>&1; then
             success "$(msg msg.fzf_installed)"
@@ -1171,6 +1196,14 @@ if [[ "${SKIP_DEPS:-}" != "1" && "${NONINTERACTIVE:-0}" != "1" ]]; then
             git_clone_repo "https://github.com/imonior/zsh-smart-complete.git" "$zsc_dir" \
                 || warn "zsh-smart-complete clone failed. If running Zinit, zinit light will clone it automatically."
         fi
+        # --- zsh-syntax-highlighting plugin ---
+        local zsh_highlight_dir="${XDG_DATA_HOME:-$HOME/.local/share}/zinit/plugins/zsh-zsh-syntax-highlighting"
+        if [[ ! -d "$zsh_highlight_dir" ]]; then
+            info "Cloning zsh-syntax-highlighting plugin repo ..."
+            mkdir -p "$(dirname "$zsh_highlight_dir")"
+            git_clone_repo "https://github.com/zsh-users/zsh-syntax-highlighting.git" "$zsh_highlight_dir" \
+                || warn "zsh-syntax-highlighting clone failed."
+        fi
         # --- conflict cleanup ---
         info "$(msg phase.cleanup)"
         clean_conflict_plugin "zsh-autocomplete"
@@ -1181,11 +1214,48 @@ if [[ "${SKIP_DEPS:-}" != "1" && "${NONINTERACTIVE:-0}" != "1" ]]; then
 fi
 
 # ------------------------------------------------------------------
-# Phase 1/4: Base tools (zsh, fzf) -- skipped if Phase 0 ran
+# Phase 1/4: Base tools (zsh, fzf)
 # ------------------------------------------------------------------
 info "$(msg phase1)"
 
-check_zsh
+# --- zsh ---
+if command -v zsh >/dev/null 2>&1; then
+    success "Zsh is installed: $(zsh --version 2>/dev/null | head -n1)"
+    if prompt_yes "$(msg prompt.zsh_reinstall)" 0; then
+        info "Reinstalling zsh ..."
+        case "$OS_TYPE" in
+            macos)
+                command -v brew >/dev/null 2>&1 && brew reinstall zsh && success "Zsh reinstalled" || warn "Zsh reinstall failed"
+                ;;
+            linux-debian)
+                sudo apt-get install -y --reinstall zsh && success "Zsh reinstalled" || warn "Zsh reinstall failed"
+                ;;
+            *)
+                check_zsh
+                ;;
+        esac
+    fi
+else
+    check_zsh
+fi
+
+# --- fzf ---
+if [[ "${SKIP_DEPS:-0}" != "1" ]]; then
+    if command -v fzf >/dev/null 2>&1; then
+        success "fzf is already installed"
+    elif install_pkg_soft "fzf" "fzf" "fzf"; then
+        success "fzf installed (package manager)"
+    else
+        warn "fzf 包管理器安装失败，尝试官方 git clone 安装（走镜像加速）..."
+        fzf_dir="${XDG_DATA_HOME:-$HOME/.local/share}/fzf"
+        if git_clone_repo "https://github.com/junegunn/fzf.git" "$fzf_dir" \
+           && ( cd "$fzf_dir" && "$fzf_dir/install" --all >/dev/null 2>&1 ); then
+            success "fzf installed via git clone (mirror-accelerated)"
+        else
+            warn "fzf 安装失败（插件核心不依赖 fzf，可稍后手动安装）。"
+        fi
+    fi
+fi
 
 
 # ------------------------------------------------------------------
@@ -1198,7 +1268,7 @@ if command -v starship >/dev/null 2>&1; then
         run_with_mirror_dl 'curl -fsSL https://starship.rs/install.sh | sh -s -- -y' \
             || warn "Starship upgrade failed (non-fatal)"
     fi
-elif prompt_yes "$(msg prompt.starship)" 1; then
+elif [[ "${SKIP_DEPS:-0}" != "1" ]] && prompt_yes "$(msg prompt.starship)" 1; then
     run_with_mirror_dl 'curl -fsSL https://starship.rs/install.sh | sh -s -- -y' \
         || error "Starship install failed. Retry with SKIP_DEPS=1 to skip external downloads."
     success "Starship installed"
@@ -1210,7 +1280,7 @@ fi
 info "$(msg phase2b)"
 if command -v atuin >/dev/null 2>&1; then
     success "Atuin is installed: $(atuin --version 2>/dev/null || echo present)"
-elif prompt_yes "$(msg prompt.atuin)" 0; then
+elif [[ "${SKIP_DEPS:-0}" != "1" ]] && prompt_yes "$(msg prompt.atuin)" 0; then
     # 外层脚本抓取与“内层”从 GitHub Releases 下载的二进制均经镜像 shim 加速。
     info "Trying Atuin official installer (mirror-accelerated fetch + binary) ..."
     if run_with_mirror_dl 'curl -fsSL https://setup.atuin.sh | sh -s -- --non-interactive 2>/dev/null'; then
@@ -1231,7 +1301,7 @@ if [[ -d "$ZINIT_HOME" ]]; then
     if prompt_yes "$(msg prompt.zinit_pull)" 0; then
         ( cd "$ZINIT_HOME" && git pull --ff-only 2>/dev/null ) || warn "git pull failed (non-fatal)"
     fi
-elif prompt_yes "$(msg prompt.zinit)" 1; then
+elif [[ "${SKIP_DEPS:-0}" != "1" ]] && prompt_yes "$(msg prompt.zinit)" 1; then
     mkdir -p "$(dirname "$ZINIT_HOME")"
     git_clone_repo "https://github.com/zdharma-continuum/zinit.git" "$ZINIT_HOME" \
         || error "Zinit clone failed. Check your internet connection."
@@ -1241,7 +1311,7 @@ fi
 # If the user didn't install Zinit, fall back: clone zsh-smart-complete directly
 # so we can still provide a working `source ~/.../zsh-smart-complete.plugin.zsh`.
 SMART_COMPLETE_INSTALL_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/zinit/plugins/imonior---zsh-smart-complete"
-if [[ ! -d "$SMART_COMPLETE_INSTALL_DIR" ]]; then
+if [[ ! -d "$SMART_COMPLETE_INSTALL_DIR" && "${SKIP_DEPS:-0}" != "1" ]]; then
     info "Cloning zsh-smart-complete plugin repo ..."
     mkdir -p "$(dirname "$SMART_COMPLETE_INSTALL_DIR")"
     git_clone_repo "https://github.com/imonior/zsh-smart-complete.git" "$SMART_COMPLETE_INSTALL_DIR" \

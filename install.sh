@@ -333,6 +333,13 @@ _msg() {
                 ko)    s="=== 단계 4/4: 설정 템플릿 ===" ;;
                 *)     s="=== Phase 4/4: Configuration templates ===" ;;
             esac ;;
+        phase0)
+            case "$lang" in
+                zh-CN) s="=== 阶段 0/5：完整推荐组合安装 ===" ;; zh-TW) s="=== 階段 0/5：完整推薦組合安裝 ===" ;;
+                ja)    s="=== フェーズ 0/5: 推奨コンボ一括インストール ===" ;;
+                ko)    s="=== 단계 0/5: 추천 조합 전체 설치 ===" ;;
+                *)     s="=== Phase 0/5: Full recommended combo install ===" ;;
+            esac ;;
         phase.cleanup)
             case "$lang" in
                 zh-CN) s="=== 冲突清理与环境检测 ===" ;; zh-TW) s="=== 衝突清理與環境偵測 ===" ;;
@@ -519,6 +526,46 @@ _msg() {
                 ja)    s="番号を入力 [既定=1]: " ;;
                 ko)    s="번호 입력 [기본=1]: " ;;
                 *)     s="Enter number [default=1]: " ;;
+            esac ;;
+        prompt.bak_select)
+            case "$lang" in
+                zh-CN) s="选择要删除的 .bak.* 备份文件（输入序号，空格分隔）[默认=全部删除]: " ;;
+                zh-TW) s="選擇要刪除的 .bak.* 備份文件（輸入序號，空格分隔）[預設=全部刪除]: " ;;
+                ja)    s="削除する.bak.*バックアップファイルを選択してください（番号を入力、スペース区切り）[既定=全て削除]: " ;;
+                ko)    s="삭제할 .bak.* 백업 파일 선택 (번호 입력, 공백 구분) [기본=전체 삭제]: " ;;
+                *)     s="Select .bak.* backup files to remove (enter numbers, space-separated) [default=all remove]: " ;;
+            esac ;;
+        prompt.bak_remove)
+            case "$lang" in
+                zh-CN) s="删除 %s (已备份为 .bak.*)?" ;;
+                zh-TW) s="刪除 %s (已備份為 .bak.*)?" ;;
+                ja)    s="%s を削除しますか（.bak.* にバックアップ済み）?" ;;
+                ko)    s="%s을(를) 삭제할까요? (.bak.* 백업 보유)" ;;
+                *)     s="Remove %s (backed up as .bak.*)?" ;;
+            esac ;;
+        prompt.bak_cascade)
+            case "$lang" in
+                zh-CN) s="删除级联备份 %s（文件名含多个 .bak.，已失效）?" ;;
+                zh-TW) s="刪除級聯備份 %s（文件名含多個 .bak.，已失效）?" ;;
+                ja)    s="カスケードバックアップ %s を削除しますか（名前に複数 .bak. あり、無効）?" ;;
+                ko)    s="캐스케이드 백업 %s을(를) 삭제할까요? (이름에 여러 .bak. 포함, 무효)" ;;
+                *)     s="Remove cascaded backup %s (name has multiple .bak., invalid)?" ;;
+            esac ;;
+        prompt.bak_keep)
+            case "$lang" in
+                zh-CN) s="保留此备份 %s?" ;;
+                zh-TW) s="保留此備份 %s?" ;;
+                ja)    s="このバックアップ %s を保持しますか?" ;;
+                ko)    s="이 백업 %s을(를) 유지할까요?" ;;
+                *)     s="Keep this backup %s?" ;;
+            esac ;;
+        prompt.residue_clean)
+            case "$lang" in
+                zh-CN) s="清理冲突插件残留（.cache/p10k-*, .cache/zsh*, .local/state/zsh-autocomplete 等）?" ;;
+                zh-TW) s="清理衝突插件殘留（.cache/p10k-*, .cache/zsh*, .local/state/zsh-autocomplete 等）?" ;;
+                ja)    s="競合プラグインの残留物をクリーンアップしますか（.cache/p10k-*, .cache/zsh*, .local/state/zsh-autocomplete など）?" ;;
+                ko)    s="충돌 플러그인 잔여물 정리할까요? (.cache/p10k-*, .cache/zsh*, .local/state/zsh-autocomplete 등)" ;;
+                *)     s="Clean conflict plugin residues (.cache/p10k-*, .cache/zsh*, .local/state/zsh-autocomplete etc.)?" ;;
             esac ;;
     esac
     printf '%s' "$s"
@@ -1050,28 +1097,96 @@ check_zsh() {
 }
 
 # ------------------------------------------------------------------
-# Phase 1/4: Base tools (zsh, fzf)
+# Platform-neutral paths
+# ------------------------------------------------------------------
+# ZDOTDIR: supports Zsh multi-config (ZSH_DIR env var or default to HOME).
+# All config paths below derive from this so the installer works for both
+# standard and non-standard Zsh setups (including macOS Homebrew zsh).
+ZDOTDIR="${ZDOTDIR:-${ZSH_DIR:-$HOME}}"
+
+# ------------------------------------------------------------------
+# Phase 0/5: Full recommended combo install (zsh + fzf + starship + atuin + zinit + zsh-smart-complete)
+# ------------------------------------------------------------------
+# When run interactively without SKIP_DEPS, this single phase installs
+# everything end-to-end, then runs conflict cleanup and config-combo selection.
+# When SKIP_DEPS=1 or NONINTERACTIVE=1, this is skipped and phases 1-3 take over.
+if [[ "${SKIP_DEPS:-}" != "1" && "${NONINTERACTIVE:-0}" != "1" ]]; then
+    info "$(msg phase0)"
+    {
+        # --- fzf ---
+        if command -v fzf >/dev/null 2>&1; then
+            success "$(msg msg.fzf_installed)"
+        elif install_pkg_soft "fzf" "fzf" "fzf"; then
+            success "fzf installed (package manager)"
+        else
+            local fzf_dir="${XDG_DATA_HOME:-$HOME/.local/share}/fzf"
+            if git_clone_repo "https://github.com/junegunn/fzf.git" "$fzf_dir" \
+               && ( cd "$fzf_dir" && "$fzf_dir/install" --all >/dev/null 2>&1 ); then
+                success "fzf installed via git clone (mirror-accelerated)"
+            else
+                warn "fzf install failed (non-fatal; plugin core does not require fzf)."
+            fi
+        fi
+        # --- starship ---
+        if command -v starship >/dev/null 2>&1; then
+            success "Starship is installed: $(starship --version 2>/dev/null || echo present)"
+            if prompt_yes "$(msg prompt.starship_upgrade)" 0; then
+                run_with_mirror_dl 'curl -fsSL https://starship.rs/install.sh | sh -s -- -y' \
+                    || warn "Starship upgrade failed (non-fatal)"
+            fi
+        elif prompt_yes "$(msg prompt.starship)" 1; then
+            run_with_mirror_dl 'curl -fsSL https://starship.rs/install.sh | sh -s -- -y' \
+                || error "Starship install failed. Retry with SKIP_DEPS=1 to skip external downloads."
+            success "Starship installed"
+        fi
+        # --- atuin ---
+        if command -v atuin >/dev/null 2>&1; then
+            success "Atuin is installed: $(atuin --version 2>/dev/null || echo present)"
+        elif prompt_yes "$(msg prompt.atuin)" 0; then
+            info "Trying Atuin official installer (mirror-accelerated) ..."
+            if run_with_mirror_dl 'curl -fsSL https://setup.atuin.sh | sh -s -- --non-interactive 2>/dev/null'; then
+                success "Atuin installed"
+            else
+                warn "Atuin install failed (non-fatal). See https://atuin.sh"
+            fi
+        fi
+        # --- zinit ---
+        local zinit_home_local="${XDG_DATA_HOME:-$HOME/.local/share}/zinit/zinit.git"
+        if [[ -d "$zinit_home_local" ]]; then
+            success "$(msg msg.zinit_installed "$zinit_home_local")"
+            if prompt_yes "$(msg prompt.zinit_pull)" 0; then
+                ( cd "$zinit_home_local" && git pull --ff-only 2>/dev/null ) || warn "git pull failed (non-fatal)"
+            fi
+        elif prompt_yes "$(msg prompt.zinit)" 1; then
+            mkdir -p "$(dirname "$zinit_home_local")"
+            git_clone_repo "https://github.com/zdharma-continuum/zinit.git" "$zinit_home_local" \
+                || error "Zinit clone failed. Check your internet connection."
+            success "Zinit installed"
+        fi
+        # --- zsh-smart-complete plugin ---
+        local zsc_dir="${XDG_DATA_HOME:-$HOME/.local/share}/zinit/plugins/imonior---zsh-smart-complete"
+        if [[ ! -d "$zsc_dir" ]]; then
+            info "Cloning zsh-smart-complete plugin repo ..."
+            mkdir -p "$(dirname "$zsc_dir")"
+            git_clone_repo "https://github.com/imonior/zsh-smart-complete.git" "$zsc_dir" \
+                || warn "zsh-smart-complete clone failed. If running Zinit, zinit light will clone it automatically."
+        fi
+        # --- conflict cleanup ---
+        info "$(msg phase.cleanup)"
+        clean_conflict_plugin "zsh-autocomplete"
+        clean_conflict_plugin "zsh-autosuggestions"
+        resolve_omz_p10k
+    }
+    # Fall through to phase4 for config template application only
+fi
+
+# ------------------------------------------------------------------
+# Phase 1/4: Base tools (zsh, fzf) -- skipped if Phase 0 ran
 # ------------------------------------------------------------------
 info "$(msg phase1)"
 
 check_zsh
 
-if [[ "${SKIP_DEPS:-0}" != "1" ]]; then
-    if command -v fzf >/dev/null 2>&1; then
-        success "fzf is already installed"
-    elif install_pkg_soft "fzf" "fzf" "fzf"; then
-        success "fzf installed (package manager)"
-    else
-        warn "fzf 包管理器安装失败，尝试官方 git clone 安装（走镜像加速）..."
-        fzf_dir="${XDG_DATA_HOME:-$HOME/.local/share}/fzf"
-        if git_clone_repo "https://github.com/junegunn/fzf.git" "$fzf_dir" \
-           && ( cd "$fzf_dir" && "$fzf_dir/install" --all >/dev/null 2>&1 ); then
-            success "fzf installed via git clone (mirror-accelerated)"
-        else
-            warn "fzf 安装失败（插件核心不依赖 fzf，可稍后手动安装）。"
-        fi
-    fi
-fi
 
 # ------------------------------------------------------------------
 # Phase 2/4: Optional Starship (system package)
@@ -1083,7 +1198,7 @@ if command -v starship >/dev/null 2>&1; then
         run_with_mirror_dl 'curl -fsSL https://starship.rs/install.sh | sh -s -- -y' \
             || warn "Starship upgrade failed (non-fatal)"
     fi
-elif [[ "${SKIP_DEPS:-0}" != "1" ]] && prompt_yes "$(msg prompt.starship)" 1; then
+elif prompt_yes "$(msg prompt.starship)" 1; then
     run_with_mirror_dl 'curl -fsSL https://starship.rs/install.sh | sh -s -- -y' \
         || error "Starship install failed. Retry with SKIP_DEPS=1 to skip external downloads."
     success "Starship installed"
@@ -1095,7 +1210,7 @@ fi
 info "$(msg phase2b)"
 if command -v atuin >/dev/null 2>&1; then
     success "Atuin is installed: $(atuin --version 2>/dev/null || echo present)"
-elif [[ "${SKIP_DEPS:-0}" != "1" ]] && prompt_yes "$(msg prompt.atuin)" 0; then
+elif prompt_yes "$(msg prompt.atuin)" 0; then
     # 外层脚本抓取与“内层”从 GitHub Releases 下载的二进制均经镜像 shim 加速。
     info "Trying Atuin official installer (mirror-accelerated fetch + binary) ..."
     if run_with_mirror_dl 'curl -fsSL https://setup.atuin.sh | sh -s -- --non-interactive 2>/dev/null'; then
@@ -1116,7 +1231,7 @@ if [[ -d "$ZINIT_HOME" ]]; then
     if prompt_yes "$(msg prompt.zinit_pull)" 0; then
         ( cd "$ZINIT_HOME" && git pull --ff-only 2>/dev/null ) || warn "git pull failed (non-fatal)"
     fi
-elif [[ "${SKIP_DEPS:-0}" != "1" ]] && prompt_yes "$(msg prompt.zinit)" 1; then
+elif prompt_yes "$(msg prompt.zinit)" 1; then
     mkdir -p "$(dirname "$ZINIT_HOME")"
     git_clone_repo "https://github.com/zdharma-continuum/zinit.git" "$ZINIT_HOME" \
         || error "Zinit clone failed. Check your internet connection."
@@ -1126,7 +1241,7 @@ fi
 # If the user didn't install Zinit, fall back: clone zsh-smart-complete directly
 # so we can still provide a working `source ~/.../zsh-smart-complete.plugin.zsh`.
 SMART_COMPLETE_INSTALL_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/zinit/plugins/imonior---zsh-smart-complete"
-if [[ ! -d "$SMART_COMPLETE_INSTALL_DIR" && "${SKIP_DEPS:-0}" != "1" ]]; then
+if [[ ! -d "$SMART_COMPLETE_INSTALL_DIR" ]]; then
     info "Cloning zsh-smart-complete plugin repo ..."
     mkdir -p "$(dirname "$SMART_COMPLETE_INSTALL_DIR")"
     git_clone_repo "https://github.com/imonior/zsh-smart-complete.git" "$SMART_COMPLETE_INSTALL_DIR" \
@@ -1193,6 +1308,102 @@ _cleanup_old_baks() {
             rm -rf "$pdir" && success "Removed plugin bak dir: $pname"
         done
     fi
+    (( ${#item_paths[@]} )) || { info "No .bak.* backup artifacts found"; return 0; }
+    echo
+    info "Found ${#item_paths[@]} .bak.* backup artifact(s):"
+    local i=1
+    for (( i=1; i<=${#item_labels[@]}; i++ )); do
+        local t="${item_types[$((i-1))]}"
+        local tag=""
+        case "$t" in
+            cascade)   tag=" [CASCaded]" ;;
+            stale)     tag=" [STALE]" ;;
+            newest)    tag=" [KEEP]" ;;
+            plugin_bak) tag=" [PLUGIN]" ;;
+        esac
+        printf "  %2d) %-50s%s\n" "$i" "${item_labels[$((i-1))]}" "$tag"
+    done
+    echo -n "$(msg prompt.bak_select)"
+    local choice_input=""; read -r choice_input || true
+    local -a want=()
+    if [[ -n "$choice_input" ]]; then
+        for c in $choice_input; do
+            [[ "$c" =~ ^[0-9]+$ ]] || continue
+            (( c >= 1 && c <= ${#item_labels[@]} )) && want+=("$c")
+        done
+    fi
+    # Default: select all (remove everything)
+    if (( ${#want[@]} == 0 )); then
+        for (( i=1; i<=${#item_labels[@]}; i++ )); do want+=("$i"); done
+    fi
+    for c in "${want[@]}"; do
+        local idx=$((c-1))
+        local p="${item_paths[$idx]}" l="${item_labels[$idx]}" t="${item_types[$idx]}"
+        case "$t" in
+            cascade)
+                if prompt_yes "$(msg prompt.bak_cascade "$l")" 1; then
+                    rm -f "$p" && success "Removed cascaded backup: $l"
+                fi ;;
+            stale|newest)
+                local def_yes=0; [[ "$t" = "stale" ]] && def_yes=1
+                if prompt_yes "$(msg prompt.bak_remove "$l")" "$def_yes"; then
+                    rm -f "$p" && success "Removed backup: $l"
+                fi ;;
+            plugin_bak)
+                if prompt_yes "$(msg prompt.bak_remove "$l")" 1; then
+                    rm -rf "$p" && success "Removed plugin bak dir: $l"
+                fi ;;
+        esac
+    done
+    info "Backup cleanup done."
+}
+
+# Interactive cleanup of residual conflict-plugin artifacts from cache/state.
+# Only removes items the user confirms (cascade and conflict-plugin dirs default yes).
+_cleanup_conflict_residues() {
+    local -a residues=() residue_labels=()
+    # zsh-autocomplete state
+    local zaut_path="$ZDOTDIR/../state/zsh-autocomplete"
+    [[ -d "$zaut_path" ]] && residues+=("$zaut_path") && residue_labels+=("zsh-autocomplete state")
+    # Also check the legacy XDG path
+    [[ -d "$HOME/.local/state/zsh-autocomplete" ]] && residues+=("$HOME/.local/state/zsh-autocomplete") && residue_labels+=("zsh-autocomplete state (legacy)")
+    # p10k cache dirs
+    for d in "$ZDOTDIR"/../cache/p10k-* "$ZDOTDIR"/../cache/powerlevel10k* \
+             "$HOME"/.cache/p10k-* "$HOME"/.cache/powerlevel10k*; do
+        [[ -d "$d" ]] || continue
+        local bn; bn="$(basename "$d")"
+        # Avoid duplicates (XDG and HOME may overlap)
+        local dup=0 r
+        for r in "${residues[@]}"; do [[ "$r" == "$d" ]] && dup=1; done
+        (( dup )) || { residues+=("$d"); residue_labels+=("$bn (cache)"); }
+    done
+    # zsh cache
+    for d in "$ZDOTDIR"/../cache/zsh* "$HOME"/.cache/zsh*; do
+        [[ -d "$d" ]] || continue
+        local bn; bn="$(basename "$d")"
+        local dup=0 r
+        for r in "${residues[@]}"; do [[ "$r" == "$d" ]] && dup=1; done
+        (( dup )) || { residues+=("$d"); residue_labels+=("$bn (cache)"); }
+    done
+    # Stale zinit completion symlinks
+    if [[ -d "$ZINIT_PLUGINS_DIR/../completions" ]]; then
+        local compdir="$ZINIT_PLUGINS_DIR/../completions"
+        for link in "$compdir"/*; do
+            [[ -L "$link" ]] || continue
+            local target; target="$(readlink "$link")"
+            if [[ ! -d "${target%%/*}" ]]; then
+                residues+=("$link")
+                residue_labels+=("dangling completion: $(basename "$link")")
+            fi
+        done
+    fi
+    # Conflict plugin dirs in zinit
+    for pattern in "*autocomplete*" "*autosuggestions*"; do
+        for pdir in "$ZINIT_PLUGINS_DIR"/"$pattern"; do
+            [[ -d "$pdir" ]] || continue
+            rm -rf "$pdir" && success "Removed conflict plugin dir: $(basename "$pdir")"
+        done
+    done
 }
 
 # Remove residual conflict-plugin artifacts from cache/state directories.
@@ -1233,7 +1444,7 @@ _cleanup_conflict_residues
 # Comment out "active" lines in ~/.zshrc matching a pattern (idempotent:
 # already-commented lines are skipped). Backs up ~/.zshrc before editing.
 comment_out_zshrc() {
-    local pattern="$1" f="$HOME/.zshrc" tmp line changed=0
+    local pattern="$1" f="$ZDOTDIR/.zshrc" tmp line changed=0
     [[ -f "$f" ]] || return 0
     tmp="$(mktemp)"
     while IFS= read -r line; do
@@ -1270,8 +1481,8 @@ clean_conflict_plugin() {
     fi
     omz_dir="$HOME/.oh-my-zsh/custom/plugins/$plugin_name"
     if [[ -d "$omz_dir" ]]; then found=1; warn "Found conflict plugin dir: $omz_dir"; fi
-    if [[ -f "$HOME/.zshrc" ]]; then
-        matches="$(grep -nF "$plugin_name" "$HOME/.zshrc" 2>/dev/null | grep -v '^[[:space:]]*#' || true)"
+    if [[ -f "$ZDOTDIR/.zshrc" ]]; then
+        matches="$(grep -nF "$plugin_name" "$ZDOTDIR/.zshrc" 2>/dev/null | grep -v '^[[:space:]]*#' || true)"
         [[ -n "$matches" ]] && found=1
     fi
     if (( found == 0 )); then
@@ -1299,18 +1510,18 @@ CONFIG_COMBO="zinit-starship"
 
 detect_env() {
     HAS_OMZ=0; HAS_P10K=0
-    if [[ -d "$HOME/.oh-my-zsh" ]] || grep -qE 'oh-my-zsh(\.sh|/)|[$]ZSH/' "$HOME/.zshrc" 2>/dev/null; then
+    if [[ -d "$HOME/.oh-my-zsh" ]] || grep -qE 'oh-my-zsh(\.sh|/)|[$]ZSH/' "$ZDOTDIR/.zshrc" 2>/dev/null; then
         HAS_OMZ=1
     fi
-    if [[ -f "$HOME/.p10k.zsh" ]] || [[ -f "$HOME/.powerlevel10k/powerlevel10k.zsh-theme" ]] \
-       || grep -qE 'powerlevel10k|p10k\.zsh' "$HOME/.zshrc" 2>/dev/null; then
+    if [[ -f "$ZDOTDIR/.p10k.zsh" ]] || [[ -f "$HOME/.powerlevel10k/powerlevel10k.zsh-theme" ]] \
+       || grep -qE 'powerlevel10k|p10k\.zsh' "$ZDOTDIR/.zshrc" 2>/dev/null; then
         HAS_P10K=1
     fi
 }
 
 # --- 组合相关的"确保已安装"辅助函数（选择 OMZ / p10k 备选时，若未安装则安装）---
 _set_zsh_theme() {
-    local theme="$1" f="$HOME/.zshrc"
+    local theme="$1" f="$ZDOTDIR/.zshrc"
     [[ -f "$f" ]] || return 0
     if grep -qE '^[[:space:]]*ZSH_THEME=' "$f" 2>/dev/null; then
         local tmp="$(mktemp)"
@@ -1388,8 +1599,8 @@ _remove_p10k() {
     # 交互确认：用户选Yes才删除，默认No避免误操作
     comment_out_zshrc 'powerlevel10k'
     comment_out_zshrc 'p10k.zsh'
-    if [[ -f "$HOME/.p10k.zsh" ]] && prompt_yes "Delete ~/.p10k.zsh (backed up)?" 1; then
-        mv "$HOME/.p10k.zsh" "$HOME/.p10k.zsh.bak.$(date +%s)" && success "Backed up + removed ~/.p10k.zsh"
+    if [[ -f "$ZDOTDIR/.p10k.zsh" ]] && prompt_yes "Delete ~/.p10k.zsh (backed up)?" 1; then
+        mv "$ZDOTDIR/.p10k.zsh" "$ZDOTDIR/.p10k.zsh.bak.$(date +%s)" && success "Backed up + removed ~/.p10k.zsh"
     fi
     if [[ -d "$HOME/.powerlevel10k" ]] && prompt_yes "Delete ~/.powerlevel10k directory (backed up)?" 1; then
         mv "$HOME/.powerlevel10k" "$HOME/.powerlevel10k.bak.$(date +%s)" && success "Removed ~/.powerlevel10k"

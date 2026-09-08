@@ -790,7 +790,7 @@ select_mirror() {
     done
     GH_MIRROR="${MIRROR_PREFIXES[$choice]}"
     GH_MIRROR_TYPE="${MIRROR_TYPES[$choice]}"
-    info "$(msg mirror.chosen "${_mirror_label $choice}" "${MIRROR_TIMES[$choice]}" "$GH_MIRROR_TYPE")"
+    info "$(msg mirror.chosen "$(_mirror_label $choice)" "${MIRROR_TIMES[$choice]}" "$GH_MIRROR_TYPE")"
 }
 
 REPO_BASE_URL="${SMART_COMPLETE_REPO_BASE_URL:-https://raw.githubusercontent.com/imonior/zsh-smart-complete/main}"
@@ -1138,6 +1138,44 @@ fi
 # ------------------------------------------------------------------
 info "$(msg phase.cleanup)"
 ZINIT_PLUGINS_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/zinit/plugins"
+
+# Clean up old .bak.* residual files from previous install runs.
+# Keeps only the most recent backup per base name, removes deeply cascaded ones.
+_cleanup_old_baks() {
+    local base dir f older bcount
+    for base in "$HOME"/.*.bak.* "$HOME"/.*.zshrc.bak.* \
+                "$HOME"/.*.p10k.zsh.bak.* "$HOME"/.*.oh-my-zsh.bak.* \
+                "$HOME"/.config/starship.toml.bak.*; do
+        [[ -e "$base" ]] || continue
+        dir="$(dirname "$base")"
+        f="$(basename "$base")"
+        # Remove files that look like cascaded backups (multiple .bak. in name)
+        if [[ "$f" == *.bak.*.bak.* ]]; then
+            rm -f "$base" && success "Removed cascaded backup: $f"
+            continue
+        fi
+        # Keep only the 2 most recent .bak.* files per basename stem, remove the rest
+        local stem="${f%.bak.*}"
+        mapfile -t candidates < <(ls -t "$dir"/"${stem}".bak.* 2>/dev/null)
+        bcount=${#candidates[@]}
+        if (( bcount > 2 )); then
+            for (( i=2; i<bcount; i++ )); do
+                rm -f "${candidates[$i]}" && success "Removed old backup: $(basename "${candidates[$i]}")"
+            done
+        fi
+    done
+    # Also clean up any zinit plugin bak dirs with cascaded timestamps
+    if [[ -d "$ZINIT_PLUGINS_DIR" ]]; then
+        for pdir in "$ZINIT_PLUGINS_DIR"/*.bak.*; do
+            [[ -d "$pdir" ]] || continue
+            local pname; pname="$(basename "$pdir")"
+            if [[ "$pname" == *.bak.*.bak.* ]]; then
+                rm -rf "$pdir" && success "Removed cascaded plugin bak dir: $pname"
+            fi
+        done
+    fi
+}
+_cleanup_old_baks
 
 # Comment out "active" lines in ~/.zshrc matching a pattern (idempotent:
 # already-commented lines are skipped). Backs up ~/.zshrc before editing.

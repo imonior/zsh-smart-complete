@@ -222,6 +222,14 @@ _msg() {
                 ko)    s="zsh-smart-complete 로더 블록을 ~/.zshrc 끝에 추가할까요?" ;;
                 *)     s="Append zsh-smart-complete loader block to the end of ~/.zshrc?" ;;
             esac ;;
+        prompt.zshrc_overwrite)
+            case "$lang" in
+                zh-CN) s="用推荐模板完整覆盖 ~/.zshrc（会合并原有配置，备份到 .bak.*）？" ;;
+                zh-TW) s="用推薦模板完整覆蓋 ~/.zshrc（會合併原有配置，備份到 .bak.*）？" ;;
+                ja)    s="推奨テンプレートで ~/.zshrc を完全に上書きしますか（既存設定は .bak.* にバックアップ）？" ;;
+                ko)    s="권장 템플릿으로 ~/.zshrc를 완전히 덮어쓰시겠습니까 (기존 설정은 .bak.* 백업)? (권장)" ;;
+                *)     s="Overwrite ~/.zshrc with recommended template? (recommended, merges your existing config)" ;;
+            esac ;;
         msg.fzf_installed)
             case "$lang" in
                 zh-CN) s="fzf 已安装" ;; zh-TW) s="fzf 已安裝" ;;
@@ -239,6 +247,102 @@ _msg() {
                 zh-CN) s="Zinit 已安装于 %s" ;; zh-TW) s="Zinit 已安裝於 %s" ;;
                 ja)    s="Zinit は %s にインストール済み" ;; ko)    s="Zinit 설치 위치: %s" ;;
                 *)     s="Zinit is installed at %s" ;;
+            esac ;;
+        combo.title)
+            case "$lang" in
+                zh-CN) s="选择配置组合（推荐 Zinit + Starship，也可选用 Oh My Zsh / Powerlevel10k 备选）：" ;;
+                zh-TW) s="選擇配置組合（推薦 Zinit + Starship，也可選用 Oh My Zsh / Powerlevel10k 備選）：" ;;
+                ja)    s="構成を選択してください（推奨: Zinit + Starship、代替案として Oh My Zsh / Powerlevel10k も利用可能）：" ;;
+                ko)    s="구성 선택 (추천: Zinit + Starship, Oh My Zsh / Powerlevel10k도 가능):" ;;
+                *)     s="Select configuration combo (recommended: Zinit + Starship, also available: Oh My Zsh / Powerlevel10k as alternatives):" ;;
+            esac ;;
+        combo.option1.new)
+            case "$lang" in
+                zh-CN) s="  1) (推荐) Zinit + Starship —— 全新安装，轻量现代" ;;
+                zh-TW) s="  1) (推薦) Zinit + Starship —— 全新安裝，輕量現代" ;;
+                ja)    s="  1) (推奨) Zinit + Starship —— 新規インストール、軽量モダン" ;;
+                ko)    s="  1) (추천) Zinit + Starship —— 신규 설치, 경량 현대적" ;;
+                *)     s="  1) (recommended) Zinit + Starship —— fresh install, lightweight modern" ;;
+            esac ;;
+        combo.option2.new)
+            case "$lang" in
+                zh-CN) s="  2) Oh My Zsh + Powerlevel10k —— 经典方案（将为你安装 OMZ 与 p10k）" ;;
+                zh-TW) s="  2) Oh My Zsh + Powerlevel10k —— 經典方案（將為你安裝 OMZ 與 p10k）" ;;
+                ja)    s="  2) Oh My Zsh + Powerlevel10k —— クラシックソリューション（OMZ と p10k をインストールします）" ;;
+                ko)    s="  2) Oh My Zsh + Powerlevel10k —— 클래식 솔루션 (OMZ 및 p10k를 설치합니다)" ;;
+                *)     s="  2) Oh My Zsh + Powerlevel10k —— classic solution (will install OMZ & p10k)" ;;
+            esac ;;
+        combo.option3.new)
+            case "$lang" in
+                zh-CN) s="  3) Zinit + Powerlevel10k —— Zinit 管理 p10k 主题" ;;
+                zh-TW) s="  3) Zinit + Powerlevel10k —— Zinit 管理 p10k 主題" ;;
+                ja)    s="  3) Zinit + Powerlevel10k —— Zinit가 관리하는 p10k 테마" ;;
+                ko)    s="  3) Zinit + Powerlevel10k —— Zinit가 관리하는 p10k 테마" ;;
+                *)     s="  3) Zinit + Powerlevel10k — Zinit manages p10k theme" ;;
+            esac ;;
+        combo.option1.keep)
+            case "$lang" in
+                zh-CN) s="  1) (推荐) 移除 OMZ/p10k，全新 Zinit + Starship" ;;
+                zh-TW) s="  1) (推薦) 移除 OMZ/p10k，全新 Zinit + Starship" ;;
+                ja)    s="  1) (推奨) OMZ/p10kを削除し、全新のZinit + Starship" ;;
+                ko)    s="  1) (추천) OMZ/p10k 제거 및全新 Zinit + Starship" ;;
+                *)     s="  1) (recommended) Remove OMZ/p10k, fresh Zinit + Starship" ;;
+            esac ;;
+        combo.option2.keep)
+            case "$lang" in
+                zh-CN) s="  2) 保留 OMZ + p10k，配合使用" ;;
+                zh-TW) s="  2) 保留 OMZ + p10k，配合使用" ;;
+                ja)    s="  2) OMZ + p10kを保持し、併用する" ;;
+                ko)    s="  2) OMZ + p10k 유지 및 함께 사용" ;;
+                *)     s="  2) Keep OMZ + p10k, use together" ;;
+            esac ;;
+        combo.option3.keep)
+            case "$lang" in
+                zh-CN) s="  3) 移除 OMZ，保留 p10k（Zinit + Powerlevel10k）" ;;
+                zh-TW) s="  3) 移除 OMZ，保留 p10k（Zinit + Powerlevel10k）" ;;
+                ja)    s="  3) OMZ를 삭제하고, p10k를 유지（Zinit + Powerlevel10k）" ;;
+                ko)    s="  3) OMZ 제거, p10k 유지（Zinit + Powerlevel10k）" ;;
+                *)     s="  3) Remove OMZ, keep p10k (Zinit + Powerlevel10k)" ;;
+            esac ;;
+        combo.detected)
+            case "$lang" in
+                zh-CN) s="已检测到已安装:%s。" ;;
+                zh-TW) s="已檢測到已安裝:%s。" ;;
+                ja)    s="検出済み:%s。" ;;
+                ko)    s="감지됨:%s。" ;;
+                *)     s="Detected installed:%s." ;;
+            esac ;;
+        combo.zinit_starship)
+            case "$lang" in
+                zh-CN) s="已选择（推荐）：Zinit + Starship。正在清除 OMZ/p10k 残留…" ;;
+                zh-TW) s="已選擇（推薦）：Zinit + Starship。正在清除 OMZ/p10k 殘留…" ;;
+                ja)    s="選択済み（推奨）：Zinit + Starship。OMZ/p10k 残存をクリア中…" ;;
+                ko)    s="선택됨 (추천): Zinit + Starship. OMZ/p10k 잔여물 정리 중…" ;;
+                *)     s="Selected (recommended): Zinit + Starship. Clearing OMZ/p10k remnants…" ;;
+            esac ;;
+        combo.keep_omz)
+            case "$lang" in
+                zh-CN) s="已选择：Oh My Zsh + Powerlevel10k（经典方案）。" ;;
+                zh-TW) s="已選擇：Oh My Zsh + Powerlevel10k（經典方案）。" ;;
+                ja)    s="選択済み：Oh My Zsh + Powerlevel10k（クラシック構成）。" ;;
+                ko)    s="선택됨: Oh My Zsh + Powerlevel10k (클래식 솔루션)." ;;
+                *)     s="Selected: Oh My Zsh + Powerlevel10k (classic)." ;;
+            esac ;;
+        combo.zinit_p10k)
+            case "$lang" in
+                zh-CN) s="已选择：Zinit + Powerlevel10k。正在清除 OMZ 残留…" ;;
+                zh-TW) s="已選擇：Zinit + Powerlevel10k。正在清除 OMZ 殘留…" ;;
+                ja)    s="選択済み：Zinit + Powerlevel10k。OMZ 残存をクリア中…" ;;
+                ko)    s="선택됨: Zinit + Powerlevel10k. OMZ 잔여물 정리 중…" ;;
+                *)     s="Selected: Zinit + Powerlevel10k. Clearing OMZ remnants…" ;;
+            esac ;;
+        combo.prompt)
+            case "$lang" in
+                zh-CN) s="输入序号 [默认=1]: " ;;
+                zh-TW) s="輸入序號 [預設=1]: " ;;
+                ja)    s="番号を入力 [既定=1]: " ;;
+                ko)    s="번호 입력 [기본=1]: " ;;
+                *)     s="Enter number [default=1]: " ;;
             esac ;;
     esac
     printf '%s' "$s"
@@ -925,23 +1029,6 @@ detect_env() {
     fi
 }
 
-_remove_omz() {
-    comment_out_zshrc 'oh-my-zsh'
-    if [[ -d "$HOME/.oh-my-zsh" ]] && prompt_yes "Delete ~/.oh-my-zsh directory (backed up as .bak)?" 0; then
-        mv "$HOME/.oh-my-zsh" "$HOME/.oh-my-zsh.bak.$(date +%s)" && success "Backed up + removed ~/.oh-my-zsh"
-    fi
-}
-_remove_p10k() {
-    comment_out_zshrc 'powerlevel10k'
-    comment_out_zshrc 'p10k.zsh'
-    if [[ -f "$HOME/.p10k.zsh" ]] && prompt_yes "Delete ~/.p10k.zsh (backed up)?" 0; then
-        mv "$HOME/.p10k.zsh" "$HOME/.p10k.zsh.bak.$(date +%s)" && success "Backed up + removed ~/.p10k.zsh"
-    fi
-    if [[ -d "$HOME/.powerlevel10k" ]] && prompt_yes "Delete ~/.powerlevel10k directory (backed up)?" 0; then
-        mv "$HOME/.powerlevel10k" "$HOME/.powerlevel10k.bak.$(date +%s)" && success "Removed ~/.powerlevel10k"
-    fi
-}
-
 # --- 组合相关的"确保已安装"辅助函数（选择 OMZ / p10k 备选时，若未安装则安装）---
 _set_zsh_theme() {
     local theme="$1" f="$HOME/.zshrc"
@@ -1011,19 +1098,37 @@ _ensure_p10k_zinit() {
     return 0
 }
 
+_remove_omz() {
+    # 交互确认：用户选Yes才删除，默认No避免误操作
+    comment_out_zshrc 'oh-my-zsh'
+    if [[ -d "$HOME/.oh-my-zsh" ]] && prompt_yes "Delete ~/.oh-my-zsh directory (backed up as .bak)?" 1; then
+        mv "$HOME/.oh-my-zsh" "$HOME/.oh-my-zsh.bak.$(date +%s)" && success "Backed up + removed ~/.oh-my-zsh"
+    fi
+}
+_remove_p10k() {
+    # 交互确认：用户选Yes才删除，默认No避免误操作
+    comment_out_zshrc 'powerlevel10k'
+    comment_out_zshrc 'p10k.zsh'
+    if [[ -f "$HOME/.p10k.zsh" ]] && prompt_yes "Delete ~/.p10k.zsh (backed up)?" 1; then
+        mv "$HOME/.p10k.zsh" "$HOME/.p10k.zsh.bak.$(date +%s)" && success "Backed up + removed ~/.p10k.zsh"
+    fi
+    if [[ -d "$HOME/.powerlevel10k" ]] && prompt_yes "Delete ~/.powerlevel10k directory (backed up)?" 1; then
+        mv "$HOME/.powerlevel10k" "$HOME/.powerlevel10k.bak.$(date +%s)" && success "Removed ~/.powerlevel10k"
+    fi
+}
 _apply_combo() {
     CONFIG_COMBO="$1"
     case "$CONFIG_COMBO" in
         keep-omz)
-            info "已选择：Oh My Zsh + Powerlevel10k（经典方案）。"
+            info "$(msg combo.keep_omz)"
             _ensure_omz
             _ensure_p10k_omz ;;
         zinit-p10k)
-            info "已选择：Zinit + Powerlevel10k。"
+            info "$(msg combo.zinit_p10k)"
             _remove_omz
             _ensure_p10k_zinit ;;
         zinit-starship)
-            info "已选择（推荐）：Zinit + Starship。"
+            info "$(msg combo.zinit_starship)"
             _remove_omz
             _remove_p10k ;;
     esac
@@ -1051,21 +1156,21 @@ resolve_omz_p10k() {
     # 无论是否已安装 OMZ/p10k，都给出组合选择；全部未安装时推荐 Zinit+Starship，
     # 同时分别提供 Oh My Zsh / Powerlevel10k 备选。
     echo
-    info "选择配置组合（推荐 Zinit + Starship，也可选用 Oh My Zsh / Powerlevel10k 备选）："
+    info "$(msg combo.title)"
     if (( HAS_OMZ == 0 && HAS_P10K == 0 )); then
-        printf "  1) (推荐) Zinit + Starship —— 全新安装，轻量现代\n"
-        printf "  2) Oh My Zsh + Powerlevel10k —— 经典方案（将为你安装 OMZ 与 p10k）\n"
-        printf "  3) Zinit + Powerlevel10k —— Zinit 管理 p10k 主题\n"
+        echo "$(msg combo.option1.new)"
+        echo "$(msg combo.option2.new)"
+        echo "$(msg combo.option3.new)"
     else
-        local msg=""
-        (( HAS_OMZ )) && msg+=" Oh My Zsh" || true
-        (( HAS_P10K )) && msg+=" Powerlevel10k" || true
-        info "已检测到已安装:${msg}。"
-        printf "  1) (推荐) 移除 OMZ/p10k，全新 Zinit + Starship\n"
-        printf "  2) 保留 OMZ + p10k，配合使用\n"
-        printf "  3) 移除 OMZ，保留 p10k（Zinit + Powerlevel10k）\n"
+        local detected_msg=""
+        (( HAS_OMZ )) && detected_msg+=" Oh My Zsh" || true
+        (( HAS_P10K )) && detected_msg+=" Powerlevel10k" || true
+        info "$(msg combo.detected "${detected_msg}")"
+        echo "$(msg combo.option1.keep)"
+        echo "$(msg combo.option2.keep)"
+        echo "$(msg combo.option3.keep)"
     fi
-    echo -n "输入序号 [默认=1]: "
+    echo -n "$(msg combo.prompt)"
     local REPLY
     read -r REPLY || true
     case "$REPLY" in
@@ -1185,7 +1290,7 @@ if [[ ! -f "$STARSHIP_CONFIG_FILE" ]]; then
     success "Starship config installed"
 else
     warn "Starship config exists: $STARSHIP_CONFIG_FILE"
-    if prompt_yes "Overwrite with recommended template?" 0; then
+    if prompt_yes "Overwrite with recommended template?" 1; then
         cp -f "$STARSHIP_CONFIG_FILE" "${STARSHIP_CONFIG_FILE}.bak.$(date +%s)"
         resolved_starship="$(resolve_template "starship.toml.example" "$STARSHIP_CONFIG_FILE")"
         apply_template "$resolved_starship" "$STARSHIP_CONFIG_FILE"
@@ -1228,24 +1333,37 @@ ZSC
 
 if [[ ! -f "$ZSHRC_FILE" ]]; then
     info "No ~/.zshrc found — creating recommended one (with zsh-smart-complete block)..."
-    cat > "$ZSHRC_FILE" <<'ZRCEOF'
-export HISTFILE="$HOME/.zsh_history"
-export HISTSIZE=1000000
-export SAVEHIST=1000000
-setopt appendhistory sharehistory histignorealldups
-autoload -Uz compinit
-compinit -d "${ZDOTDIR:-$HOME}/.zcompdump"
-ZRCEOF
-    printf '%s\n' "$(build_zsc_integration)" >> "$ZSHRC_FILE"
+    resolved_zshrc="$(resolve_template "zshrc.example" "$ZSHRC_FILE")"
+    apply_template "$resolved_zshrc" "$ZSHRC_FILE"
     success ".zshrc created with zsh-smart-complete integration"
 else
     if grep -q "zsh-smart-complete" "$ZSHRC_FILE"; then
-        success ".zshrc already references zsh-smart-complete (skipping)"
+        # Already has integration block — offer to replace with fresh template
+        info ".zshrc already has zsh-smart-complete block"
+        if prompt_yes "$(msg prompt.zshrc_overwrite)" 1; then
+            cp -f "$ZSHRC_FILE" "${ZSHRC_FILE}.bak.$(date +%s)"
+            resolved_zshrc="$(resolve_template "zshrc.example" "$ZSHRC_FILE")"
+            apply_template "$resolved_zshrc" "$ZSHRC_FILE"
+            success ".zshrc replaced with recommended template (backup kept at .bak.*)"
+        else
+            # Ask if they still want to append the integration block in case it's stale
+            if prompt_yes "Re-append zsh-smart-complete integration block?" 0; then
+                cp -f "$ZSHRC_FILE" "${ZSHRC_FILE}.bak.$(date +%s)"
+                printf '\n%s\n' "$(build_zsc_integration)" >> "$ZSHRC_FILE"
+                success ".zshrc updated with integration block (backup kept at .bak.*)"
+            fi
+        fi
     else
-        if prompt_yes "$(msg prompt.zshrc_append)" 1; then
+        # No integration block yet — offer overwrite or append
+        if prompt_yes "$(msg prompt.zshrc_overwrite)" 1; then
+            cp -f "$ZSHRC_FILE" "${ZSHRC_FILE}.bak.$(date +%s)"
+            resolved_zshrc="$(resolve_template "zshrc.example" "$ZSHRC_FILE")"
+            apply_template "$resolved_zshrc" "$ZSHRC_FILE"
+            success ".zshrc replaced with recommended template (backup kept at .bak.*)"
+        elif prompt_yes "$(msg prompt.zshrc_append)" 1; then
             cp -f "$ZSHRC_FILE" "${ZSHRC_FILE}.bak.$(date +%s)"
             printf '\n%s\n' "$(build_zsc_integration)" >> "$ZSHRC_FILE"
-            success ".zshrc updated (backup kept at .bak.*)"
+            success ".zshrc updated with integration block (backup kept at .bak.*)"
         fi
     fi
 fi

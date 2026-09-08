@@ -3,7 +3,7 @@
 > A modern smart completion & suggestion layer for Zsh.
 > Engineered as the frontend of a future independent shell.
 >
-> **v2.0.0 — General Availability.** Stable, production-ready.
+> **v2.1.1** — Latest release: zsh reinstall prompt, zsh-syntax-highlighting plugin, full Phase 0 combo install.
 
 ## Status
 
@@ -11,7 +11,7 @@
 | ------- | ------ |
 | Build & test (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | Release | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| Version | 2.0.0 (GA) |
+| Version | 2.1.1 |
 
 ## Why
 
@@ -419,7 +419,77 @@ Remove the `source` / `zinit light` line from `.zshrc`, then:
 rm -rf ~/.zsh-smart-complete
 ```
 
-## Roadmap
+## Changelog
+
+All notable changes to this project will be documented in this file.
+
+### [v2.1.1] - 2026-09-09
+
+#### Added
+- **zsh reinstall prompt**: When zsh is already installed, prompt user to reinstall/upgrade via brew (macOS) or apt (Debian/Ubuntu)
+- **zsh-syntax-highlighting plugin**: Clone and install the official [zsh-users/zsh-syntax-highlighting](https://github.com/zsh-users/zsh-syntax-highlighting) repo to `$XDG_DATA_HOME/zinit/plugins/zsh-zsh-syntax-highlighting`
+- **i18n messages**: Added `prompt.zsh_reinstall` in zh-CN, zh-TW, ja, ko, en
+
+#### Changed
+- **Phase 0**: Full combo install now includes zsh reinstall logic and zsh-syntax-highlighting clone
+- **Phase 1-3**: Restored `SKIP_DEPS` guards on starship/atuin/zinit prompts
+
+#### Fixed
+- zsh reinstall prompt uses correct brew/apt fallback logic
+
+### [v2.1.0] - 2026-09-08
+
+#### Added
+- **Phase 0/5**: Full recommended combo install (zsh + fzf + starship + atuin + zinit + zsh-smart-complete)
+- **Interactive backup cleanup**: Prompt user to clean conflict plugin residues (.cache/p10k-*, .cache/zsh*, .local/state/zsh-autocomplete etc.)
+- **fzf auto-install**: Clone from GitHub if not available via package manager
+
+#### Changed
+- Installer now runs Phase 0 first when `SKIP_DEPS!=1` and `NONINTERACTIVE!=1`
+- Phase 1-3 remain as fallback when Phase 0 is skipped
+
+### [v2.0.6] - 2026-08-26
+
+#### Fixed
+- Release workflow: stage files before tar/zip to avoid 'file changed' race condition
+
+### [v2.0.5] - 2026-08-26
+
+#### Fixed
+- Bad substitution in `mirror.chosen` message
+- Cleanup old `.bak.*` residuals
+
+### [v2.0.3] - 2026-08-26
+
+#### Fixed
+- i18n: Translate all remaining Chinese status messages
+- SSH input issue fix
+
+### [v2.0.2] - 2026-08-26
+
+#### Fixed
+- i18n: Mirror selection menu now fully internationalized
+
+### [v2.0.1] - 2026-08-26
+
+#### Fixed
+- Resolve 3 installer issues:
+  - i18n combo menu
+  - OMZ/p10k default yes
+  - starship.toml escape
+
+### [v2.0.0] - 2026-08-25
+
+#### Added
+- Engine & installer overhaul
+- O(bucket) prefix index
+- de-subShell scoring
+- Real-time incremental indexing
+- Zsh detection
+- OMZ/p10k combo selector
+- Entware installer
+- Stop per-keystroke stdout leak that garbled ZLE line editor
+
 
 ```
 v0.1.0  ZLE frontend, history index, suggestion engine
@@ -430,7 +500,13 @@ v0.2.0  Atuin SQLite backend (host / exit / CWD-aware ranking)
    │
 v1.0.0  GA — stable public API, CI/CD, automated releases
    │
-v2.0.0  Engine & installer overhaul — O(bucket) prefix index, de-subShell scoring, real-time incremental indexing, zsh detection, OMZ/p10k combo selector, Entware installer  ← you are here
+v2.0.0  Engine & installer overhaul — O(bucket) prefix index, de-subShell scoring, real-time incremental indexing, zsh detection, OMZ/p10k combo selector, Entware installer
+   │
+   ▼
+v2.1.0  Phase 0 full combo install (zsh + fzf + starship + atuin + zinit + zsh-smart-complete), interactive backup cleanup
+   │
+   ▼
+v2.1.1  zsh reinstall prompt (brew/apt), zsh-syntax-highlighting plugin, restore SKIP_DEPS guards  ← you are here
    │
    ▼
 v0.5.x  smart-shell-engine (Rust / Go) over IPC  (future, opt-in)

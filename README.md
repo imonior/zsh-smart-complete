@@ -29,6 +29,9 @@ modular architecture designed for evolution into a standalone shell:
   history with CWD / host / exit-aware ranking, with silent fallback to zsh.
 - **Deterministic ranking** (v0.1.3+) — exponential time-decay + frequency +
   CWD boost, replicated 1:1 for the future Rust engine.
+- **Zero external deps** — core plugin is self-contained; optional Atuin only.
+- **Syntax-highlighting compatible** — uses `#zsh-smart-complete:suggestion`
+  region_highlight marker so other highlighters are never overwritten.
 
 ## Architecture (v2.0.0)
 
@@ -530,6 +533,8 @@ zsh tests/test-atuin.zsh      # auto-SKIPs if sqlite3 is absent
 zsh tests/test-zle.zsh
 zsh tests/test-integration.zsh
 ```
+
+**Test summary (v2.1.1):** `248 passed, 0 failed` across all 7 test files.
 
 ## License
 

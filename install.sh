@@ -431,6 +431,71 @@ _msg() {
                 ja)    s="Zinit は %s にインストール済み" ;; ko)    s="Zinit 설치 위치: %s" ;;
                 *)     s="Zinit is installed at %s" ;;
             esac ;;
+        prompt.syntax.title)
+            case "$lang" in
+                zh-CN) s="=== zsh-syntax-highlighting 插件选择 ===" ;; zh-TW) s="=== zsh-syntax-highlighting 插件選擇 ===" ;;
+                ja)    s="=== zsh-syntax-highlighting プラグイン選択 ===" ;;
+                ko)    s="=== zsh-syntax-highlighting 플러그인 선택 ===" ;;
+                *)     s="=== zsh-syntax-highlighting plugin ===" ;;
+            esac ;;
+        prompt.syntax.option_new)
+            case "$lang" in
+                zh-CN) s="  1) 全新安装（克隆最新）" ;; zh-TW) s="  1) 全新安裝（克隆最新）" ;;
+                ja)    s="  1) 新規インストール（最新をクローン）" ;;
+                ko)    s="  1) 신규 설치 (최신 클론)" ;;
+                *)     s="  1) Fresh install (clone latest)" ;;
+            esac ;;
+        prompt.syntax.option_reinstall)
+            case "$lang" in
+                zh-CN) s="  2) 卸载并重装（备份当前目录，重新克隆）" ;;
+                zh-TW) s="  2) 卸載並重裝（備份當前目錄，重新克隆）" ;;
+                ja)    s="  2) 削除して再インストール（現在のディレクトリをバックアップし、再クローン）" ;;
+                ko)    s="  2) 제거 후 재설치 (현재 디렉터리 백업 후 재클론)" ;;
+                *)     s="  2) Reinstall (backup current dir, re-clone)" ;;
+            esac ;;
+        prompt.syntax.option_skip)
+            case "$lang" in
+                zh-CN) s="  3) 跳过（不安装此插件）" ;; zh-TW) s="  3) 跳過（不安裝此插件）" ;;
+                ja)    s="  3) スキップ（このプラグインをインストールしない）" ;;
+                ko)    s="  3) 건너뛰기 (이 플러그인 설치 안함)" ;;
+                *)     s="  3) Skip (do not install this plugin)" ;;
+            esac ;;
+        prompt.syntax.prompt)
+            case "$lang" in
+                zh-CN) s="选择操作 [默认=1]: " ;; zh-TW) s="選擇操作 [預設=1]: " ;;
+                ja)    s="操作を選択 [既定=1]: " ;;
+                ko)    s="작업 선택 [기본=1]: " ;;
+                *)     s="Choose option [default=1]: " ;;
+            esac ;;
+        msg.syntax.new)
+            case "$lang" in
+                zh-CN) s="正在克隆 zsh-syntax-highlighting ..." ;; zh-TW) s="正在克隆 zsh-syntax-highlighting ..." ;;
+                ja)    s="zsh-syntax-highlighting をクローンしています..." ;;
+                ko)    s="zsh-syntax-highlighting 클론 중..." ;;
+                *)     s="Cloning zsh-syntax-highlighting ..." ;;
+            esac ;;
+        msg.syntax.reinstall)
+            case "$lang" in
+                zh-CN) s="正在备份并重新克隆 zsh-syntax-highlighting ..." ;;
+                zh-TW) s="正在備份並重新克隆 zsh-syntax-highlighting ..." ;;
+                ja)    s="zsh-syntax-highlighting のバックアップと再クローン中..." ;;
+                ko)    s="zsh-syntax-highlighting 백업 및 재클론 중..." ;;
+                *)     s="Backing up and re-cloning zsh-syntax-highlighting ..." ;;
+            esac ;;
+        msg.syntax.skipped)
+            case "$lang" in
+                zh-CN) s="跳过 zsh-syntax-highlighting 安装" ;; zh-TW) s="跳過 zsh-syntax-highlighting 安裝" ;;
+                ja)    s="zsh-syntax-highlighting のインストールをスキップ했습니다" ;;
+                ko)    s="zsh-syntax-highlighting 설치를 건너뛰었습니다" ;;
+                *)     s="Skipped zsh-syntax-highlighting install" ;;
+            esac ;;
+        msg.syntax.success)
+            case "$lang" in
+                zh-CN) s="zsh-syntax-highlighting 已安装" ;; zh-TW) s="zsh-syntax-highlighting 已安裝" ;;
+                ja)    s="zsh-syntax-highlighting はインストール済みです" ;;
+                ko)    s="zsh-syntax-highlighting 설치됨" ;;
+                *)     s="zsh-syntax-highlighting is installed" ;;
+            esac ;;
         combo.title)
             case "$lang" in
                 zh-CN) s="选择配置组合（推荐 Zinit + Starship，也可选用 Oh My Zsh / Powerlevel10k 备选）：" ;;
@@ -1199,10 +1264,76 @@ if [[ "${SKIP_DEPS:-}" != "1" && "${NONINTERACTIVE:-0}" != "1" ]]; then
         # --- zsh-syntax-highlighting plugin ---
         local zsh_highlight_dir="${XDG_DATA_HOME:-$HOME/.local/share}/zinit/plugins/zsh-zsh-syntax-highlighting"
         if [[ ! -d "$zsh_highlight_dir" ]]; then
-            info "Cloning zsh-syntax-highlighting plugin repo ..."
-            mkdir -p "$(dirname "$zsh_highlight_dir")"
-            git_clone_repo "https://github.com/zsh-users/zsh-syntax-highlighting.git" "$zsh_highlight_dir" \
-                || warn "zsh-syntax-highlighting clone failed."
+            # New install: interactive choice
+            echo
+            info "$(msg prompt.syntax.title)"
+            echo "$(msg prompt.syntax.option_new)"
+            echo "$(msg prompt.syntax.option_reinstall)"
+            echo "$(msg prompt.syntax.option_skip)"
+            if [[ "${NONINTERACTIVE:-0}" == "1" ]]; then
+                SYNTAX_CHOICE="1"
+            else
+                echo -n "$(msg prompt.syntax.prompt)"
+                local REPLY
+                read -r REPLY || true
+                case "$REPLY" in
+                    2) SYNTAX_CHOICE="2" ;;
+                    3) SYNTAX_CHOICE="3" ;;
+                    *) SYNTAX_CHOICE="1" ;;
+                esac
+            fi
+            case "$SYNTAX_CHOICE" in
+                1)
+                    info "$(msg msg.syntax.new)"
+                    mkdir -p "$(dirname "$zsh_highlight_dir")"
+                    git_clone_repo "https://github.com/zsh-users/zsh-syntax-highlighting.git" "$zsh_highlight_dir" \
+                        || warn "zsh-syntax-highlighting clone failed."
+                    success "$(msg msg.syntax.success)"
+                    ;;
+                2)
+                    warn "zsh-syntax-highlighting already exists — reinstalling from scratch."
+                    local bak_dir="${zsh_highlight_dir}.bak.$(date +%s)"
+                    mv "$zsh_highlight_dir" "$bak_dir" || true
+                    info "$(msg msg.syntax.reinstall)"
+                    mkdir -p "$(dirname "$zsh_highlight_dir")"
+                    git_clone_repo "https://github.com/zsh-users/zsh-syntax-highlighting.git" "$zsh_highlight_dir" \
+                        || warn "zsh-syntax-highlighting clone failed."
+                    success "$(msg msg.syntax.success)"
+                    ;;
+                3)
+                    warn "$(msg msg.syntax.skipped)"
+                    ;;
+            esac
+        else
+            # Already installed: offer to keep / reinstall / skip
+            info "$(msg msg.syntax.success)"
+            if [[ "${NONINTERACTIVE:-0}" != "1" ]]; then
+                echo
+                info "$(msg prompt.syntax.title)"
+                echo "$(msg prompt.syntax.option_new)"
+                echo "$(msg prompt.syntax.option_reinstall)"
+                echo "$(msg prompt.syntax.option_skip)"
+                echo -n "$(msg prompt.syntax.prompt)"
+                local REPLY
+                read -r REPLY || true
+                case "$REPLY" in
+                    2)
+                        local bak_dir="${zsh_highlight_dir}.bak.$(date +%s)"
+                        mv "$zsh_highlight_dir" "$bak_dir" || true
+                        info "$(msg msg.syntax.reinstall)"
+                        mkdir -p "$(dirname "$zsh_highlight_dir")"
+                        git_clone_repo "https://github.com/zsh-users/zsh-syntax-highlighting.git" "$zsh_highlight_dir" \
+                            || warn "zsh-syntax-highlighting clone failed."
+                        success "$(msg msg.syntax.success)"
+                        ;;
+                    3)
+                        warn "$(msg msg.syntax.skipped)"
+                        ;;
+                    *)
+                        info "Keeping existing zsh-syntax-highlighting."
+                        ;;
+                esac
+            fi
         fi
         # --- conflict cleanup ---
         info "$(msg phase.cleanup)"

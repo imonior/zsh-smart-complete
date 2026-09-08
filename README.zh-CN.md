@@ -17,6 +17,9 @@
 
 同时替换 `zsh-autocomplete` 和 `zsh-autosuggestions`，采用简洁的模块化架构，为演变为独立 shell 而设计。
 
+- **零外部依赖** — 核心插件自包含；可选 Atuin 增强。
+- **与语法高亮兼容** — 使用 `#zsh-smart-complete:suggestion` 标记，不覆盖其他 highlighter。
+
 ## 架构
 
 ```
@@ -143,6 +146,8 @@ zsh tests/test-atuin.zsh
 zsh tests/test-zle.zsh
 zsh tests/test-integration.zsh
 ```
+
+**测试汇总 (v2.1.1)：** 7 个测试文件共 248 项全部通过，0 失败。
 
 ## 许可证
 

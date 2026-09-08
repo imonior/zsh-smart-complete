@@ -3,7 +3,7 @@
 > A modern smart completion & suggestion layer for Zsh.
 > Engineered as the frontend of a future independent shell.
 >
-> **v2.1.1** — Latest release: zsh reinstall prompt, zsh-syntax-highlighting plugin, full Phase 0 combo install.
+> **v2.1.1** — Latest release: zsh reinstall prompt, fast-syntax-highlighting via Zinit, full Phase 0 combo install.
 
 ## Status
 
@@ -430,11 +430,11 @@ All notable changes to this project will be documented in this file.
 
 #### Added
 - **zsh reinstall prompt**: When zsh is already installed, prompt user to reinstall/upgrade via brew (macOS) or apt (Debian/Ubuntu)
-- **zsh-syntax-highlighting plugin**: Clone and install the official [zsh-users/zsh-syntax-highlighting](https://github.com/zsh-users/zsh-syntax-highlighting) repo to `$XDG_DATA_HOME/zinit/plugins/zsh-zsh-syntax-highlighting`
+- **fast-syntax-highlighting**: Loaded via `zinit light zdharma-continuum/fast-syntax-highlighting` in `.zshrc` template (Zinit auto-clones at startup); not managed by install.sh directly
 - **i18n messages**: Added `prompt.zsh_reinstall` in zh-CN, zh-TW, ja, ko, en
 
 #### Changed
-- **Phase 0**: Full combo install now includes zsh reinstall logic and zsh-syntax-highlighting clone
+- **Phase 0**: Full combo install now includes zsh reinstall logic; fast-syntax-highlighting loaded by Zinit via `.zshrc` template
 - **Phase 1-3**: Restored `SKIP_DEPS` guards on starship/atuin/zinit prompts
 
 #### Fixed
@@ -509,7 +509,7 @@ v2.0.0  Engine & installer overhaul — O(bucket) prefix index, de-subShell scor
 v2.1.0  Phase 0 full combo install (zsh + fzf + starship + atuin + zinit + zsh-smart-complete), interactive backup cleanup
    │
    ▼
-v2.1.1  zsh reinstall prompt (brew/apt), zsh-syntax-highlighting plugin, restore SKIP_DEPS guards  ← you are here
+v2.1.1  zsh reinstall prompt (brew/apt), fast-syntax-highlighting via Zinit, restore SKIP_DEPS guards  ← you are here
    │
    ▼
 v0.5.x  smart-shell-engine (Rust / Go) over IPC  (future, opt-in)

@@ -3,7 +3,7 @@
 > 一个现代化的智能补全和建议层，专为 Zsh 设计。
 > 作为未来独立 shell 的前端引擎。
 >
-> **v2.1.1** — 最新发布：zsh 重装提示、zsh-syntax-highlighting 插件、完整 Phase 0 组合安装。
+> **v2.1.1** — 最新发布：zsh 重装提示、fast-syntax-highlighting 由 Zinit 加载（模板管理）、完整 Phase 0 组合安装。
 
 ## 状态
 
@@ -125,7 +125,7 @@ rm -rf ~/.zsh-smart-complete
 
 | 版本 | 变更说明 |
 | ------ | --------- |
-| v2.1.1 | zsh 重装提示、zsh-syntax-highlighting 插件、恢复 SKIP_DEPS 守卫 |
+| v2.1.1 | zsh 重装提示、fast-syntax-highlighting 由 Zinit 加载（模板管理）、恢复 SKIP_DEPS 守卫 |
 | v2.1.0 | Phase 0 完整组合安装、交互式备份清理 |
 | v2.0.6 | 修复发布流程文件竞争问题 |
 | v2.0.5 | 修复 mirror.chosen 消息替换错误 |

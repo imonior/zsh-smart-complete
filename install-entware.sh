@@ -236,6 +236,63 @@ _msg() {
                 ko)    s="zsh-smart-complete 로더 블록을 ~/.zshrc 끝에 추가할까요?" ;;
                 *)     s="Append zsh-smart-complete loader block to the end of ~/.zshrc?" ;;
             esac ;;
+        prompt.fzf)
+            case "$lang" in
+                zh-CN) s="fzf 未安装，要现在安装吗？" ;; zh-TW) s="fzf 未安裝，要現在安裝嗎？" ;;
+                ja)    s="fzf が未インストールです。インストールしますか？" ;;
+                ko)    s="fzf가 설치되지 않았습니다. 설치할까요?" ;;
+                *)     s="fzf not installed. Install now?" ;;
+            esac ;;
+        prompt.fzf_reinstall)
+            case "$lang" in
+                zh-CN) s="重新安装 fzf？" ;; zh-TW) s="重新安裝 fzf？" ;;
+                ja)    s="fzf を再インストールしますか？" ;;
+                ko)    s="fzf 재설치?" ;;
+                *)     s="Reinstall fzf?" ;;
+            esac ;;
+        prompt.starship_reinstall)
+            case "$lang" in
+                zh-CN) s="重新安装 Starship？" ;; zh-TW) s="重新安裝 Starship？" ;;
+                ja)    s="Starship を再インストールしますか？" ;;
+                ko)    s="Starship 재설치?" ;;
+                *)     s="Reinstall Starship?" ;;
+            esac ;;
+        prompt.config_backup)
+            case "$lang" in
+                zh-CN) s="备份现有配置并新建？" ;; zh-TW) s="備份現有配置並新建？" ;;
+                ja)    s="既存設定をバックアップして新規作成しますか？" ;;
+                ko)    s="기존 설정을 백업하고 새로 만질까요?" ;;
+                *)     s="Backup existing config and create new?" ;;
+            esac ;;
+        prompt.config_keep)
+            case "$lang" in
+                zh-CN) s="保留现有配置不动？" ;; zh-TW) s="保留現有配置不動？" ;;
+                ja)    s="既存設定をそのまま保持しますか？" ;;
+                ko)    s="기존 설정을 그대로 유지할까요?" ;;
+                *)     s="Keep existing config as-is?" ;;
+            esac ;;
+        msg.fzf_reinstalled)
+            case "$lang" in
+                zh-CN) s="fzf 已重装" ;; zh-TW) s="fzf 已重裝" ;; ja)    s="fzf を再インストールしました" ;; ko) s="fzf 재설치 완료" ;;
+                *)     s="fzf reinstalled" ;;
+            esac ;;
+        msg.starship_reinstalled)
+            case "$lang" in
+                zh-CN) s="Starship 已重装" ;; zh-TW) s="Starship 已重裝" ;; ja)    s="Starship を再インストールしました" ;; ko) s="Starship 재설치 완료" ;;
+                *)     s="Starship reinstalled" ;;
+            esac ;;
+        msg.config_backup_done)
+            case "$lang" in
+                zh-CN) s="已备份现有配置: %s" ;; zh-TW) s="已備份現有配置: %s" ;; ja)    s="既存設定をバックアップ: %s" ;; ko) s="기존 설정 백업 완료: %s" ;;
+                *)     s="Backed up existing config: %s" ;;
+            esac ;;
+        phase4.config_choice)
+            case "$lang" in
+                zh-CN) s="请选择 ~/.zshrc 处理方式：" ;; zh-TW) s="請選擇 ~/.zshrc 處理方式：" ;;
+                ja)    s="~/.zshrc の処理方法を選択してください：" ;;
+                ko)    s="~/.zshrc 처리 방식을 선택하세요:" ;;
+                *)     s="Select ~/.zshrc handling option:" ;;
+            esac ;;
         msg.fzf_installed)
             case "$lang" in
                 zh-CN) s="fzf 已安装" ;; zh-TW) s="fzf 已安裝" ;;

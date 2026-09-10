@@ -32,6 +32,16 @@ _setup_terminal() {
 }
 _setup_terminal
 
+# Read from /dev/tty when available (fixes SSH sessions where stdin is not a tty# but the controlling terminal is still /dev/tty - curl installers need it).
+# Falls back to stdin when /dev/tty is unavailable or read fails.
+_tty_read() {
+    local _args="$@"
+    if [[ -c /dev/tty ]] && read $_args </dev/tty 2>/dev/null; then
+        return 0
+    fi
+    read $_args
+}
+
 # Prompts: respect NONINTERACTIVE=1 (assume "yes for safe, no for destructive")
 prompt_yes() {
     # Returns 0 if the reply is Yes. In NONINTERACTIVE mode, uses $1 as default.
@@ -47,7 +57,7 @@ prompt_yes() {
     fi
     echo -n "  $msg $prompt "
     local REPLY
-    read -r -n 1 REPLY || REPLY=""; echo
+    _tty_read -r -n 1 REPLY || REPLY=""; echo
     [[ -n "$REPLY" ]] || REPLY=""
     case "$REPLY" in
         y|Y) return 0 ;;
@@ -568,6 +578,63 @@ _msg() {
                 ja)    s="Zsh が検出されました。再インストール/アップグレードしますか？[既定=いいえ]" ;;
                 ko)    s="Zsh 가 감지되었습니다. 재설치/업그레이드할까요? [기본=아니오]" ;;
                 *)     s="Zsh is installed. Reinstall/upgrade? [default=no]" ;;
+            esac ;;
+        prompt.fzf)
+            case "$lang" in
+                zh-CN) s="fzf 未安装，要现在安装吗？" ;; zh-TW) s="fzf 未安裝，要現在安裝嗎？" ;;
+                ja)    s="fzf が未インストールです。インストールしますか？" ;;
+                ko)    s="fzf가 설치되지 않았습니다. 설치할까요?" ;;
+                *)     s="fzf not installed. Install now?" ;;
+            esac ;;
+        prompt.fzf_reinstall)
+            case "$lang" in
+                zh-CN) s="重新安装 fzf？" ;; zh-TW) s="重新安裝 fzf？" ;;
+                ja)    s="fzf を再インストールしますか？" ;;
+                ko)    s="fzf 재설치?" ;;
+                *)     s="Reinstall fzf?" ;;
+            esac ;;
+        prompt.starship_reinstall)
+            case "$lang" in
+                zh-CN) s="重新安装 Starship？" ;; zh-TW) s="重新安裝 Starship？" ;;
+                ja)    s="Starship を再インストールしますか？" ;;
+                ko)    s="Starship 재설치?" ;;
+                *)     s="Reinstall Starship?" ;;
+            esac ;;
+        prompt.config_backup)
+            case "$lang" in
+                zh-CN) s="备份现有配置并新建？" ;; zh-TW) s="備份現有配置並新建？" ;;
+                ja)    s="既存設定をバックアップして新規作成しますか？" ;;
+                ko)    s="기존 설정을 백업하고 새로 만질까요?" ;;
+                *)     s="Backup existing config and create new?" ;;
+            esac ;;
+        prompt.config_keep)
+            case "$lang" in
+                zh-CN) s="保留现有配置不动？" ;; zh-TW) s="保留現有配置不動？" ;;
+                ja)    s="既存設定をそのまま保持しますか？" ;;
+                ko)    s="기존 설정을 그대로 유지할까요?" ;;
+                *)     s="Keep existing config as-is?" ;;
+            esac ;;
+        msg.fzf_reinstalled)
+            case "$lang" in
+                zh-CN) s="fzf 已重装" ;; zh-TW) s="fzf 已重裝" ;; ja)    s="fzf を再インストールしました" ;; ko) s="fzf 재설치 완료" ;;
+                *)     s="fzf reinstalled" ;;
+            esac ;;
+        msg.starship_reinstalled)
+            case "$lang" in
+                zh-CN) s="Starship 已重装" ;; zh-TW) s="Starship 已重裝" ;; ja)    s="Starship を再インストールしました" ;; ko) s="Starship 재설치 완료" ;;
+                *)     s="Starship reinstalled" ;;
+            esac ;;
+        msg.config_backup_done)
+            case "$lang" in
+                zh-CN) s="已备份现有配置: %s" ;; zh-TW) s="已備份現有配置: %s" ;; ja)    s="既存設定をバックアップ: %s" ;; ko) s="기존 설정 백업 완료: %s" ;;
+                *)     s="Backed up existing config: %s" ;;
+            esac ;;
+        phase4.config_choice)
+            case "$lang" in
+                zh-CN) s="请选择 ~/.zshrc 处理方式：" ;; zh-TW) s="請選擇 ~/.zshrc 處理方式：" ;;
+                ja)    s="~/.zshrc の処理方法を選択してください：" ;;
+                ko)    s="~/.zshrc 처리 방식을 선택하세요:" ;;
+                *)     s="Select ~/.zshrc handling option:" ;;
             esac ;;
     esac
     printf '%s' "$s"
@@ -1138,7 +1205,7 @@ if [[ "${SKIP_DEPS:-}" != "1" && "${NONINTERACTIVE:-0}" != "1" ]]; then
         elif install_pkg_soft "fzf" "fzf" "fzf"; then
             success "fzf installed (package manager)"
         else
-            local fzf_dir="${XDG_DATA_HOME:-$HOME/.local/share}/fzf"
+            fzf_dir="${XDG_DATA_HOME:-$HOME/.local/share}/fzf"
             if git_clone_repo "https://github.com/junegunn/fzf.git" "$fzf_dir" \
                && ( cd "$fzf_dir" && "$fzf_dir/install" --all >/dev/null 2>&1 ); then
                 success "fzf installed via git clone (mirror-accelerated)"
@@ -1170,7 +1237,7 @@ if [[ "${SKIP_DEPS:-}" != "1" && "${NONINTERACTIVE:-0}" != "1" ]]; then
             fi
         fi
         # --- zinit ---
-        local zinit_home_local="${XDG_DATA_HOME:-$HOME/.local/share}/zinit/zinit.git"
+        zinit_home_local="${XDG_DATA_HOME:-$HOME/.local/share}/zinit/zinit.git"
         if [[ -d "$zinit_home_local" ]]; then
             success "$(msg msg.zinit_installed "$zinit_home_local")"
             if prompt_yes "$(msg prompt.zinit_pull)" 0; then
@@ -1183,7 +1250,7 @@ if [[ "${SKIP_DEPS:-}" != "1" && "${NONINTERACTIVE:-0}" != "1" ]]; then
             success "Zinit installed"
         fi
         # --- zsh-smart-complete plugin ---
-        local zsc_dir="${XDG_DATA_HOME:-$HOME/.local/share}/zinit/plugins/imonior---zsh-smart-complete"
+        zsc_dir="${XDG_DATA_HOME:-$HOME/.local/share}/zinit/plugins/imonior---zsh-smart-complete"
         if [[ ! -d "$zsc_dir" ]]; then
             info "Cloning zsh-smart-complete plugin repo ..."
             mkdir -p "$(dirname "$zsc_dir")"

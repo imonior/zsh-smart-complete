@@ -32,15 +32,26 @@ _setup_terminal() {
 }
 _setup_terminal
 
-# Read from /dev/tty when available (fixes SSH sessions where stdin is not a tty# but the controlling terminal is still /dev/tty - curl installers need it).
+# Read from /dev/tty when available (fixes SSH sessions where stdin is not a tty
+# but the controlling terminal is still /dev/tty - curl installers need it).
 # Falls back to stdin when /dev/tty is unavailable or read fails.
 _tty_read() {
     local _args="$@"
-    if [[ -c /dev/tty ]] && read $_args </dev/tty 2>/dev/null; then
+    # Try /dev/tty first: use a timeout to avoid blocking when
+    # /dev/tty exists as a char device but has no controlling terminal
+    # (e.g. macOS always has /dev/tty).
+    if [[ -c /dev/tty ]] && read -t 1 $_args </dev/tty 2>/dev/null; then
         return 0
     fi
-    read $_args
+    # Fallback: read from stdin; suppress errors when stdin is not a tty
+    # (e.g. bash -c "$(curl ...)" with no controlling terminal)
+    if ! read $_args 2>/dev/null; then
+        REPLY=""
+        return 1
+    fi
+    return 0
 }
+
 
 # Prompts: respect NONINTERACTIVE=1 (assume "yes for safe, no for destructive")
 prompt_yes() {
@@ -428,6 +439,12 @@ _msg() {
                 zh-CN) s="fzf 已安装" ;; zh-TW) s="fzf 已安裝" ;;
                 ja)    s="fzf はインストール済みです" ;; ko)    s="fzf 이미 설치됨" ;;
                 *)     s="fzf is already installed" ;;
+            esac ;;
+        msg.zinit_installed)
+            case "$lang" in
+                zh-CN) s="Zinit 已安装：%s" ;; zh-TW) s="Zinit 已安裝：%s" ;;
+                ja)    s="Zinit はインストール済み: %s" ;; ko)    s="Zinit 설치됨: %s" ;;
+                *)     s="Zinit is already installed: %s" ;;
             esac ;;
         msg.zsh_installed)
             case "$lang" in
@@ -1258,10 +1275,12 @@ if [[ "${SKIP_DEPS:-}" != "1" && "${NONINTERACTIVE:-0}" != "1" ]]; then
                 || warn "zsh-smart-complete clone failed. If running Zinit, zinit light will clone it automatically."
         fi
         # --- conflict cleanup ---
-        info "$(msg phase.cleanup)"
-        clean_conflict_plugin "zsh-autocomplete"
-        clean_conflict_plugin "zsh-autosuggestions"
-        resolve_omz_p10k
+        # (Deferred to end of script — see clean_conflict_plugin() calls
+        #  at the bottom, which run after the function is defined.)
+        # info "$(msg phase.cleanup)"
+        # clean_conflict_plugin "zsh-autocomplete"
+        # clean_conflict_plugin "zsh-autosuggestions"
+        # resolve_omz_p10k
     }
     # Fall through to phase4 for config template application only
 fi

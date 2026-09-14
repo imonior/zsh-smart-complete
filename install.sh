@@ -1225,16 +1225,34 @@ if [[ "${SKIP_DEPS:-}" != "1" && "${NONINTERACTIVE:-0}" != "1" ]]; then
         # --- fzf ---
         if command -v fzf >/dev/null 2>&1; then
             success "$(msg msg.fzf_installed)"
-        elif install_pkg_soft "fzf" "fzf" "fzf"; then
-            success "fzf installed (package manager)"
-        else
-            fzf_dir="${XDG_DATA_HOME:-$HOME/.local/share}/fzf"
-            if git_clone_repo "https://github.com/junegunn/fzf.git" "$fzf_dir" \
-               && ( cd "$fzf_dir" && "$fzf_dir/install" --all >/dev/null 2>&1 ); then
-                success "fzf installed via git clone (mirror-accelerated)"
-            else
-                warn "fzf install failed (non-fatal; plugin core does not require fzf)."
+            if prompt_yes "$(msg prompt.fzf_reinstall)" 0; then
+                if install_pkg_soft "fzf" "fzf" "fzf"; then
+                    success "fzf reinstalled (package manager)"
+                else
+                    fzf_dir="${XDG_DATA_HOME:-$HOME/.local/share}/fzf"
+                    rm -rf "$fzf_dir" 2>/dev/null
+                    if git_clone_repo "https://github.com/junegunn/fzf.git" "$fzf_dir" \
+                       && ( cd "$fzf_dir" && "$fzf_dir/install" --all >/dev/null 2>&1 ); then
+                        success "fzf reinstalled via git clone (mirror-accelerated)"
+                    else
+                        warn "fzf reinstall failed (non-fatal; plugin core does not require fzf)."
+                    fi
+                fi
             fi
+        elif prompt_yes "$(msg prompt.fzf)" 1; then
+            if install_pkg_soft "fzf" "fzf" "fzf"; then
+                success "fzf installed (package manager)"
+            else
+                fzf_dir="${XDG_DATA_HOME:-$HOME/.local/share}/fzf"
+                if git_clone_repo "https://github.com/junegunn/fzf.git" "$fzf_dir" \
+                   && ( cd "$fzf_dir" && "$fzf_dir/install" --all >/dev/null 2>&1 ); then
+                    success "fzf installed via git clone (mirror-accelerated)"
+                else
+                    warn "fzf install failed (non-fatal; plugin core does not require fzf)."
+                fi
+            fi
+        else
+            info "Skipped fzf (optional; plugin core does not require fzf)."
         fi
         # --- starship ---
         if command -v starship >/dev/null 2>&1; then
@@ -1295,12 +1313,17 @@ if [[ "${SKIP_DEPS:-}" != "1" && "${NONINTERACTIVE:-0}" != "1" ]]; then
         # clean_conflict_plugin "zsh-autosuggestions"
         # resolve_omz_p10k
     }
-    # Fall through to phase4 for config template application only
+    RAN_COMBO=1
+    # Full combo already installed every dependency; skip phases 1-3 below
+    # (otherwise each component is re-prompted + re-installed — duplicate progress).
 fi
 
 # ------------------------------------------------------------------
 # Phase 1/4: Base tools (zsh, fzf)
 # ------------------------------------------------------------------
+# Skip these dependency phases when the full combo (Phase 0/5) already ran,
+# so we don't re-prompt and re-install every component.
+if [[ "${RAN_COMBO:-0}" != "1" ]]; then
 info "$(msg phase1)"
 
 # --- zsh ---
@@ -1328,17 +1351,35 @@ fi
 if [[ "${SKIP_DEPS:-0}" != "1" ]]; then
     if command -v fzf >/dev/null 2>&1; then
         success "fzf is already installed"
-    elif install_pkg_soft "fzf" "fzf" "fzf"; then
-        success "fzf installed (package manager)"
-    else
-        warn "fzf 包管理器安装失败，尝试官方 git clone 安装（走镜像加速）..."
-        fzf_dir="${XDG_DATA_HOME:-$HOME/.local/share}/fzf"
-        if git_clone_repo "https://github.com/junegunn/fzf.git" "$fzf_dir" \
-           && ( cd "$fzf_dir" && "$fzf_dir/install" --all >/dev/null 2>&1 ); then
-            success "fzf installed via git clone (mirror-accelerated)"
-        else
-            warn "fzf 安装失败（插件核心不依赖 fzf，可稍后手动安装）。"
+        if prompt_yes "$(msg prompt.fzf_reinstall)" 0; then
+            if install_pkg_soft "fzf" "fzf" "fzf"; then
+                success "fzf reinstalled (package manager)"
+            else
+                fzf_dir="${XDG_DATA_HOME:-$HOME/.local/share}/fzf"
+                rm -rf "$fzf_dir" 2>/dev/null
+                if git_clone_repo "https://github.com/junegunn/fzf.git" "$fzf_dir" \
+                   && ( cd "$fzf_dir" && "$fzf_dir/install" --all >/dev/null 2>&1 ); then
+                    success "fzf reinstalled via git clone (mirror-accelerated)"
+                else
+                    warn "fzf reinstall failed (non-fatal)."
+                fi
+            fi
         fi
+    elif prompt_yes "$(msg prompt.fzf)" 1; then
+        if install_pkg_soft "fzf" "fzf" "fzf"; then
+            success "fzf installed (package manager)"
+        else
+            warn "fzf 包管理器安装失败，尝试官方 git clone 安装（走镜像加速）..."
+            fzf_dir="${XDG_DATA_HOME:-$HOME/.local/share}/fzf"
+            if git_clone_repo "https://github.com/junegunn/fzf.git" "$fzf_dir" \
+               && ( cd "$fzf_dir" && "$fzf_dir/install" --all >/dev/null 2>&1 ); then
+                success "fzf installed via git clone (mirror-accelerated)"
+            else
+                warn "fzf 安装失败（插件核心不依赖 fzf，可稍后手动安装）。"
+            fi
+        fi
+    else
+        info "Skipped fzf (optional; plugin core does not require fzf)."
     fi
 fi
 
@@ -1408,6 +1449,7 @@ if [[ "${SKIP_DEPS:-0}" != "1" ]]; then
           || ( cd "$SMART_COMPLETE_INSTALL_DIR" && git pull --ff-only 2>/dev/null ) \
           || warn "zsh-smart-complete update failed (non-fatal); existing code kept."
     fi
+fi
 fi
 
 # ------------------------------------------------------------------

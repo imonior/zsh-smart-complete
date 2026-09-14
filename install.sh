@@ -37,19 +37,24 @@ _setup_terminal
 # Falls back to stdin when /dev/tty is unavailable or read fails.
 _tty_read() {
     local _args="$@"
-    # Try /dev/tty first: use a timeout to avoid blocking when
-    # /dev/tty exists as a char device but has no controlling terminal
-    # (e.g. macOS always has /dev/tty).
-    if [[ -c /dev/tty ]] && read -t 1 $_args </dev/tty 2>/dev/null; then
+    # If stdin is a real terminal, read from it directly (blocking). This is the
+    # common case for `bash -c "$(curl ...)"` and normal interactive shells, and
+    # matches how the language selector reads below — so every prompt genuinely
+    # waits for the user to confirm instead of auto-defaulting after 1 second.
+    if [[ -t 0 ]]; then
+        read $_args && return 0
+        REPLY=""; return 1
+    fi
+    # Otherwise stdin is a pipe/file; try the controlling terminal /dev/tty
+    # (e.g. `curl ... | bash`). No timeout — block until the user answers.
+    if [[ -c /dev/tty ]] && read $_args </dev/tty 2>/dev/null; then
         return 0
     fi
-    # Fallback: read from stdin; suppress errors when stdin is not a tty
-    # (e.g. bash -c "$(curl ...)" with no controlling terminal)
-    if ! read $_args 2>/dev/null; then
-        REPLY=""
-        return 1
+    # Last resort: stdin (may be EOF in non-interactive contexts → default).
+    if read $_args 2>/dev/null; then
+        return 0
     fi
-    return 0
+    REPLY=""; return 1
 }
 
 
@@ -1273,6 +1278,13 @@ if [[ "${SKIP_DEPS:-}" != "1" && "${NONINTERACTIVE:-0}" != "1" ]]; then
             mkdir -p "$(dirname "$zsc_dir")"
             git_clone_repo "https://github.com/imonior/zsh-smart-complete.git" "$zsc_dir" \
                 || warn "zsh-smart-complete clone failed. If running Zinit, zinit light will clone it automatically."
+        else
+            # Already present (previous install, or managed by Zinit): pull latest
+            # so engine fixes reach the user instead of keeping stale code.
+            info "zsh-smart-complete already present — updating to latest ..."
+            ( cd "$zsc_dir" && { git fetch --depth 1 origin main 2>/dev/null && git reset --hard origin/main 2>/dev/null; } ) \
+              || ( cd "$zsc_dir" && git pull --ff-only 2>/dev/null ) \
+              || warn "zsh-smart-complete update failed (non-fatal); existing code kept."
         fi
         # --- conflict cleanup ---
         # (Deferred to end of script — see clean_conflict_plugin() calls
@@ -1383,11 +1395,18 @@ fi
 # If the user didn't install Zinit, fall back: clone zsh-smart-complete directly
 # so we can still provide a working `source ~/.../zsh-smart-complete.plugin.zsh`.
 SMART_COMPLETE_INSTALL_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/zinit/plugins/imonior---zsh-smart-complete"
-if [[ ! -d "$SMART_COMPLETE_INSTALL_DIR" && "${SKIP_DEPS:-0}" != "1" ]]; then
-    info "Cloning zsh-smart-complete plugin repo ..."
-    mkdir -p "$(dirname "$SMART_COMPLETE_INSTALL_DIR")"
-    git_clone_repo "https://github.com/imonior/zsh-smart-complete.git" "$SMART_COMPLETE_INSTALL_DIR" \
-        || warn "zsh-smart-complete clone failed. If running Zinit, zinit light will clone it automatically."
+if [[ "${SKIP_DEPS:-0}" != "1" ]]; then
+    if [[ ! -d "$SMART_COMPLETE_INSTALL_DIR" ]]; then
+        info "Cloning zsh-smart-complete plugin repo ..."
+        mkdir -p "$(dirname "$SMART_COMPLETE_INSTALL_DIR")"
+        git_clone_repo "https://github.com/imonior/zsh-smart-complete.git" "$SMART_COMPLETE_INSTALL_DIR" \
+            || warn "zsh-smart-complete clone failed. If running Zinit, zinit light will clone it automatically."
+    else
+        info "zsh-smart-complete already present — updating to latest ..."
+        ( cd "$SMART_COMPLETE_INSTALL_DIR" && { git fetch --depth 1 origin main 2>/dev/null && git reset --hard origin/main 2>/dev/null; } ) \
+          || ( cd "$SMART_COMPLETE_INSTALL_DIR" && git pull --ff-only 2>/dev/null ) \
+          || warn "zsh-smart-complete update failed (non-fatal); existing code kept."
+    fi
 fi
 
 # ------------------------------------------------------------------
@@ -1500,53 +1519,10 @@ _cleanup_old_baks() {
     info "Backup cleanup done."
 }
 
-# Interactive cleanup of residual conflict-plugin artifacts from cache/state.
-# Only removes items the user confirms (cascade and conflict-plugin dirs default yes).
-_cleanup_conflict_residues() {
-    local -a residues=() residue_labels=()
-    # zsh-autocomplete state
-    local zaut_path="$ZDOTDIR/../state/zsh-autocomplete"
-    [[ -d "$zaut_path" ]] && residues+=("$zaut_path") && residue_labels+=("zsh-autocomplete state")
-    # Also check the legacy XDG path
-    [[ -d "$HOME/.local/state/zsh-autocomplete" ]] && residues+=("$HOME/.local/state/zsh-autocomplete") && residue_labels+=("zsh-autocomplete state (legacy)")
-    # p10k cache dirs
-    for d in "$ZDOTDIR"/../cache/p10k-* "$ZDOTDIR"/../cache/powerlevel10k* \
-             "$HOME"/.cache/p10k-* "$HOME"/.cache/powerlevel10k*; do
-        [[ -d "$d" ]] || continue
-        local bn; bn="$(basename "$d")"
-        # Avoid duplicates (XDG and HOME may overlap)
-        local dup=0 r
-        for r in "${residues[@]}"; do [[ "$r" == "$d" ]] && dup=1; done
-        (( dup )) || { residues+=("$d"); residue_labels+=("$bn (cache)"); }
-    done
-    # zsh cache
-    for d in "$ZDOTDIR"/../cache/zsh* "$HOME"/.cache/zsh*; do
-        [[ -d "$d" ]] || continue
-        local bn; bn="$(basename "$d")"
-        local dup=0 r
-        for r in "${residues[@]}"; do [[ "$r" == "$d" ]] && dup=1; done
-        (( dup )) || { residues+=("$d"); residue_labels+=("$bn (cache)"); }
-    done
-    # Stale zinit completion symlinks
-    if [[ -d "$ZINIT_PLUGINS_DIR/../completions" ]]; then
-        local compdir="$ZINIT_PLUGINS_DIR/../completions"
-        for link in "$compdir"/*; do
-            [[ -L "$link" ]] || continue
-            local target; target="$(readlink "$link")"
-            if [[ ! -d "${target%%/*}" ]]; then
-                residues+=("$link")
-                residue_labels+=("dangling completion: $(basename "$link")")
-            fi
-        done
-    fi
-    # Conflict plugin dirs in zinit
-    for pattern in "*autocomplete*" "*autosuggestions*"; do
-        for pdir in "$ZINIT_PLUGINS_DIR"/"$pattern"; do
-            [[ -d "$pdir" ]] || continue
-            rm -rf "$pdir" && success "Removed conflict plugin dir: $(basename "$pdir")"
-        done
-    done
-}
+# (Conflict-plugin residue cleanup is defined once below as _cleanup_conflict_residues;
+#  this earlier, partial duplicate was removed to avoid the second definition silently
+#  overriding the first and leaving stale backups behind.)
+
 
 # Remove residual conflict-plugin artifacts from cache/state directories.
 _cleanup_conflict_residues() {
@@ -1573,10 +1549,12 @@ _cleanup_conflict_residues() {
             }
         done
     fi
-    # Also clean zinit plugins dirs matching conflict names (including cascaded baks)
+    # Also clean zinit plugins dirs matching conflict names. Skip .bak.* backups
+    # (those are produced/kept by clean_conflict_plugin) so we never delete them.
     for pattern in "*autocomplete*" "*autosuggestions*"; do
-        for pdir in "$ZINIT_PLUGINS_DIR"/"$pattern"; do
+        for pdir in "$ZINIT_PLUGINS_DIR"/$pattern; do
             [[ -d "$pdir" ]] || continue
+            [[ "$(basename "$pdir")" == *.bak.* ]] && continue
             rm -rf "$pdir" && success "Removed conflict plugin dir: $(basename "$pdir")"
         done
     done
@@ -1615,33 +1593,38 @@ comment_out_zshrc() {
 # ~/.zshrc and back up + remove their directories.
 clean_conflict_plugin() {
     local plugin_name="$1" found=0 pdir omz_dir matches
+    local -a remove_dirs=()
     if [[ -d "$ZINIT_PLUGINS_DIR" ]]; then
         for pdir in "$ZINIT_PLUGINS_DIR"/*"$plugin_name"*; do
             [[ -d "$pdir" ]] || continue
-            found=1; warn "Found conflict plugin dir: $pdir"
+            remove_dirs+=("$pdir")
         done
     fi
     omz_dir="$HOME/.oh-my-zsh/custom/plugins/$plugin_name"
-    if [[ -d "$omz_dir" ]]; then found=1; warn "Found conflict plugin dir: $omz_dir"; fi
+    [[ -d "$omz_dir" ]] && remove_dirs+=("$omz_dir")
     if [[ -f "$ZDOTDIR/.zshrc" ]]; then
         matches="$(grep -nF "$plugin_name" "$ZDOTDIR/.zshrc" 2>/dev/null | grep -v '^[[:space:]]*#' || true)"
         [[ -n "$matches" ]] && found=1
     fi
-    if (( found == 0 )); then
+    if (( ${#remove_dirs[@]} == 0 && found == 0 )); then
         success "No $plugin_name conflict detected"
         return 0
     fi
+    for pdir in "${remove_dirs[@]}"; do
+        warn "Found conflict plugin dir: $pdir"
+    done
     if prompt_yes "$(msg prompt.remove_plugin "$plugin_name")" 1; then
         comment_out_zshrc "$plugin_name"
-        if [[ -d "$ZINIT_PLUGINS_DIR" ]]; then
-            for pdir in "$ZINIT_PLUGINS_DIR"/*"$plugin_name"*; do
-                [[ -d "$pdir" ]] || continue
+        for pdir in "${remove_dirs[@]}"; do
+            # Already a backup artifact (name contains .bak.) — it is a stale
+            # remnant from a previous run. Delete it directly; never re-back it
+            # up, or we would create ever-deeper .bak.bak.bak… cascades.
+            if [[ "$(basename "$pdir")" == *.bak.* ]]; then
+                rm -rf "$pdir" && success "Removed stale backup: $(basename "$pdir")"
+            else
                 mv "$pdir" "${pdir}.bak.$(date +%s)" && success "Backed up + removed: $pdir"
-            done
-        fi
-        if [[ -d "$omz_dir" ]]; then
-            mv "$omz_dir" "${omz_dir}.bak.$(date +%s)" && success "Backed up + removed: $omz_dir"
-        fi
+            fi
+        done
     else
         warn "Skipped $plugin_name removal; running it alongside zsh-smart-complete may cause duplicate suggestions / Tab conflicts."
     fi
@@ -1816,6 +1799,9 @@ resolve_omz_p10k() {
 # First remove directly-conflicting plugins.
 clean_conflict_plugin "zsh-autocomplete"
 clean_conflict_plugin "zsh-autosuggestions"
+# Non-interactive residue cleanup: state/cache dirs, dangling completions, and
+# any remaining conflict-plugin dirs (skips .bak.* backups made just above).
+_cleanup_conflict_residues
 # Then resolve OMZ / p10k combo.
 resolve_omz_p10k
 

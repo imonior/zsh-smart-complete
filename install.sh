@@ -36,22 +36,23 @@ _setup_terminal
 # but the controlling terminal is still /dev/tty - curl installers need it).
 # Falls back to stdin when /dev/tty is unavailable or read fails.
 _tty_read() {
-    local _args="$@"
-    # If stdin is a real terminal, read from it directly (blocking). This is the
-    # common case for `bash -c "$(curl ...)"` and normal interactive shells, and
-    # matches how the language selector reads below — so every prompt genuinely
-    # waits for the user to confirm instead of auto-defaulting after 1 second.
+    # Read using the caller's exact options/variable, passed through verbatim via
+    # "$@". Do NOT join args into a string and re-split (e.g. `read $_args`):
+    # this script sets `IFS=$'\n\t'` at the top (no space), so an unquoted
+    # expansion would NOT word-split and `read` would receive one bogus
+    # "-r -n 1 REPLY" option and abort with `read: -: invalid option`.
+    # Prefer stdin when it is a tty; otherwise fall back to /dev/tty.
     if [[ -t 0 ]]; then
-        read $_args && return 0
+        read "$@" && return 0
         REPLY=""; return 1
     fi
     # Otherwise stdin is a pipe/file; try the controlling terminal /dev/tty
     # (e.g. `curl ... | bash`). No timeout — block until the user answers.
-    if [[ -c /dev/tty ]] && read $_args </dev/tty 2>/dev/null; then
+    if [[ -c /dev/tty ]] && read "$@" </dev/tty 2>/dev/null; then
         return 0
     fi
     # Last resort: stdin (may be EOF in non-interactive contexts → default).
-    if read $_args 2>/dev/null; then
+    if read "$@" 2>/dev/null; then
         return 0
     fi
     REPLY=""; return 1

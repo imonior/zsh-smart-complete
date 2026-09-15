@@ -83,7 +83,15 @@ _smart_current_binding() {
         # Some zsh builds echo without quotes: ^I expand-or-complete
         rest="${out#${seq} }"
     fi
-    print -r -- "${rest%% *}"
+    local w="${rest%% *}"
+    # "undefined-key" = no single binding for this seq/range. Report UNBOUND
+    # so callers fall back to the real default instead of restoring/dispatching
+    # to the no-op pseudo-widget.
+    case "$w" in undefined-key|undefined) w="" ;; esac
+    # Never treat one of OUR OWN widgets as an "original" (a capture that runs
+    # after our bind would otherwise report our wrapper back to us).
+    case "$w" in _smart_*|smart-*) w="" ;; esac
+    print -r -- "$w"
 }
 
 _smart_native_save_original_bindings() {

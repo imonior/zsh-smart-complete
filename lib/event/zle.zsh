@@ -57,6 +57,13 @@ typeset -g _SMART_EVT_ORIG_UNDO_VIINS=""
 typeset -g _SMART_EVT_ORIG_HISTUP_VIINS=""
 typeset -g _SMART_EVT_ORIG_HISTDOWN_VIINS=""
 
+# Sentinel: originals are captured exactly once per shell session. We use a
+# DEDICATED flag instead of testing one ORIG_* variable, because a pre-set or
+# stale value (e.g. a user manually exporting _SMART_EVT_ORIG_SELF_EMACS, or a
+# re-source after an update) would otherwise skip the whole capture — silently
+# losing the native Tab bindings and every other key's original too.
+typeset -g _SMART_EVT_CAPTURED=0
+
 # Helper reusing the binding probe from native.zsh.
 _smart_evt_binding() {
     local km="$1" seq="$2"
@@ -66,7 +73,19 @@ _smart_evt_binding() {
     if [[ "$rest" == "$out" ]]; then
         rest="${out#${seq} }"
     fi
-    print -r -- "${rest%% *}"
+    local w="${rest%% *}"
+    # A range/seq with no single binding reports the pseudo-widget
+    # "undefined-key" (e.g. `bindkey -M emacs "^@-^_"` → `"^@-^_" undefined-key`).
+    # Treat it as UNBOUND so the caller's `[[ -z ]] && <default>` fallback
+    # applies. Dispatching to `zle undefined-key` is a no-op that silently
+    # swallows the keystroke — this is what broke typing printable ASCII.
+    case "$w" in undefined-key|undefined) w="" ;; esac
+    # Never accept one of OUR OWN widgets as an "original". If a capture ever
+    # runs after we already bound a key, bindkey reports our wrapper — and
+    # dispatching to it would recurse. Treat it as unbound so the caller's
+    # built-in default is used instead.
+    case "$w" in _smart_*|smart-*) w="" ;; esac
+    print -r -- "$w"
 }
 
 _smart_event_capture_originals() {
@@ -117,6 +136,7 @@ _smart_event_capture_originals() {
     if (( ${+functions[_smart_native_save_original_bindings]} )); then
         _smart_native_save_original_bindings
     fi
+    _SMART_EVT_CAPTURED=1
     return 0
 }
 
@@ -124,7 +144,9 @@ _smart_event_capture_originals() {
 # Call the widget named by the scalar; fallback if it is unset/missing.
 _smart_evt_dispatch() {
     local widget="$1" fallback="$2"
-    [[ -z "$widget" ]] && widget="$fallback"
+    # Never dispatch to the no-op pseudo-widget: guard against a bad capture
+    # leaving "undefined-key" (or empty) so printable input is never dropped.
+    case "$widget" in ""|undefined-key|undefined) widget="$fallback" ;; esac
     if (( ${+widgets[$widget]} )); then
         zle "$widget"
     else
@@ -302,7 +324,10 @@ zle -N _smart_widget_accept_line 2>/dev/null
 # _smart_event_bind -- install our wrappers into active keymaps.
 _smart_event_bind() {
     # Capture originals exactly once per shell session (they don't change).
-    if [[ -z "$_SMART_EVT_ORIG_SELF_EMACS" ]]; then
+    # Test the dedicated flag, NOT the content of an ORIG_* variable: a
+    # pre-set/stale value must never skip the capture, because that would also
+    # skip the native Tab bindings and every other key's original.
+    if (( ${_SMART_EVT_CAPTURED:-0} != 1 )); then
         _smart_event_capture_originals
     fi
 

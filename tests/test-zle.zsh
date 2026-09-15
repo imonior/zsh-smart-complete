@@ -166,6 +166,47 @@ assert_eq "binding probe returns without crash" "$?" "0"
 
 # ---------------------------------------------------------------------------
 print -r -- ""
+print -r -- "=== 场景 5b: regression — printable-ASCII range must not become undefined-key ==="
+# Regression for the "cannot type any ASCII character (but CJK works)" bug.
+# `bindkey -R "^@-^_"` prints the pseudo-widget "undefined-key"; if the
+# capture keeps that value, _smart_widget_self_insert dispatches to the no-op
+# `zle undefined-key` and every printable keystroke is swallowed. The capture
+# must normalise it to empty so the caller falls back to real `self-insert`.
+local rng
+rng=$(_smart_evt_binding emacs "^@-^_" 2>/dev/null)
+assert_eq "range query normalises undefined-key -> empty" "$rng" ""
+rng=$(_smart_evt_binding viins "^@-^_" 2>/dev/null)
+assert_eq "viins range query normalises undefined-key -> empty" "$rng" ""
+_smart_event_capture_originals 2>/dev/null
+assert_eq "captured emacs self-insert is self-insert (not undefined-key)" \
+    "$_SMART_EVT_ORIG_SELF_EMACS" "self-insert"
+assert_eq "captured viins self-insert is self-insert (not undefined-key)" \
+    "$_SMART_EVT_ORIG_SELF_VIINS" "self-insert"
+
+# ---------------------------------------------------------------------------
+print -r -- ""
+print -r -- "=== 场景 5c: regression — pre-set ORIG_SELF must not skip full capture ==="
+# The capture is guarded by a dedicated flag (_SMART_EVT_CAPTURED), NOT by the
+# content of one ORIG_* variable. Otherwise a stale or hand-set
+# _SMART_EVT_ORIG_SELF_EMACS would skip the whole capture — silently losing the
+# native Tab bindings and every other original widget binding too.
+_SMART_EVT_CAPTURED=0
+_SMART_EVT_ORIG_SELF_EMACS="self-insert"
+_SMART_EVT_ORIG_SELF_VIINS="self-insert"
+_SMART_EVT_ORIG_BACKDEL_EMACS=""
+_smart_event_bind 2>/dev/null
+assert_eq "pre-set ORIG_SELF still runs the full capture (backdel refilled)" \
+    "$_SMART_EVT_ORIG_BACKDEL_EMACS" "backward-delete-char"
+assert_eq "capture flag is set after _smart_event_bind" \
+    "${_SMART_EVT_CAPTURED}" "1"
+# Second bind must NOT re-capture (originals are stable per session).
+_SMART_EVT_ORIG_BACKDEL_EMACS="SENTINEL"
+_smart_event_bind 2>/dev/null
+assert_eq "capture runs only once per session (original left untouched)" \
+    "$_SMART_EVT_ORIG_BACKDEL_EMACS" "SENTINEL"
+
+# ---------------------------------------------------------------------------
+print -r -- ""
 print -r -- "=== 场景 6: Original capture variables exist ==="
 # Verify the _SMART_EVT_ORIG_* variables were declared.
 for v in _SMART_EVT_ORIG_SELF_EMACS \

@@ -1052,6 +1052,25 @@ git_clone_repo() {
     return 1
 }
 
+# Ensure a Zinit plugin (owner/repo) is present under ~/.local/share/zinit/plugins.
+# Keeps the recommended stack self-contained (no reliance on Zinit auto-cloning
+# at first shell start) and clears stale *.zwc bytecode. Non-fatal.
+_ensure_zinit_plugin() {
+    local slug="$1"                      # e.g. zdharma-continuum/fast-syntax-highlighting
+    local name="${slug//\//---}"         # Zinit clones as owner---repo
+    local dir="${XDG_DATA_HOME:-$HOME/.local/share}/zinit/plugins/${name}"
+    if [[ -d "$dir/.git" ]]; then
+        ( cd "$dir" && git pull --ff-only 2>/dev/null ) \
+            || warn "Update skipped for $slug (non-fatal)."
+    elif [[ ! -d "$dir" ]]; then
+        mkdir -p "$(dirname "$dir")"
+        git_clone_repo "https://github.com/${slug}.git" "$dir" \
+            || warn "Clone failed for $slug (non-fatal; Zinit will fetch it at first shell start)."
+    fi
+    find "$dir" -name '*.zwc' -delete 2>/dev/null
+    return 0
+}
+
 select_language
 
 # ------------------------------------------------------------------
@@ -1310,6 +1329,10 @@ if [[ "${SKIP_DEPS:-}" != "1" && "${NONINTERACTIVE:-0}" != "1" ]]; then
             # source instead of stale compiled output.
             find "$zsc_dir" -name '*.zwc' -delete 2>/dev/null
         fi
+        # --- fast-syntax-highlighting (recommended stack) ---
+        # Install it up-front so the user does not depend on Zinit cloning it
+        # at first shell start (also works offline / behind flaky mirrors).
+        _ensure_zinit_plugin "zdharma-continuum/fast-syntax-highlighting"
         # --- conflict cleanup ---
         # (Deferred to end of script — see clean_conflict_plugin() calls
         #  at the bottom, which run after the function is defined.)
@@ -1457,6 +1480,9 @@ if [[ "${SKIP_DEPS:-0}" != "1" ]]; then
         # the fixed source is loaded, not stale compiled output from before the fix.
         find "$SMART_COMPLETE_INSTALL_DIR" -name '*.zwc' -delete 2>/dev/null
     fi
+    # Ensure the recommended syntax-highlighting plugin (only if Zinit is present).
+    [[ -d "${XDG_DATA_HOME:-$HOME/.local/share}/zinit/zinit.git" ]] \
+        && _ensure_zinit_plugin "zdharma-continuum/fast-syntax-highlighting"
 fi
 fi
 
@@ -2001,9 +2027,43 @@ ZSHRC_FILE="${ZDOTDIR:-$HOME}/.zshrc"
 ZSHRC_DIR="$(dirname "$ZSHRC_FILE")"
 mkdir -p "$ZSHRC_DIR"
 
+# Strategy:
+#   * Full recommended stack (re)installed in THIS run (Phase 0/5 combo, incl.
+#     overwrite-installs) → recommend writing the COMPLETE recommended .zshrc.
+#   * Plugin-only install → ONLY manage the zsh-smart-complete block; never
+#     overwrite the user's whole .zshrc.
+FULL_STACK=0
+[[ "${RAN_COMBO:-0}" == "1" ]] && FULL_STACK=1
+
+# ------------------------------------------------------------------
+# Optional: zsh-vi-mode (vi keybindings) — OPT-IN, default NO.
+# ------------------------------------------------------------------
+# It is a genuinely good plugin, but it owns the entire keymap and
+# re-initialises ZLE on every line-init — the classic way to break other
+# plugins' bindings. So we never install it implicitly; when opted in we wire
+# it so that zsh-smart-complete re-binds AFTER vi-mode has finished.
+ZSC_VIMODE_SNIPPET=""
+if prompt_yes "Also install zsh-vi-mode (vi keybindings for the command line)?" 0; then
+    info "Installing zsh-vi-mode (Zinit plugin) ..."
+    _ensure_zinit_plugin "jeffreytse/zsh-vi-mode"
+    ZSC_VIMODE_SNIPPET='    # --- zsh-vi-mode (opt-in) ---
+    # vi-mode owns the keymaps and re-initialises ZLE on every line-init, so
+    # anything bound before it gets clobbered. Load it first, then let it call
+    # us back and re-apply the zsh-smart-complete widgets.
+    zinit ice wait lucid
+    zinit light jeffreytse/zsh-vi-mode
+    zvm_after_init() { smart-enable 2>/dev/null }
+    zvm_after_lazy_keybindings() { smart-enable 2>/dev/null }'
+fi
+
+# BEGIN/END markers let us replace an existing block in place (idempotent).
+ZSC_BLOCK_BEGIN="# >>> zsh-smart-complete integration (managed) >>>"
+ZSC_BLOCK_END="# <<< zsh-smart-complete integration <<<"
+
 # Build the combo-aware zsh-smart-complete integration block (plain zsh code,
 # written verbatim into ~/.zshrc). The prompt-init lines depend on CONFIG_COMBO.
 build_zsc_integration() {
+    printf '%s\n' "$ZSC_BLOCK_BEGIN"
     cat <<'ZSC'
 # ------------------------------
 # zsh-smart-complete integration
@@ -2017,6 +2077,14 @@ fi
 ZINIT_HOME="${XDG_DATA_HOME:-$HOME/.local/share}/zinit/zinit.git"
 if [[ -f "$ZINIT_HOME/zinit.zsh" ]]; then
     source "$ZINIT_HOME/zinit.zsh"
+ZSC
+    # Optional zsh-vi-mode goes BEFORE the smart-complete plugin line: it has
+    # to load first, and it re-enables our widgets itself (zvm_after_init).
+    # (Use `if` rather than `&&` so the function can't return 1 under set -e.)
+    if [[ -n "$ZSC_VIMODE_SNIPPET" ]]; then
+        printf '%s\n' "$ZSC_VIMODE_SNIPPET"
+    fi
+    cat <<'ZSC'
     zinit ice wait lucid
     zinit light zdharma-continuum/fast-syntax-highlighting
     zinit light imonior/zsh-smart-complete
@@ -2027,42 +2095,66 @@ fi
 # External prompt (combo-aware)
 ZSC
     echo "$PROMPT_INIT_SNIPPET"
+    printf '%s\n' "$ZSC_BLOCK_END"
+}
+
+# Upsert the marker-delimited block: if a managed block already exists it is
+# replaced in place (user's other config untouched); otherwise it is appended.
+_upsert_zsc_block() {
+    local file="$1" block="$2" tmp
+    tmp="$(mktemp)"
+    if grep -qF "$ZSC_BLOCK_BEGIN" "$file" 2>/dev/null; then
+        awk -v b="$ZSC_BLOCK_BEGIN" -v e="$ZSC_BLOCK_END" '
+            $0 == b { skip=1; next }
+            skip && $0 == e { skip=0; next }
+            !skip { print }
+        ' "$file" > "$tmp"
+    else
+        cat "$file" > "$tmp"
+    fi
+    printf '\n%s\n' "$block" >> "$tmp"
+    mv -f "$tmp" "$file"
 }
 
 if [[ ! -f "$ZSHRC_FILE" ]]; then
-    info "No ~/.zshrc found — creating recommended one (with zsh-smart-complete block)..."
-    resolved_zshrc="$(resolve_template "zshrc.example" "$ZSHRC_FILE")"
-    apply_template "$resolved_zshrc" "$ZSHRC_FILE"
-    success ".zshrc created with zsh-smart-complete integration"
-else
-    if grep -q "zsh-smart-complete" "$ZSHRC_FILE"; then
-        # Already has integration block — offer to replace with fresh template
-        info ".zshrc already has zsh-smart-complete block"
-        if prompt_yes "$(msg prompt.zshrc_overwrite)" 1; then
-            cp -f "$ZSHRC_FILE" "${ZSHRC_FILE}.bak.$(date +%s)"
-            resolved_zshrc="$(resolve_template "zshrc.example" "$ZSHRC_FILE")"
-            apply_template "$resolved_zshrc" "$ZSHRC_FILE"
-            success ".zshrc replaced with recommended template (backup kept at .bak.*)"
-        else
-            # Ask if they still want to append the integration block in case it's stale
-            if prompt_yes "Re-append zsh-smart-complete integration block?" 0; then
-                cp -f "$ZSHRC_FILE" "${ZSHRC_FILE}.bak.$(date +%s)"
-                printf '\n%s\n' "$(build_zsc_integration)" >> "$ZSHRC_FILE"
-                success ".zshrc updated with integration block (backup kept at .bak.*)"
-            fi
-        fi
+    if (( FULL_STACK )); then
+        info "No ~/.zshrc found — creating the recommended full-stack config ..."
+        resolved_zshrc="$(resolve_template "zshrc.example" "$ZSHRC_FILE")"
+        apply_template "$resolved_zshrc" "$ZSHRC_FILE"
+        success ".zshrc created with the recommended full-stack config"
     else
-        # No integration block yet — offer overwrite or append
-        if prompt_yes "$(msg prompt.zshrc_overwrite)" 1; then
-            cp -f "$ZSHRC_FILE" "${ZSHRC_FILE}.bak.$(date +%s)"
-            resolved_zshrc="$(resolve_template "zshrc.example" "$ZSHRC_FILE")"
-            apply_template "$resolved_zshrc" "$ZSHRC_FILE"
-            success ".zshrc replaced with recommended template (backup kept at .bak.*)"
-        elif prompt_yes "$(msg prompt.zshrc_append)" 1; then
-            cp -f "$ZSHRC_FILE" "${ZSHRC_FILE}.bak.$(date +%s)"
-            printf '\n%s\n' "$(build_zsc_integration)" >> "$ZSHRC_FILE"
-            success ".zshrc updated with integration block (backup kept at .bak.*)"
-        fi
+        info "No ~/.zshrc found — creating a minimal one with the zsh-smart-complete block ..."
+        : > "$ZSHRC_FILE"
+        _upsert_zsc_block "$ZSHRC_FILE" "$(build_zsc_integration)"
+        success ".zshrc created with the zsh-smart-complete integration block"
+    fi
+elif (( FULL_STACK )); then
+    # Full recommended stack (re)installed → recommend the complete template.
+    grep -q "zsh-smart-complete" "$ZSHRC_FILE" \
+        && info ".zshrc already has a zsh-smart-complete block"
+    if prompt_yes "$(msg prompt.zshrc_overwrite)" 1; then
+        cp -f "$ZSHRC_FILE" "${ZSHRC_FILE}.bak.$(date +%s)"
+        resolved_zshrc="$(resolve_template "zshrc.example" "$ZSHRC_FILE")"
+        apply_template "$resolved_zshrc" "$ZSHRC_FILE"
+        success ".zshrc replaced with the recommended full-stack template (backup kept at .bak.*)"
+    elif prompt_yes "$(msg prompt.zshrc_append)" 1; then
+        cp -f "$ZSHRC_FILE" "${ZSHRC_FILE}.bak.$(date +%s)"
+        _upsert_zsc_block "$ZSHRC_FILE" "$(build_zsc_integration)"
+        success ".zshrc updated with the integration block (backup kept at .bak.*)"
+    fi
+else
+    # Plugin-only install → ONLY manage the zsh-smart-complete block.
+    info "Plugin-only install — managing only the zsh-smart-complete block in ~/.zshrc"
+    if grep -qF "$ZSC_BLOCK_BEGIN" "$ZSHRC_FILE"; then
+        cp -f "$ZSHRC_FILE" "${ZSHRC_FILE}.bak.$(date +%s)"
+        _upsert_zsc_block "$ZSHRC_FILE" "$(build_zsc_integration)"
+        success ".zshrc zsh-smart-complete block refreshed (backup kept at .bak.*)"
+    elif grep -q "zsh-smart-complete" "$ZSHRC_FILE"; then
+        info "zsh-smart-complete config already present in ~/.zshrc — left unchanged."
+    elif prompt_yes "$(msg prompt.zshrc_append)" 1; then
+        cp -f "$ZSHRC_FILE" "${ZSHRC_FILE}.bak.$(date +%s)"
+        _upsert_zsc_block "$ZSHRC_FILE" "$(build_zsc_integration)"
+        success ".zshrc updated with the integration block (backup kept at .bak.*)"
     fi
 fi
 

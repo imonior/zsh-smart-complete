@@ -3,7 +3,7 @@
 > A modern smart completion & suggestion layer for Zsh.
 > Engineered as the frontend of a future independent shell.
 >
-> **v2.1.5** — Latest release: full p10k/OMZ remover (incl. Zinit plugin dirs), `.zwc` cache cleared on update, engine global-leak + history-cap fixes.
+> **v2.1.6** — Latest release: fix printable-ASCII input (`undefined-key`), key-capture hardening, install fast-syntax-highlighting, combo-aware .zshrc, optional zsh-vi-mode.
 
 ## Status
 
@@ -11,7 +11,7 @@
 | ------- | ------ |
 | Build & test (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | Release | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| Version | 2.1.5 |
+| Version | 2.1.6 |
 
 ## Why
 
@@ -426,6 +426,26 @@ rm -rf ~/.zsh-smart-complete
 
 All notable changes to this project will be documented in this file.
 
+### [v2.1.6] - 2026-09-15
+
+#### Fixed
+- **CRITICAL - printable ASCII input swallowed**: `_smart_evt_binding` captured the pseudo-widget `undefined-key` from the `bindkey -R "^@-^_"` range query and dispatched printable keys to it, so `zle undefined-key` (a no-op) ate every ASCII keystroke. CJK/UTF-8 (bytes >= 0x80, outside the rebound range) still inserted via the real `self-insert` - hence "Chinese works, English does not". The capture now normalises `undefined-key` to unbound so `self-insert` is used; `_smart_evt_dispatch` also guards against it; `_smart_current_binding` (native.zsh) got the same hardening. Regression test added in `tests/test-zle.zsh`.
+- **Key-capture hardening**: the self-insert original is now hard-coded instead of range-probed (a range query reports `undefined-key` before our bind and our own wrapper after it - neither is a usable original). Capture is guarded by a dedicated `_SMART_EVT_CAPTURED` flag rather than the content of one `ORIG_*` variable, so a stale or hand-set `_SMART_EVT_ORIG_SELF_*` can no longer skip the whole capture (which silently also dropped the native Tab bindings and every other original). A capture probe additionally refuses to record any `_smart_*` / `smart-*` widget, so a re-capture can never dispatch back into our own wrapper.
+- **Installer - managed block markers were never written**: `build_zsc_integration` used `print -r --` (a zsh builtin) inside a bash script, so the call failed silently and the `# >>> zsh-smart-complete integration (managed) >>>` / `# <<< ... <<<` marker lines were dropped. Without the BEGIN marker `_upsert_zsc_block` could never match, so every re-install appended a duplicate block instead of replacing in place. Now uses `printf '%s\n'`.
+
+#### Added
+- **Optional `zsh-vi-mode` (opt-in, default NO)**: vi keybindings are genuinely useful, but the plugin owns the whole keymap and re-initialises ZLE on every line-init, which is the classic way to break other plugins' bindings - so it is never installed implicitly. When opted in, the installer clones it and writes a block that loads it *before* zsh-smart-complete and re-applies our widgets via `zvm_after_init` / `zvm_after_lazy_keybindings`.
+- **Installer installs fast-syntax-highlighting** in the flow (`_ensure_zinit_plugin zdharma-continuum/fast-syntax-highlighting`) on both the full-combo and plugin paths, so it no longer depends on Zinit auto-cloning at first shell start.
+
+#### Changed
+- **Installer .zshrc strategy**: the complete recommended `.zshrc` template is only recommended when the full stack was (re)installed this run (Phase 0/5 combo); a plugin-only install now only manages the marker-delimited `zsh-smart-complete` block (idempotent upsert, never overwrites the whole file).
+
+#### Added
+- **Installer installs fast-syntax-highlighting** in the flow (`_ensure_zinit_plugin zdharma-continuum/fast-syntax-highlighting`) on both the full-combo and plugin paths, so it no longer depends on Zinit auto-cloning at first shell start.
+
+#### Changed
+- **Installer .zshrc strategy**: the complete recommended `.zshrc` template is only recommended when the full stack was (re)installed this run (Phase 0/5 combo); a plugin-only install now only manages the marker-delimited `zsh-smart-complete` block (idempotent upsert, never overwrites the whole file).
+
 ### [v2.1.5] - 2026-09-15
 
 #### Fixed
@@ -532,7 +552,7 @@ v2.0.0  Engine & installer overhaul — O(bucket) prefix index, de-subShell scor
 v2.1.0  Phase 0 full combo install (zsh + fzf + starship + atuin + zinit + zsh-smart-complete), interactive backup cleanup
    │
    ▼
-v2.1.5  p10k/OMZ remover (incl. Zinit dirs), .zwc cache cleared on update, engine fixes  ← you are here
+v2.1.6  fix printable-ASCII input (undefined-key), capture hardening, fast-syntax-highlighting, combo-aware .zshrc, opt-in zsh-vi-mode  ← you are here
    │
    ▼
 v0.5.x  smart-shell-engine (Rust / Go) over IPC  (future, opt-in)
@@ -557,7 +577,7 @@ zsh tests/test-zle.zsh
 zsh tests/test-integration.zsh
 ```
 
-**Test summary (v2.1.5):** `248 passed, 0 failed` across all 7 test files.
+**Test summary (v2.1.6):** `255 passed, 0 failed` across all 7 test files.
 
 ## License
 

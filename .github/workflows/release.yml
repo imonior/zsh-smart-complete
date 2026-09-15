@@ -1,9 +1,23 @@
 # .github/workflows/release.yml
 #
 # Release automation for zsh-smart-complete.
-# Triggered by pushing a `v*` tag (e.g. `v1.0.0`). Packages the plugin source
-# (excluding dev-only paths) and publishes a GitHub Release with auto-generated
-# notes.
+#
+# What it does:
+#   - On pushing a `v*` tag (e.g. `v2.2.0`), this runs automatically and
+#     publishes a GitHub Release whose notes are taken from that version's
+#     section in CHANGELOG.md.
+#   - It can also be run manually (workflow_dispatch) for a tag that is
+#     already pushed — handy for back-filling a release.
+#
+# No build step: this is a pure shell plugin. GitHub attaches the Source
+# code (zip/tar.gz) archives automatically; we only publish the notes.
+#
+# How to release from GitHub Desktop:
+#   1. Bump VERSION, commit, then Repository -> Create Tag... -> e.g. v2.3.0
+#   2. Push (the tag is pushed with the branch)
+#   3. The workflow fires and the Release page appears on its own.
+# For an already-pushed tag (e.g. v2.2.0): go to Actions -> Release Automation
+# -> Run workflow -> enter the tag -> Run workflow.
 
 name: Release Automation
 
@@ -11,41 +25,53 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release, e.g. v2.2.0 (defaults to the pushed tag)'
+        required: false
+        default: ''
 
 permissions:
   contents: write
 
 jobs:
   release:
-    name: Build & Publish Release
+    name: Publish Release
     runs-on: ubuntu-latest
 
     steps:
+      - name: Resolve tag
+        id: meta
+        run: |
+          TAG="${{ github.event.inputs.tag }}"
+          if [ -z "$TAG" ]; then TAG="${GITHUB_REF#refs/tags/}"; fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
+          ref: ${{ steps.meta.outputs.tag }}
           fetch-depth: 0
 
-      - name: Create Release Bundle
-        id: bundle
+      - name: Extract release notes from CHANGELOG.md
         run: |
-          TAG_NAME=${GITHUB_REF#refs/tags/}
-          echo "tag_name=${TAG_NAME}" >> "$GITHUB_OUTPUT"
-          STAGING="zsh-smart-complete-stage"
-          mkdir -p "$STAGING"
-          # Copy to staging dir first to avoid "file changed as we read it"
-          # when tar/zip reads a live working tree.
-          rsync -a --exclude='.git' --exclude='.github' --exclude='tests' . "$STAGING/"
-          tar -czvf "zsh-smart-complete-${TAG_NAME}.tar.gz" -C "$STAGING" .
-          (cd "$STAGING" && zip -r "../zsh-smart-complete-${TAG_NAME}.zip" . -x '.git/*' '.github/*' 'tests/*')
+          TAG="${{ steps.meta.outputs.tag }}"
+          awk -v v="$TAG" '
+            $0 ~ "^## \\[" v "\\]" { f=1; next }
+            f && /^## \[/ { exit }
+            f { print }
+          ' CHANGELOG.md > release-body.md
+          if [ ! -s release-body.md ]; then
+            echo "::error::No CHANGELOG.md section found for $TAG" >&2
+            exit 1
+          fi
 
-      - name: Release to GitHub
+      - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: ${{ steps.bundle.outputs.tag_name }}
-          files: |
-            zsh-smart-complete-*.tar.gz
-            zsh-smart-complete-*.zip
-          generate_release_notes: true
+          name: ${{ steps.meta.outputs.tag }}
+          tag_name: ${{ steps.meta.outputs.tag }}
+          body_path: release-body.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

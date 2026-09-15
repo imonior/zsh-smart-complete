@@ -56,6 +56,67 @@ typeset -g _SMART_EVT_ORIG_UNDO_EMACS=""
 typeset -g _SMART_EVT_ORIG_UNDO_VIINS=""
 typeset -g _SMART_EVT_ORIG_HISTUP_VIINS=""
 typeset -g _SMART_EVT_ORIG_HISTDOWN_VIINS=""
+typeset -g _SMART_EVT_ORIG_FWDWORD_EMACS=""
+typeset -g _SMART_EVT_ORIG_FWDWORD_VIINS=""
+
+# ---------------------------------------------------------------------------
+# Multi-sequence keys.
+#
+# A single logical key (→, ↑, Alt+→) has SEVERAL possible byte sequences, and
+# which one your terminal actually sends depends on:
+#   * $TERM's terminfo entry — for TERM=xterm-256color, kcuf1 (right arrow) is
+#     "ESC O C", the *application cursor keys* form, NOT "ESC [ C";
+#   * whether ZLE has put the terminal into that mode (it sends `smkx`).
+#
+# Binding only "ESC [ C" therefore leaves the right arrow dead on a plain
+# xterm-256color session: the key arrives as "ESC O C", hits zsh's stock
+# forward-char, and the suggestion is never accepted. We bind every form.
+# ---------------------------------------------------------------------------
+typeset -gaU _SMART_EVT_FWD_SEQS=()      # → accept whole suggestion
+typeset -gaU _SMART_EVT_WORDFWD_SEQS=()  # Alt+→ accept one word
+typeset -gaU _SMART_EVT_UP_SEQS=()
+typeset -gaU _SMART_EVT_DOWN_SEQS=()
+
+# Originals for the multi-sequence keys: "<keymap>|<seq>" -> widget name.
+#
+# zsh GOTCHA (cost us a silent regression): `assoc["a|b"]=x` stores the QUOTES
+# as part of the key, so the entry becomes unreachable via `assoc[a|b]`. `|` is
+# legal inside an unquoted subscript, so build the key in a variable and always
+# index with an unquoted subscript — exactly like lib/state.zsh does.
+typeset -gA _SMART_EVT_SAVED=()
+
+_smart_evt_build_seq_lists() {
+    # `terminfo` is a PARAMETER, so the module feature must be requested with
+    # the `p:` prefix — `b:terminfo` is rejected ("no such feature") and would
+    # leave the array undefined, silently losing the terminfo-derived arrows.
+    zmodload -F zsh/terminfo p:terminfo 2>/dev/null
+    local t _fwd
+    _SMART_EVT_FWD_SEQS=()
+    t="${terminfo[kcuf1]:-}"; [[ -n "$t" ]] && _SMART_EVT_FWD_SEQS+=("$t")
+    _SMART_EVT_FWD_SEQS+=("^[[C" "^[OC")
+
+    # Alt+→ : xterm-style "ESC [ 1 ; 3 C" plus the ESC-prefixed form of EVERY
+    # plain right-arrow encoding above. Alt on a terminal is literally "send ESC
+    # first, then the arrow", so it inherits the same multi-encoding problem as
+    # → itself: macOS Terminal / application-cursor mode send "ESC ESC [ C" or
+    # "ESC ESC O C", not "ESC [ 1 ; 3 C". Deriving from FWD_SEQS (instead of
+    # hardcoding one form) is what stops Alt+→ from going dead on the exact
+    # terminals where the plain arrow used to break.
+    _SMART_EVT_WORDFWD_SEQS=()
+    _SMART_EVT_WORDFWD_SEQS+=("^[[1;3C")
+    for _fwd in "${_SMART_EVT_FWD_SEQS[@]}"; do
+        _SMART_EVT_WORDFWD_SEQS+=("^[${_fwd}")
+    done
+
+    _SMART_EVT_UP_SEQS=()
+    t="${terminfo[kcuu1]:-}"; [[ -n "$t" ]] && _SMART_EVT_UP_SEQS+=("$t")
+    _SMART_EVT_UP_SEQS+=("^[[A" "^[OA")
+
+    _SMART_EVT_DOWN_SEQS=()
+    t="${terminfo[kcud1]:-}"; [[ -n "$t" ]] && _SMART_EVT_DOWN_SEQS+=("$t")
+    _SMART_EVT_DOWN_SEQS+=("^[[B" "^[OB")
+    return 0
+}
 
 # Sentinel: originals are captured exactly once per shell session. We use a
 # DEDICATED flag instead of testing one ORIG_* variable, because a pre-set or
@@ -69,11 +130,14 @@ _smart_evt_binding() {
     local km="$1" seq="$2"
     local out
     out=$(bindkey -M "$km" -- "$seq" 2>/dev/null) || { print -r -- ""; return 0; }
-    local rest="${out#*\"${seq}\" }"
-    if [[ "$rest" == "$out" ]]; then
-        rest="${out#${seq} }"
-    fi
-    local w="${rest%% *}"
+    # bindkey echoes `<key> <widget>`; the widget is ALWAYS the last field.
+    #
+    # Do NOT try to strip the key by matching $seq textually: bindkey always
+    # prints the key in ^X caret notation, so for a sequence given as raw bytes
+    # (e.g. the terminfo value $'\eOC') the match fails and the key text is
+    # mistaken for the widget name. That silently poisons the saved originals
+    # and the key is never restored on unbind.
+    local w="${out##* }"
     # A range/seq with no single binding reports the pseudo-widget
     # "undefined-key" (e.g. `bindkey -M emacs "^@-^_"` → `"^@-^_" undefined-key`).
     # Treat it as UNBOUND so the caller's `[[ -z ]] && <default>` fallback
@@ -132,6 +196,24 @@ _smart_event_capture_originals() {
     _SMART_EVT_ORIG_HISTDOWN_VIINS=$(_smart_evt_binding viins "^[[B")
     [[ -z "$_SMART_EVT_ORIG_HISTDOWN_VIINS" ]] && _SMART_EVT_ORIG_HISTDOWN_VIINS="down-line-or-history"
 
+    # Alt+→ (accept one word). Same probe, per keymap.
+    _SMART_EVT_ORIG_FWDWORD_EMACS=$(_smart_evt_binding emacs "^[[1;3C")
+    [[ -z "$_SMART_EVT_ORIG_FWDWORD_EMACS" ]] && _SMART_EVT_ORIG_FWDWORD_EMACS="forward-word"
+    _SMART_EVT_ORIG_FWDWORD_VIINS=$(_smart_evt_binding viins "^[[1;3C")
+    [[ -z "$_SMART_EVT_ORIG_FWDWORD_VIINS" ]] && _SMART_EVT_ORIG_FWDWORD_VIINS="forward-word"
+
+    # Every extra byte sequence for the arrows / Alt+→ gets its own original.
+    _smart_evt_build_seq_lists
+    local km2 seq seqkey
+    for km2 in emacs viins; do
+        for seq in "${_SMART_EVT_FWD_SEQS[@]}" "${_SMART_EVT_WORDFWD_SEQS[@]}" \
+                   "${_SMART_EVT_UP_SEQS[@]}" "${_SMART_EVT_DOWN_SEQS[@]}"; do
+            [[ -z "$seq" ]] && continue
+            seqkey="${km2}|${seq}"
+            _SMART_EVT_SAVED[$seqkey]="$(_smart_evt_binding "$km2" "$seq")"
+        done
+    done
+
     # Also save originals in the native-completion module (Tab).
     if (( ${+functions[_smart_native_save_original_bindings]} )); then
         _smart_native_save_original_bindings
@@ -185,6 +267,17 @@ _smart_evt_after_edit() {
     return 0
 }
 
+# _smart_evt_after_edit_all -- for the pure-EDIT widgets: recompute the
+# suggestion AND refresh the candidate menu. History navigation deliberately
+# skips the menu half (recalling a line should not dump a candidate list).
+_smart_evt_after_edit_all() {
+    _smart_evt_after_edit
+    if (( ${+functions[_smart_menu_tick]} )); then
+        _smart_menu_tick 2>/dev/null
+    fi
+    return 0
+}
+
 # ---------------------------------------------------------------------------
 # Widgets (all registered via zle -N below)
 # ---------------------------------------------------------------------------
@@ -196,7 +289,7 @@ _smart_widget_self_insert() {
         *)          _smart_evt_dispatch "$_SMART_EVT_ORIG_SELF_EMACS"   self-insert ;;
     esac
     (( ${+functions[_smart_native_reset_completion]} )) && _smart_native_reset_completion 2>/dev/null
-    _smart_evt_after_edit
+    _smart_evt_after_edit_all
 }
 zle -N _smart_widget_self_insert 2>/dev/null
 
@@ -207,7 +300,7 @@ _smart_widget_backward_delete_char() {
         *)          _smart_evt_dispatch "$_SMART_EVT_ORIG_BACKDEL_EMACS" backward-delete-char ;;
     esac
     (( ${+functions[_smart_native_reset_completion]} )) && _smart_native_reset_completion 2>/dev/null
-    _smart_evt_after_edit
+    _smart_evt_after_edit_all
 }
 zle -N _smart_widget_backward_delete_char 2>/dev/null
 
@@ -220,7 +313,10 @@ _smart_widget_forward_char() {
     sug="$(_smart_state_get suggestion.text "")"
     if (( CURSOR == ${#BUFFER} )) && [[ -n "$sug" ]] && [[ "$sug" == "$BUFFER"* ]]; then
         _smart_display_accept_partial
-        return $?
+        (( ${+functions[_smart_menu_clear]} )) && _smart_menu_clear
+        # The list left over from the last keystroke belongs to the old prefix.
+        zle -R "" "" 2>/dev/null
+        return 0
     fi
     local km="${KEYMAP:-emacs}"
     case "$km" in
@@ -230,6 +326,30 @@ _smart_widget_forward_char() {
 }
 zle -N _smart_widget_forward_char 2>/dev/null
 
+# Alt+→ : accept ONE word of the inline suggestion, then keep suggesting the
+# rest. With no suggestion (or cursor not at end) it degrades to the original
+# forward-word, so the key never becomes a dead key.
+_smart_widget_accept_word() {
+    local sug
+    sug="$(_smart_state_get suggestion.text "")"
+    if (( CURSOR == ${#BUFFER} )) && [[ -n "$sug" ]] && \
+       [[ "$sug" == "$BUFFER"* ]] && [[ "$sug" != "$BUFFER" ]]; then
+        _smart_display_accept_word 2>/dev/null
+        (( ${+functions[_smart_menu_clear]} )) && _smart_menu_clear
+        # Force a recompute so the ghost shrinks to the remaining tail and the
+        # candidate list reflects the new prefix.
+        _smart_state_set buffer ""
+        _smart_evt_after_edit_all
+        return 0
+    fi
+    local km="${KEYMAP:-emacs}"
+    case "$km" in
+        viins|main) _smart_evt_dispatch "$_SMART_EVT_ORIG_FWDWORD_VIINS" forward-word ;;
+        *)          _smart_evt_dispatch "$_SMART_EVT_ORIG_FWDWORD_EMACS" forward-word ;;
+    esac
+}
+zle -N _smart_widget_accept_word 2>/dev/null
+
 _smart_widget_kill_word() {
     local km="${KEYMAP:-emacs}"
     case "$km" in
@@ -237,7 +357,7 @@ _smart_widget_kill_word() {
         *)          _smart_evt_dispatch "$_SMART_EVT_ORIG_KILLWORD_EMACS" kill-word ;;
     esac
     (( ${+functions[_smart_native_reset_completion]} )) && _smart_native_reset_completion 2>/dev/null
-    _smart_evt_after_edit
+    _smart_evt_after_edit_all
 }
 zle -N _smart_widget_kill_word 2>/dev/null
 
@@ -248,7 +368,7 @@ _smart_widget_backward_kill_word() {
         *)          _smart_evt_dispatch "$_SMART_EVT_ORIG_BKWORDS_EMACS" backward-kill-word ;;
     esac
     (( ${+functions[_smart_native_reset_completion]} )) && _smart_native_reset_completion 2>/dev/null
-    _smart_evt_after_edit
+    _smart_evt_after_edit_all
 }
 zle -N _smart_widget_backward_kill_word 2>/dev/null
 
@@ -259,7 +379,7 @@ _smart_widget_yank() {
         *)          _smart_evt_dispatch "$_SMART_EVT_ORIG_YANK_EMACS" yank ;;
     esac
     (( ${+functions[_smart_native_reset_completion]} )) && _smart_native_reset_completion 2>/dev/null
-    _smart_evt_after_edit
+    _smart_evt_after_edit_all
 }
 zle -N _smart_widget_yank 2>/dev/null
 
@@ -270,7 +390,7 @@ _smart_widget_undo() {
         *)          _smart_evt_dispatch "$_SMART_EVT_ORIG_UNDO_EMACS" undo ;;
     esac
     (( ${+functions[_smart_native_reset_completion]} )) && _smart_native_reset_completion 2>/dev/null
-    _smart_evt_after_edit
+    _smart_evt_after_edit_all
 }
 zle -N _smart_widget_undo 2>/dev/null
 
@@ -333,6 +453,10 @@ _smart_event_bind() {
 
     local scope="${SMART_KEYMAP_SCOPE:-both}"
 
+    # The sequence lists are built during original-capture; rebuild defensively
+    # so a hand-set capture flag can never leave them empty.
+    (( ${#_SMART_EVT_FWD_SEQS} )) || _smart_evt_build_seq_lists
+
     # Determine which keymaps to touch.
     local -a kms=()
     case "$scope" in
@@ -342,7 +466,11 @@ _smart_event_bind() {
         *)      kms=(emacs viins) ;;
     esac
 
-    local km
+    # NOTE: every loop variable is declared HERE, once. Declaring a local
+    # inside a loop that runs more than once makes zsh 5.9 print the variable's
+    # previous value to stdout on the second iteration — which in a ZLE widget
+    # path scribbles straight over the command line.
+    local km km2 km3 _s _k _seq _orig _kmname
     for km in "${kms[@]}"; do
         # self-insert (all printable chars) — zsh provides the handy
         # "bindkey -R $from-$to" range syntax.
@@ -353,11 +481,17 @@ _smart_event_bind() {
         # Backspace (^? = 127)
         bindkey -M "$km" "^?" _smart_widget_backward_delete_char 2>/dev/null
 
-        # → (ESC [ C)
-        bindkey -M "$km" "^[[C" _smart_widget_forward_char 2>/dev/null
-        # Also bind ^[f (Alt+F = forward-word) just in case user prefers it;
-        # we still run the original forward-char widget (the user had ^[[C
-        # bound to that anyway) so no loss.
+        # → (every encoding the terminal may use: CSI and SS3/application
+        # cursor keys). Accepts the inline suggestion at end of line.
+        for _s in "${_SMART_EVT_FWD_SEQS[@]}"; do
+            [[ -z "$_s" ]] && continue
+            bindkey -M "$km" "$_s" _smart_widget_forward_char 2>/dev/null
+        done
+        # Alt+→ accepts ONE word of the suggestion (then re-suggests the rest).
+        for _s in "${_SMART_EVT_WORDFWD_SEQS[@]}"; do
+            [[ -z "$_s" ]] && continue
+            bindkey -M "$km" "$_s" _smart_widget_accept_word 2>/dev/null
+        done
 
         # Alt+d = kill-word
         bindkey -M "$km" "^[d"  _smart_widget_kill_word 2>/dev/null
@@ -377,13 +511,18 @@ _smart_event_bind() {
     # History arrows only in viins (emacs keymap arrow up/down goes through
     # multi-line by default and users expect that behaviour).
     if (( ${#kms[(r)viins]} > 0 )); then
-        bindkey -M viins "^[[A" _smart_widget_history_up   2>/dev/null
-        bindkey -M viins "^[[B" _smart_widget_history_down 2>/dev/null
+        for _s in "${_SMART_EVT_UP_SEQS[@]}"; do
+            [[ -z "$_s" ]] && continue
+            bindkey -M viins "$_s" _smart_widget_history_up 2>/dev/null
+        done
+        for _s in "${_SMART_EVT_DOWN_SEQS[@]}"; do
+            [[ -z "$_s" ]] && continue
+            bindkey -M viins "$_s" _smart_widget_history_down 2>/dev/null
+        done
     fi
 
     # Tab — handled by the native completion bridge (first Tab = complete,
     # subsequent = menu-complete cycle).
-    local km2
     for km2 in "${kms[@]}"; do
         bindkey -M "$km2" "^I" _smart_native_complete 2>/dev/null
         # Shift+Tab = reverse-menu-complete (cycle to previous candidate).
@@ -416,7 +555,7 @@ _smart_event_unbind() {
         *)      kms=(emacs viins) ;;
     esac
 
-    local km w
+    local km w km2 km3 _s _k _seq _orig _kmname
     for km in "${kms[@]}"; do
         case "$km" in
             emacs)  w="$_SMART_EVT_ORIG_SELF_EMACS" ;;
@@ -475,12 +614,24 @@ _smart_event_unbind() {
     w="$_SMART_EVT_ORIG_HISTDOWN_VIINS"
     [[ -n "$w" ]] && bindkey -M viins "^[[B" "$w" 2>/dev/null || bindkey -M viins "^[[B" down-line-or-history 2>/dev/null
 
+    # Every extra arrow / Alt+→ sequence: put back exactly what we found.
+    for _k in "${(@k)_SMART_EVT_SAVED}"; do
+        _kmname="${_k%%|*}"
+        _seq="${_k#*|}"
+        _orig="${_SMART_EVT_SAVED[$_k]}"
+        case "$_kmname" in emacs|viins) ;; *) continue ;; esac
+        if [[ -n "$_orig" ]]; then
+            bindkey -M "$_kmname" "$_seq" "$_orig" 2>/dev/null
+        else
+            bindkey -M "$_kmname" -r "$_seq" 2>/dev/null
+        fi
+    done
+
     # Tab + Shift+Tab (native bridge) → restore originals captured in native.zsh.
     if (( ${+functions[_smart_native_restore_original_bindings]} )); then
         _smart_native_restore_original_bindings
     fi
     # Unbind Shift+Tab (we own it; there's no "original" to restore).
-    local km3
     for km3 in "${kms[@]}"; do
         bindkey -M "$km3" -r "^[[Z" 2>/dev/null
     done

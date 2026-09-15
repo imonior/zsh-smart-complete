@@ -3,7 +3,9 @@
 > A modern smart completion & suggestion layer for Zsh.
 > Engineered as the frontend of a future independent shell.
 >
-> **v2.1.6** — Latest release: fix printable-ASCII input (`undefined-key`), key-capture hardening, install fast-syntax-highlighting, combo-aware .zshrc, optional zsh-vi-mode.
+> **v2.2.0** — Latest release: native type-to-popup candidate menu (the `zsh-autocomplete` half), `Alt+→` accepts one word, right-arrow SS3 fix.
+
+[English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
 ## Status
 
@@ -11,69 +13,49 @@
 | ------- | ------ |
 | Build & test (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | Release | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| Version | 2.1.6 |
+| Version | 2.2.0 |
 
 ## Why
 
-Replaces **both** `zsh-autocomplete` and `zsh-autosuggestions` with a clean,
-modular architecture designed for evolution into a standalone shell:
+Replaces both `zsh-autocomplete` and `zsh-autosuggestions` in a single plugin with a clean modular architecture, designed to evolve into a standalone shell.
 
-- **No `compinit` hijack** — uses whatever completion the user already has.
-- **No `line-pre-redraw` polling** — suggestions are computed only when the
-  buffer actually changes (self-insert, delete, kill-word…).
-- **In-memory history index** — built from `fc` once (and refreshed on
-  demand), instead of scanning `$HISTFILE` or `${history}` every keystroke.
-- **Unified state, event and display layers** — every upper layer maps
-  cleanly to a future Rust/Go engine and, eventually, the native Smart Shell.
-- **Optional Atuin backend** (v0.2.0+) — reuse an existing Atuin SQLite
-  history with CWD / host / exit-aware ranking, with silent fallback to zsh.
-- **Deterministic ranking** (v0.1.3+) — exponential time-decay + frequency +
-  CWD boost, replicated 1:1 for the future Rust engine.
-- **Zero external deps** — core plugin is self-contained; optional Atuin only.
-- **Syntax-highlighting compatible** — uses `#zsh-smart-complete:suggestion`
-  region_highlight marker so other highlighters are never overwritten.
+- **Two halves, one engine (v2.2.0)** — while you type, the candidate list pops up *immediately* (the `zsh-autocomplete` behaviour) while the inline grey suggestion stays; `→` accepts it all, `Alt+→` accepts one word (the `zsh-autosuggestions` behaviour). One plugin, one keymap, two channels — the real fix for "the two plugins conflict".
+- **Zero external dependencies** — the core plugin is self-contained; Atuin is optional.
+- **Every arrow-key encoding is bound** — both `ESC [ C` and `ESC O C` (application cursor-keys mode, what `TERM=xterm-256color` actually sends) are bound, so you never get "grey text shows but the arrow does nothing".
+- **Syntax-highlighting friendly** — uses the `#zsh-smart-complete:suggestion` tag; does not override other highlighters.
 
-## Architecture (v2.0.0)
+## Architecture
 
 ```
-                 zsh-smart-complete.plugin.zsh
-                              │
-        ┌─────────────────────┼─────────────────────┐
-        │                     │                     │
-     config                state                  event/zle
-        │                     │                     │
-        └─────────────────────┼─────────────────────┘
-                              │
-              ┌───────────────┴───────────────┐
-              │                               │
-        engine/suggest                  engine/native
-              │                               │
-       history/history               (user's compinit)
-              │
-     zsh fc   │   atuin (opt)   │   smart-engine (future)
-              └─────────────────┴───────────────────┘
-                              │
-                        display/
-                    region_highlight
+              zsh-smart-complete.plugin.zsh
+                           │
+         ┌─────────────────┼─────────────────┐
+         │                 │                 │
+      config            state             event/zle
+         │                 │                 │
+         └─────────────────┼─────────────────┘
+                           │
+               ┌───────────┴───────────┐
+               │                       │
+         engine/suggest          engine/native
+               │                       │
+        history/history         (user compinit)
+                                       │
+                                   engine/menu
+                              (type-to-popup list)
+               │
+      zsh fc   │   atuin (opt)   │   smart-engine (future)
+               └───────────────────┴───────────────────┘
+                           │
+                     display/
+                 region_highlight
 ```
-
-Modules:
-
-| Module | Responsibility |
-| ------ | ------------- |
-| `lib/config.zsh`  | Feature flags, defaults, backend selection |
-| `lib/state.zsh`   | Central `_SMART_STATE` associative array |
-| `lib/history/history.zsh` | In-memory history index (freq + recency) |
-| `lib/engine/suggest.zsh`  | Suggestion engine (prefix · recency · freq) |
-| `lib/engine/native.zsh`   | Native completion bridge (uses user compinit) |
-| `lib/display/display.zsh` | Inline suggestion rendering via `region_highlight` |
-| `lib/event/zle.zsh`       | ZLE widgets + keymap bindings (emacs + viins) |
 
 ## Quick start
 
-### Prerequisite
+### Prerequisites
 
-Let **Zsh itself** own `compinit` in your `.zshrc`:
+Make sure Zsh itself has `compinit`:
 
 ```zsh
 export HISTFILE="$HOME/.zsh_history"
@@ -87,336 +69,82 @@ compinit
 
 ### Install
 
-> ⚠️ **This plugin replaces BOTH `zsh-autocomplete` and `zsh-autosuggestions`.**
-> If you currently use either, remove them first (see below). Running all
-> three together produces duplicate inline suggestions and a Tab key that
-> fights itself.
+> ⚠️ This plugin replaces **both** `zsh-autocomplete` and `zsh-autosuggestions`.
 
-#### Option A — One-key installer (recommended)
-
-The bundled `install.sh` does everything in one pass: detects your OS
-(macOS / Ubuntu / Debian / QNAP-Entware), **checks for Zsh and guides you
-to install it if missing** (Homebrew / apt / opkg), installs Zsh · fzf ·
-Zinit · Starship, clones this plugin, writes the recommended `.zshrc`
-block,
-**and automatically detects + offers to back up and remove conflicting
-plugins** (zsh-autocomplete / zsh-autosuggestions), **and detects Oh My
-Zsh / Powerlevel10k and lets you pick a config combo** (Zinit + Starship
-recommended, or keep OMZ + p10k, or Zinit + p10k) — see below.
-
-On Entware / QNAP / OpenWrt, `install.sh` auto-detects `opkg` and
-**delegates to the dedicated `install-entware.sh`** (no `sudo`, no
-`chsh`/`/etc/shells` — it switches your login shell via `~/.profile`
-and prints QNAP GUI instructions instead).
-
-Run it directly (downloads + executes):
+#### Method A — one-line installer (recommended)
 
 ```zsh
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/imonior/zsh-smart-complete/main/install.sh)"
+bash <(curl -fsSL https://raw.githubusercontent.com/imonior/zsh-smart-complete/main/install.sh)
 ```
 
-国内用户可改用镜像加速版——安装脚本本身的抓取、以及后续所有 GitHub 下载（Zinit / 本插件 / Starship / Atuin 内层二进制）全部走 `ghproxy.net`：
+#### Method B — Zinit
 
 ```zsh
-SMART_INSTALL_GH_MIRROR=https://ghproxy.net/ bash -c "$(curl -fsSL https://ghproxy.net/https://raw.githubusercontent.com/imonior/zsh-smart-complete/main/install.sh)"
-```
-
-> 镜像加速子系统的完整说明见下方「国内代理加速」一节。即便不加镜像前缀，安装器也会在开始时对多个候选镜像**自动测速并推荐最快的**，可交互选择，或用 `NONINTERACTIVE=1` 自动采用最快镜像。若 `ghproxy.net` 不可用，把上面两处 `https://ghproxy.net/` 换成 `https://kgithub.com/`、`https://gitclone.com/` 或 `https://ghproxy.com/` 等任意镜像前缀即可。
-
-Or clone first and run locally — recommended so you can review the script:
-
-```zsh
-git clone https://github.com/imonior/zsh-smart-complete.git /tmp/zsc
-/tmp/zsc/install.sh
-```
-
-Useful flags (can be combined):
-
-```zsh
-NONINTERACTIVE=1 ./install.sh   # CI / headless: yes for safe, no for destructive
-SKIP_DEPS=1     ./install.sh    # skip external downloads (system pkgs only)
-SMART_INSTALL_LANG=ja ./install.sh  # pick language without prompting (en / zh-CN / zh-TW / ja / ko)
-```
-
-#### 安装语言（Installation language）
-
-安装开始时首先会让你选择语言，**默认 English**：
-
-```text
-[INFO]  Select installation language:
-  1) English (default)
-  2) 简体中文
-  3) 繁體中文
-  4) 日本語
-  5) 한국어
-Enter number [default=1 English]:
-```
-
-后续阶段标题、镜像测速与选择、Starship / Atuin / Zinit / Oh My Zsh 等交互提示都会用所选语言显示。
-未收录的文案自动回退英文，因此不会出现空白提示。
-
-- 非交互场景用 `SMART_INSTALL_LANG` 指定；`NONINTERACTIVE=1` 时默认 English。
-- Entware 分支（`install-entware.sh`）同样支持，`install.sh` 委托时会自动把语言传递过去。
-
-> The one-key installer **includes** the Zinit-based load method and the
-> conflict cleanup — it is the superset of Options B and the manual removal
-> steps below, so most users only need this one command.
-
-#### Already using zsh-autocomplete / zsh-autosuggestions?
-
-This plugin is a complete replacement for both. Remove them before loading
-zsh-smart-complete:
-
-- **Using the one-key installer** → it greps `~/.zshrc` for active loader
-  lines and scans `~/.zinit/plugins` for the plugin directories, then
-  prompts to move each to a `.bak.<timestamp>` backup and remove the original.
-- **Using Oh My Zsh** → remove `zsh-autosuggestions` (and `zsh-autocomplete`
-  if present) from your `plugins=()` array, then delete:
-
-  ```zsh
-  rm -rf ~/.oh-my-zsh/custom/plugins/zsh-autosuggestions
-  rm -rf ~/.oh-my-zsh/custom/plugins/zsh-autocomplete
-  ```
-- **Using Antidote / znap / manual** → delete the `source` / `zinit light` /
-  `antidote` / `plug` line for those plugins from `~/.zshrc` and remove their
-  directories (e.g. `~/.antidote/...`, `~/.../zsh-autosuggestions`).
-
-After removing them, restart Zsh (`exec zsh`) before loading zsh-smart-complete.
-
-#### Already using / not yet using Oh My Zsh / Powerlevel10k?
-
-The one-key installer **always asks you to pick a config combo** (whether or not
-OMZ/p10k are already installed). It detects an existing **Oh My Zsh**
-(`~/.oh-my-zsh`, or a `source …/oh-my-zsh.sh` line in `~/.zshrc`) and/or
-**Powerlevel10k** (`~/.p10k.zsh`, a `powerlevel10k` theme reference, or a
-`~/powerlevel10k` directory), then offers three choices — the recommended one is
-**Zinit + Starship**, with **Oh My Zsh + Powerlevel10k** and **Zinit +
-Powerlevel10k** offered as alternatives:
-
-1. **(推荐) Zinit + Starship** — when OMZ/p10k already exist they are commented out
-   in `~/.zshrc` (`.bak` backup kept) and optionally removed; when they are **not**
-   installed this is just a clean fresh install. A clean Zinit + Starship block is
-   written either way.
-2. **Oh My Zsh + Powerlevel10k** — the classic stack. If OMZ/p10k are not yet
-   installed, the installer fetches them for you (OMZ via its official one-key
-   script through the GitHub mirror, p10k cloned as an OMZ theme and
-   `ZSH_THEME="powerlevel10k/powerlevel10k"` set); if they already exist they are
-   kept and zsh-smart-complete is appended *after* OMZ.
-3. **Remove OMZ, keep p10k → Zinit + Powerlevel10k** — OMZ is removed but p10k is
-   kept (loaded via `zinit light romkatzen/powerlevel10k`).
-
-The recommended path (1) is the cleanest and avoids duplicate completion / Tab-key
-conflicts. In `NONINTERACTIVE=1` mode (or via `SMART_INSTALL_COMBO=zinit-starship`)
-the installer always picks (1); `SMART_INSTALL_COMBO` also accepts `keep-omz` and
-`zinit-p10k`.
-
-#### Option B — Zinit (manual)
-
-```zsh
-zinit ice wait lucid
 zinit light imonior/zsh-smart-complete
 ```
 
-Requires Zsh's native `compinit` to be run in `.zshrc` (see Prerequisite above).
-
-#### Option C — Manual clone
+#### Method C — manual clone
 
 ```zsh
 git clone https://github.com/imonior/zsh-smart-complete.git ~/.zsh-smart-complete
+echo 'source ~/.zsh-smart-complete/zsh-smart-complete.plugin.zsh' >> ~/.zshrc
 ```
 
-Then add to `~/.zshrc` (after your own `compinit`):
-
-```zsh
-source ~/.zsh-smart-complete/zsh-smart-complete.plugin.zsh
-```
-
-#### QNAP / Entware (dedicated installer)
-
-QNAP NAS (and other opkg-based systems like OpenWrt) run **Entware**, which
-uses the `opkg` package manager, runs as `admin`/root with **no `sudo`**, and
-has **no `/etc/shells` / `chsh`**. The generic `install.sh` therefore hands
-off to a purpose-built `install-entware.sh` that:
-
-- Installs **Zsh** via `opkg install zsh` (no `sudo`).
-- Switches your login shell to zsh by appending a guarded `exec zsh` block to
-  `~/.profile`, and prints the QNAP GUI path
-  (Control Panel → Terminal → Default shell → zsh).
-- Treats **fzf** and **Starship** as **optional** — they're skipped silently
-  if your entware feed lacks them (the plugin core works without either).
-- Installs **Zinit** + clones the plugin, runs the same conflict cleanup, and
-  appends the loader block to `~/.zshrc`.
-
-Run it (it is also auto-invoked by `install.sh` when `opkg` is detected):
-
-```zsh
-# from a local clone
-git clone https://github.com/imonior/zsh-smart-complete.git /tmp/zsc
-/tmp/zsc/install-entware.sh
-
-# or download + run directly
-curl -fsSL https://raw.githubusercontent.com/imonior/zsh-smart-complete/main/install-entware.sh -o install-entware.sh
-bash install-entware.sh
-```
-
-Headless / CI flags (same as `install.sh`):
-
-```zsh
-NONINTERACTIVE=1 bash install-entware.sh   # yes for safe, no for destructive
-SKIP_DEPS=1     bash install-entware.sh    # skip external downloads
-```
-
-> On QNAP, a new SSH login will auto-launch zsh via `~/.profile`. To reload
-> the current session immediately run `exec /opt/bin/zsh` (or whichever path
-> the installer reported).
-
-#### 国内代理加速（GitHub 镜像自动选择）
-
-`zsh-smart-complete` 本体以及 Zinit、`fzf`、`starship`、`atuin` **全部托管在 GitHub**。
-安装器内置一套 GitHub 镜像加速子系统：**安装开始时会对多个候选镜像做测速，推荐最快的，
-并允许你在交互中选择（推荐项 / 直连 / 手动输入自定义前缀）**。一旦选定，后续所有
-`git clone`（Zinit、本插件、fzf 回退安装）和 raw 文件下载（模板、`starship`/`atuin`
-安装脚本的外层抓取）都会自动走该镜像前缀，无需逐项配置。
-
-支持的环境变量（可跳过交互、直接指定）：
-
-```zsh
-SMART_INSTALL_GH_MIRROR=direct   bash install.sh   # 强制直连（不使用加速）
-SMART_INSTALL_GH_MIRROR=https://ghproxy.net/ \
-                                bash install.sh   # 强制使用指定镜像前缀
-```
-
-一键镜像安装（无需先 clone，安装脚本本身也走镜像）：
+#### Mainland-China mirror
 
 ```zsh
 SMART_INSTALL_GH_MIRROR=https://ghproxy.net/ bash -c "$(curl -fsSL https://ghproxy.net/https://raw.githubusercontent.com/imonior/zsh-smart-complete/main/install.sh)"
 ```
 
-> **镜像并非都是「URL 前缀代理」**，安装器按类型分别处理：
-> - `prefix`（ghproxy.net / ghproxy.com / mirror.ghproxy.com）：可加速 raw 文件与 releases 二进制。
-> - `domain`（kgithub.com）：只做 `github.com` → 镜像域名替换，raw 仍走直连。
-> - `clone`（gitclone.com）：**仅加速 git clone**，绝不改写 `releases` / `archive` / `raw` 等文件下载地址
->   ——否则会把二进制地址拼成 404，表现为 starship / atuin 安装报 `curl exit code 22`。
->
-> 另外：测速会校验 **HTTP 200 且响应体非空**，返回「快速错误页」的镜像不会被误判为最快；
-> 镜像下载失败时会自动**回退直连重试**。
-
-交互行为：
-
-- **测速**：安装开始即对全部候选镜像拉取本项目一个极小的 raw 文件并计时。
-- **列表选择**：所有候选（含直连）连同耗时一并列出并编号，最快且可用的标记为
-  `(推荐)`；此外单列一个「手动输入自定义镜像前缀 URL」选项。
-- **输入序号 + 回车**：直接输入编号即可选中对应镜像；留空回车则采用推荐项。
-  `NONINTERACTIVE=1`（CI/无头）时自动采用最快镜像，全部不可用时回退直连。
-- **手动输入**：选择末尾的「手动输入」项后，粘贴任意镜像前缀 URL
-  （如 `https://ghproxy.com/`、`https://kgithub.com/`、`https://gitclone.com/`）。
-
-> **关于 `starship` / `atuin` 的二进制下载**：它们的一键脚本会从 GitHub Releases
-> 自取二进制。安装器在运行这类脚本时，会临时把一个**重写 GitHub URL 的 `curl`/`wget`
-> shim** 放到 `PATH` 最前面，因此**内层二进制下载同样走所选镜像加速**（前提是脚本用
-> `curl`/`wget` 下载；少数脚本若使用自带 HTTP 客户端则不受控）。仍建议优先用系统包管理器
-> （apt / brew / opkg）安装这些二进制；或运行安装器前配置 Git 全局镜像：
-> `git config --global url."https://gitclone.com/".insteadOf https://`。
-
-#### 可选组件：fzf / Starship / Atuin 官方安装命令
-
-三者均开源并托管于 GitHub，可单独安装（安装器也会按上述镜像加速去拉取）：
-
-```zsh
-# fzf — 模糊查找器（插件核心不依赖，但装上体验更好）
-git clone --depth 1 https://github.com/junegunn/fzf.git ~/.fzf && ~/.fzf/install
-
-# starship — 跨平台提示符
-curl -sS https://starship.rs/install.sh | sh
-
-# atuin — 加密同步的 shell 历史（Ctrl-R 升级版）
-curl --proto '=https' --tlsv1.2 -LsSf https://setup.atuin.sh | sh
-```
-
-> 安装器在 `~/.zshrc` 的集成块里已包含 `atuin init zsh` 的 `command -v` 守卫——
-> 装好 atuin 后重开终端即自动启用，无需再手动改配置。
-
-### Default keys
-
-| Key     | Action                    |
-| ------- | ------------------------- |
-| `→`     | Accept inline suggestion  |
-| `Tab`   | Native completion         |
-| `↑`/`↓` | History cycle (viins)     |
-| `Ctrl+G`| Disable/enable plugin     |
-
 ## Configuration
 
-All knobs below are plain Zsh variables. **Edit `~/.zshrc`** and put the
-`export`/`typeset` lines **before** the line that loads the plugin:
-
-```zsh
-# If you used Zinit:
-zinit light imonior/zsh-smart-complete
-# If you used the Manual clone:
-source ~/.zsh-smart-complete/zsh-smart-complete.plugin.zsh
-```
-
-If you ran the one-key installer, the loader is inside the
-`# zsh-smart-complete integration` block it appended to your `~/.zshrc` —
-add your overrides just above that block.
-
-Set these **before** sourcing the plugin:
+Set these variables **before** the plugin loads:
 
 ```zsh
 # Master switch
 : ${SMART_ENABLED:=true}
-
 # Engines
 : ${SMART_SUGGEST:=true}
 : ${SMART_COMPLETE:=true}
-
 # History backend: zsh | atuin | smart-engine (future)
 : ${SMART_HISTORY_BACKEND:=zsh}
-
 # UI
 : ${SMART_INLINE:=true}
-: ${SMART_SUGGEST_MAX:=1}
-: ${SMART_SUGGEST_HISTORY_LIMIT:=20000}
-: ${SMART_SUGGEST_COLOR:=fg=8}           # dim grey
+: ${SMART_SUGGEST_COLOR:=fg=8}
 
-# Rebuild index after N new commands (0 = never auto-rebuild)
-: ${SMART_HISTORY_REBUILD_EVERY:=500}
-```
+# Type-to-popup candidate list (the zsh-autocomplete half)
+: ${SMART_MENU:=true}
+: ${SMART_MENU_MIN_PREFIX_CMD:=2}     # min chars in the COMMAND word before listing
+: ${SMART_MENU_MIN_PREFIX:=1}         # min chars in an ARGUMENT word (0 = also right after a space)
+: ${SMART_MENU_MIN_MATCHES:=2}        # below this many candidates, no list (a single one stays ghost text)
+: ${SMART_MENU_MAX_PREFIX:=64}
+# Throttle: OFF by default. Measured cost is only 10-30ms per listing, so there is
+# nothing to throttle; this knob is for a *persistently* expensive completion. When
+# on, a listing >= SLOW_MS buys COOLDOWN_KEYS skipped edits. Note: a skipped edit is
+# not repainted, so the on-screen list vanishes for that keystroke — which is exactly
+# why the default is 0.
+: ${SMART_MENU_SLOW_MS:=250}
+: ${SMART_MENU_COOLDOWN_KEYS:=0}
 
-### Ranking (v0.1.3+)
-
-```zsh
-# Exponential time-decay: higher alpha = faster recency decay.
-: ${SMART_RANKING_DECAY_ALPHA:=10}     # default 10
-# CWD boost (milli-units, 1000 = 1.0x): last-run-in-this-dir multiplier.
-: ${SMART_RANKING_CWD_BOOST:=1500}     # default 1.5x
-```
-
-### Atuin backend (v0.2.0+)
-
-Only takes effect when `SMART_HISTORY_BACKEND=atuin`. Falls back to zsh
-silently if `sqlite3` is missing or the DB file does not exist.
-
-```zsh
-: ${SMART_ATUIN_DB_PATH:="${HOME}/.local/share/atuin/history.db"}
-: ${SMART_ATUIN_HOST_BOOST:=1300}      # same-host multiplier (1.3x)
-: ${SMART_ATUIN_FAILED_PENALTY:=500}  # failed-exit multiplier (0.5x)
-: ${SMART_ATUIN_SUCCESS_ONLY:=false}   # drop failed-exit rows entirely
+# Debugging: set to a file path and every tick decision (gate refused / cooldown
+# swallowed / match count / measured cost) is appended there. "The popup didn't
+# appear" is otherwise indistinguishable from "one match, so the ghost took over".
+: ${SMART_MENU_DEBUG:=}
 ```
 
 ## Runtime commands
 
 ```zsh
-smart-status      # Print current state + config
-smart-disable     # Remove widgets + stop computing suggestions
-smart-enable      # Re-enable after disable
-smart-reindex     # Force a history index rebuild
+smart-status      # print current state + config
+smart-disable     # disable the plugin
+smart-enable      # re-enable
+smart-reindex     # force a history index rebuild
+smart-menu on     # turn the type-to-popup list on
+smart-menu off    # turn it off (inline ghost text unaffected)
+smart-menu status # show menu config + last listing result
 ```
 
 ## Uninstall
-
-Remove the `source` / `zinit light` line from `.zshrc`, then:
 
 ```zsh
 rm -rf ~/.zsh-smart-complete
@@ -424,160 +152,34 @@ rm -rf ~/.zsh-smart-complete
 
 ## Changelog
 
-All notable changes to this project will be documented in this file.
-
-### [v2.1.6] - 2026-09-15
-
-#### Fixed
-- **CRITICAL - printable ASCII input swallowed**: `_smart_evt_binding` captured the pseudo-widget `undefined-key` from the `bindkey -R "^@-^_"` range query and dispatched printable keys to it, so `zle undefined-key` (a no-op) ate every ASCII keystroke. CJK/UTF-8 (bytes >= 0x80, outside the rebound range) still inserted via the real `self-insert` - hence "Chinese works, English does not". The capture now normalises `undefined-key` to unbound so `self-insert` is used; `_smart_evt_dispatch` also guards against it; `_smart_current_binding` (native.zsh) got the same hardening. Regression test added in `tests/test-zle.zsh`.
-- **Key-capture hardening**: the self-insert original is now hard-coded instead of range-probed (a range query reports `undefined-key` before our bind and our own wrapper after it - neither is a usable original). Capture is guarded by a dedicated `_SMART_EVT_CAPTURED` flag rather than the content of one `ORIG_*` variable, so a stale or hand-set `_SMART_EVT_ORIG_SELF_*` can no longer skip the whole capture (which silently also dropped the native Tab bindings and every other original). A capture probe additionally refuses to record any `_smart_*` / `smart-*` widget, so a re-capture can never dispatch back into our own wrapper.
-- **Installer - managed block markers were never written**: `build_zsc_integration` used `print -r --` (a zsh builtin) inside a bash script, so the call failed silently and the `# >>> zsh-smart-complete integration (managed) >>>` / `# <<< ... <<<` marker lines were dropped. Without the BEGIN marker `_upsert_zsc_block` could never match, so every re-install appended a duplicate block instead of replacing in place. Now uses `printf '%s\n'`.
-
-#### Added
-- **Optional `zsh-vi-mode` (opt-in, default NO)**: vi keybindings are genuinely useful, but the plugin owns the whole keymap and re-initialises ZLE on every line-init, which is the classic way to break other plugins' bindings - so it is never installed implicitly. When opted in, the installer clones it and writes a block that loads it *before* zsh-smart-complete and re-applies our widgets via `zvm_after_init` / `zvm_after_lazy_keybindings`.
-- **Installer installs fast-syntax-highlighting** in the flow (`_ensure_zinit_plugin zdharma-continuum/fast-syntax-highlighting`) on both the full-combo and plugin paths, so it no longer depends on Zinit auto-cloning at first shell start.
-
-#### Changed
-- **Installer .zshrc strategy**: the complete recommended `.zshrc` template is only recommended when the full stack was (re)installed this run (Phase 0/5 combo); a plugin-only install now only manages the marker-delimited `zsh-smart-complete` block (idempotent upsert, never overwrites the whole file).
-
-#### Added
-- **Installer installs fast-syntax-highlighting** in the flow (`_ensure_zinit_plugin zdharma-continuum/fast-syntax-highlighting`) on both the full-combo and plugin paths, so it no longer depends on Zinit auto-cloning at first shell start.
-
-#### Changed
-- **Installer .zshrc strategy**: the complete recommended `.zshrc` template is only recommended when the full stack was (re)installed this run (Phase 0/5 combo); a plugin-only install now only manages the marker-delimited `zsh-smart-complete` block (idempotent upsert, never overwrites the whole file).
-
-### [v2.1.5] - 2026-09-15
-
-#### Fixed
-- **Installer - p10k/OMZ removers**: `_remove_p10k` / `_remove_omz` now also delete the Zinit-cloned plugin dir under `$ZINIT_PLUGINS_DIR` (e.g. `romkatzen---powerlevel10k`, `OMZ::ohmyzsh---ohmyzsh`), so picking a non-p10k/OMZ combo fully clears stale remnants that previously re-loaded on next start. `.bak.*` artifacts are deleted directly to avoid cascading backups.
-- **Installer - `.zwc` bytecode**: the plugin update path (`git reset --hard`) now also removes Zinit-compiled `*.zwc` caches, so engine fixes actually take effect after an update (previously stale compiled code loaded).
-- **Engine - global leak**: `cmd_cwd` / `cmd_host` / `cmd_exit` in `lib/engine/suggest.zsh` are now declared `local` (were leaking as globals on every keystroke).
-- **Engine - history cap**: `_SMART_CMDS` is now capped to `SMART_SUGGEST_HISTORY_LIMIT` (default 20000); when `SMART_HISTORY_REBUILD_EVERY=0` disables the periodic rebuild, the oldest entry is dropped and its bucket/assoc slots stay in sync.
-
-### [v2.1.4] - 2026-09-12
-
-#### Fixed
-- fzf install was silently skipped (no interaction); install progress shown twice (Phase 0/5 then Phase 1-4). Added a `RAN_COMBO` guard and made fzf prompts interactive.
-
-### [v2.1.3] - 2026-09-11
-
-#### Fixed
-- `read: -: invalid option` crash on every y/N prompt - `IFS=$'\n\t'` broke `read $_args`; switched to `read "$@"`.
-
-### [v2.1.2] - 2026-09-10
-
-#### Fixed
-- Installer prompts now block until the user confirms each step; conflict-plugin `.bak.*` cascade fixed (primary dir backed up once); stale plugin now actually updated via `git fetch --depth 1` + `git reset --hard`.
-
-### [v2.1.1] - 2026-09-09
-
-#### Added
-- **zsh reinstall prompt**: When zsh is already installed, prompt user to reinstall/upgrade via brew (macOS) or apt (Debian/Ubuntu)
-- **fast-syntax-highlighting**: Loaded via `zinit light zdharma-continuum/fast-syntax-highlighting` in `.zshrc` template (Zinit auto-clones at startup); not managed by install.sh directly
-- **i18n messages**: Added `prompt.zsh_reinstall` in zh-CN, zh-TW, ja, ko, en
-
-#### Changed
-- **Phase 0**: Full combo install now includes zsh reinstall logic; fast-syntax-highlighting loaded by Zinit via `.zshrc` template
-- **Phase 1-3**: Restored `SKIP_DEPS` guards on starship/atuin/zinit prompts
-
-#### Fixed
-- zsh reinstall prompt uses correct brew/apt fallback logic
-
-### [v2.1.0] - 2026-09-08
-
-#### Added
-- **Phase 0/5**: Full recommended combo install (zsh + fzf + starship + atuin + zinit + zsh-smart-complete)
-- **Interactive backup cleanup**: Prompt user to clean conflict plugin residues (.cache/p10k-*, .cache/zsh*, .local/state/zsh-autocomplete etc.)
-- **fzf auto-install**: Clone from GitHub if not available via package manager
-
-#### Changed
-- Installer now runs Phase 0 first when `SKIP_DEPS!=1` and `NONINTERACTIVE!=1`
-- Phase 1-3 remain as fallback when Phase 0 is skipped
-
-### [v2.0.6] - 2026-08-26
-
-#### Fixed
-- Release workflow: stage files before tar/zip to avoid 'file changed' race condition
-
-### [v2.0.5] - 2026-08-26
-
-#### Fixed
-- Bad substitution in `mirror.chosen` message
-- Cleanup old `.bak.*` residuals
-
-### [v2.0.3] - 2026-08-26
-
-#### Fixed
-- i18n: Translate all remaining Chinese status messages
-- SSH input issue fix
-
-### [v2.0.2] - 2026-08-26
-
-#### Fixed
-- i18n: Mirror selection menu now fully internationalized
-
-### [v2.0.1] - 2026-08-26
-
-#### Fixed
-- Resolve 3 installer issues:
-  - i18n combo menu
-  - OMZ/p10k default yes
-  - starship.toml escape
-
-### [v2.0.0] - 2026-08-25
-
-#### Added
-- Engine & installer overhaul
-- O(bucket) prefix index
-- de-subShell scoring
-- Real-time incremental indexing
-- Zsh detection
-- OMZ/p10k combo selector
-- Entware installer
-- Stop per-keystroke stdout leak that garbled ZLE line editor
-
-
-```
-v0.1.0  ZLE frontend, history index, suggestion engine
-   │
-v0.1.3  Deterministic ranking (decay + frequency + CWD boost)
-   │
-v0.2.0  Atuin SQLite backend (host / exit / CWD-aware ranking)
-   │
-v1.0.0  GA — stable public API, CI/CD, automated releases
-   │
-v2.0.0  Engine & installer overhaul — O(bucket) prefix index, de-subShell scoring, real-time incremental indexing, zsh detection, OMZ/p10k combo selector, Entware installer
-   │
-   ▼
-v2.1.0  Phase 0 full combo install (zsh + fzf + starship + atuin + zinit + zsh-smart-complete), interactive backup cleanup
-   │
-   ▼
-v2.1.6  fix printable-ASCII input (undefined-key), capture hardening, fast-syntax-highlighting, combo-aware .zshrc, opt-in zsh-vi-mode  ← you are here
-   │
-   ▼
-v0.5.x  smart-shell-engine (Rust / Go) over IPC  (future, opt-in)
-   │
-   ▼
-v2.0    Smart Shell — full standalone shell  (future)
-```
+See [CHANGELOG](./CHANGELOG.md) for the full history.
 
 ## Testing
-
-The full suite lives under [`tests/`](./tests) and is run by CI on every push
-and pull request (Ubuntu + macOS). Each file is self-contained and exits
-non-zero on failure:
 
 ```zsh
 zsh tests/test-config.zsh
 zsh tests/test-history.zsh
 zsh tests/test-suggest.zsh
 zsh tests/test-ranking.zsh
-zsh tests/test-atuin.zsh      # auto-SKIPs if sqlite3 is absent
+zsh tests/test-atuin.zsh
 zsh tests/test-zle.zsh
+zsh tests/test-menu.zsh
 zsh tests/test-integration.zsh
 ```
 
-**Test summary (v2.1.6):** `255 passed, 0 failed` across all 7 test files.
+**Test summary (v2.2.0):** 8 test files, 359 assertions, all passing, 0 failures.
+
+Key behaviours are additionally verified end-to-end against a real `zsh -i` in a
+tmux pane, asserting on the rendered screen (13/13 green). The same assertions
+score **6/13 on v2.1.6** — the type-to-popup menu did not exist and the SS3 right
+arrow was dead. The harness ships in the repo (auto-skips without `tmux`):
+
+```zsh
+./tests/e2e-tmux.sh                              # 13 assertions
+./tests/e2e-tmux.sh /tmp/zsc-v216               # A/B an older release
+```
+
+The method is written up in the `headless-pty-zle-verify` skill.
 
 ## License
 

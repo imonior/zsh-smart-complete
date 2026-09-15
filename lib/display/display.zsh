@@ -144,3 +144,43 @@ _smart_display_accept_partial() {
     _smart_display_clear
     return 0
 }
+
+# _smart_display_accept_word
+#   Alt+→ . Merge only the NEXT word of the suggestion into BUFFER and leave
+#   the remainder as ghost text (the caller recomputes, so the ghost may also
+#   be replaced by a fresh suggestion). A word here is: any leading separator
+#   run plus the following non-separator run, i.e. exactly what you would get
+#   by typing up to the next word boundary — which is what makes
+#   `g`+Alt+→ produce `git ` and not `git`.
+#
+#   Returns 1 when there is nothing to accept so the caller can fall back to
+#   the stock forward-word widget.
+_smart_display_accept_word() {
+    local sug
+    sug="$(_smart_state_get suggestion.text "")"
+    [[ -z "$sug" ]] && return 1
+    [[ "$sug" == "$BUFFER"* ]] || return 1
+
+    local rest="${sug#$BUFFER}"
+    [[ -z "$rest" ]] && return 1
+
+    # Walk the tail character by character (no glob tricks, works on any zsh).
+    local i ch word="" seen_nonspace=0
+    for (( i = 1; i <= ${#rest}; i++ )); do
+        ch="${rest[i]}"
+        if [[ "$ch" == [[:space:]] ]]; then
+            word+="$ch"
+            # A separator AFTER real characters ends the word.
+            (( seen_nonspace )) && break
+        else
+            word+="$ch"
+            seen_nonspace=1
+        fi
+    done
+    [[ -z "$word" ]] && return 1
+
+    BUFFER="${BUFFER}${word}"
+    CURSOR="${#BUFFER}"
+    _smart_display_clear
+    return 0
+}

@@ -1704,6 +1704,7 @@ clean_conflict_plugin() {
         done
     else
         warn "Skipped $plugin_name removal; running it alongside zsh-smart-complete may cause duplicate suggestions / Tab conflicts."
+        warn "  zsh-smart-complete already provides what $plugin_name does, so you most likely do not need it."
     fi
 }
 
@@ -1903,6 +1904,15 @@ resolve_omz_p10k() {
 }
 
 # First remove directly-conflicting plugins.
+#
+# This is intentional and NOT a loss of functionality: zsh-smart-complete
+# implements BOTH halves natively —
+#   * inline grey suggestion + → / Alt+→ to accept (zsh-autosuggestions), and
+#   * the candidate list that appears WHILE you type (zsh-autocomplete).
+# Keeping either standalone plugin installed means two engines computing
+# suggestions and fighting over the same keymap, which is exactly the conflict
+# this project exists to remove.
+info "zsh-smart-complete replaces zsh-autocomplete + zsh-autosuggestions natively (type-to-popup menu + inline suggestion), so those are removed to avoid duplicate engines."
 clean_conflict_plugin "zsh-autocomplete"
 clean_conflict_plugin "zsh-autosuggestions"
 # Non-interactive residue cleanup: state/cache dirs, dangling completions, and

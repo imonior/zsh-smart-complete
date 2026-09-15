@@ -73,3 +73,30 @@ fi
 # export SMART_RANKING_DECAY_ALPHA=10   # 10=default, higher=faster decay
 # export SMART_RANKING_CWD_BOOST=1500   # 1500=1.5x boost for same-dir cmds
 # export SMART_NATIVE_MENU_SELECT=true  # Tab opens selectable menu
+
+# ------------------------------------------------------------
+# Optional: type-to-popup candidate menu (zsh-smart-complete v2.2.0+)
+# ------------------------------------------------------------
+#
+# ON by default: the candidate list is drawn as you type, without pressing Tab
+# (the zsh-autocomplete half), alongside the inline grey suggestion
+# (the zsh-autosuggestions half). Nothing to configure unless you want to
+# change the thresholds:
+#
+# export SMART_MENU_MIN_PREFIX_CMD=2    # chars before listing the command word
+# export SMART_MENU_MIN_PREFIX=1        # chars before listing an argument (0 = also after a space)
+# export SMART_MENU_MIN_MATCHES=2       # a single candidate stays ghost-text only
+#
+# Throttle, OFF by default: listings measure 10-30ms, so there is nothing to
+# throttle. Enable it only for a persistently expensive completion; be aware a
+# skipped edit also drops the list that was on screen.
+# export SMART_MENU_SLOW_MS=250
+# export SMART_MENU_COOLDOWN_KEYS=1
+#
+# Trace every tick decision to a file ("why is there no popup?"):
+# export SMART_MENU_DEBUG=/tmp/zsc-menu.log
+#
+# Turn it off entirely (inline suggestion keeps working):
+#   export SMART_MENU=false
+# or at runtime:  smart-menu off
+

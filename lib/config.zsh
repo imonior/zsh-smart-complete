@@ -70,6 +70,60 @@ setopt extended_glob no_warn_create_global
 : ${SMART_NATIVE_LIST_COLORS:=true}
 
 # ---------------------------------------------------------------------------
+# Type-to-popup candidate menu (the zsh-autocomplete half)
+# ---------------------------------------------------------------------------
+# When true, the candidate list is computed and drawn on EVERY buffer edit —
+# you see completions appear while you type, without pressing Tab. When the
+# prefix narrows to a single candidate the list is dropped and the inline
+# (grey) suggestion takes over. This is what makes zsh-autocomplete +
+# zsh-autosuggestions unnecessary: one plugin, two non-conflicting channels.
+#
+# Turn it off with SMART_MENU=false, or at runtime with `smart-menu off`.
+: ${SMART_MENU:=true}
+
+# Minimum characters before we list, for an ARGUMENT word (after the command).
+# 1 = list as soon as the first character is typed. 0 = also list on an empty
+# word (i.e. immediately after a space) — this mirrors zsh-autocomplete but
+# dumps every candidate, so 1 is the default.
+: ${SMART_MENU_MIN_PREFIX:=1}
+
+# Minimum characters before we list the COMMAND word (the first word of the
+# line). 2, because one letter matches thousands of binaries.
+: ${SMART_MENU_MIN_PREFIX_CMD:=2}
+
+# Do not draw a list for fewer than this many candidates — a lone candidate is
+# already shown as inline ghost text, and a one-line list is just noise.
+: ${SMART_MENU_MIN_MATCHES:=2}
+
+# Upper bound on the word length we bother completing (long words have almost
+# no matches; this keeps the per-keystroke cost bounded).
+: ${SMART_MENU_MAX_PREFIX:=64}
+
+# Adaptive throttle. A listing that takes at least this many milliseconds buys a
+# cool-down, so typing stays responsive in genuinely expensive completion
+# contexts (huge directory listings, completions that shell out).
+#
+# Default: OFF (SMART_MENU_COOLDOWN_KEYS=0). Measured on a real session: every
+# ordinary listing costs 10-30ms, and the only spike is a ONE-OFF ~180ms the
+# first time a completion subsystem is loaded (e.g. the first `git <TAB>`).
+# Throttling that spike is exactly wrong: it suppresses the popup on the very
+# first command you type and saves 180ms once. Since a skipped edit also drops
+# the list that was on screen, the cooldown is only worth enabling when you have
+# a completion that is persistently expensive — then set SMART_MENU_SLOW_MS to
+# just under its cost and SMART_MENU_COOLDOWN_KEYS to 1 or 2.
+: ${SMART_MENU_SLOW_MS:=250}
+
+# How many edits to skip listing after a slow one. 0 = never skip, so the popup
+# always matches what you typed. 1 is the recommended value if you do enable it:
+# every skipped edit is an edit whose candidates are not shown.
+: ${SMART_MENU_COOLDOWN_KEYS:=0}
+
+# Optional decision trace — set to a file path to log every tick decision
+# (gate refusal, cooldown skip, match count, cost). The on-screen result cannot
+# tell you *why* a popup is missing; this can.
+: ${SMART_MENU_DEBUG:=}
+
+# ---------------------------------------------------------------------------
 # Ranking algorithm (v0.1.3)
 # ---------------------------------------------------------------------------
 # Exponential time decay: recency_score = 1000000 / (1000 + alpha * rec)

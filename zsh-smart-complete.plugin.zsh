@@ -62,8 +62,9 @@ _smart_source() {
 #   6. engine/ranking  -- scoring functions (depends on nothing)
 #   7. engine/suggest  -- suggestion engine (depends on history + ranking + state)
 #   8. engine/native   -- native completion bridge (depends on state only)
-#   9. display        -- inline rendering (depends on state only)
-#  10. event/zle      -- widgets + keymap (depends on everything above)
+#   9. engine/menu     -- type-to-popup candidate list (depends on native)
+#  10. display        -- inline rendering (depends on state only)
+#  11. event/zle      -- widgets + keymap (depends on everything above)
 # ---------------------------------------------------------------------------
 _smart_source \
     lib/config.zsh \
@@ -74,6 +75,7 @@ _smart_source \
     lib/engine/ranking.zsh \
     lib/engine/suggest.zsh \
     lib/engine/native.zsh \
+    lib/engine/menu.zsh \
     lib/display/display.zsh \
     lib/event/zle.zsh
 
@@ -88,6 +90,13 @@ smart-status() {
     print -r -- "zsh-smart-complete $(cat -- "${SMART_ROOT}/VERSION" 2>/dev/null || print -r -- unknown)"
     print -r -- "  enabled:          $(_smart_state_get enabled)"
     print -r -- "  suggest:          ${SMART_SUGGEST}   inline: ${SMART_INLINE}"
+    print -r -- "  menu (type popup): ${SMART_MENU:-true}  min matches: ${SMART_MENU_MIN_MATCHES:-2}  last: matches=${_SMART_MENU_NMATCHES:-0} listed=${_SMART_MENU_LISTED:-0}"
+    if (( ${SMART_MENU_COOLDOWN_KEYS:-0} > 0 )); then
+        print -r -- "  menu throttle:    on (slow >= ${SMART_MENU_SLOW_MS}ms -> skip ${SMART_MENU_COOLDOWN_KEYS})  ticks/skips: ${_SMART_MENU_TICKS:-0}/${_SMART_MENU_SKIPS:-0}"
+    else
+        print -r -- "  menu throttle:    off (list always matches the current word)"
+    fi
+    [[ -n "${SMART_MENU_DEBUG:-}" ]] && print -r -- "  menu debug log:   ${SMART_MENU_DEBUG}"
     print -r -- "  complete:         ${SMART_COMPLETE}"
     print -r -- "  history backend:  ${SMART_HISTORY_BACKEND}"
     print -r -- "  history indexed:  $(_smart_state_get history.count)"

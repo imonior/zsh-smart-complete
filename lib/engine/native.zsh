@@ -76,14 +76,11 @@ _smart_current_binding() {
     local km="$1" seq="$2"
     local out
     out=$(bindkey -M "$km" -- "$seq" 2>/dev/null) || { print -r -- ""; return 0; }
-    # bindkey output: "^I" expand-or-complete
-    # Strip the quoted prefix; take the second token.
-    local rest="${out#*\"${seq}\" }"
-    if [[ "$rest" == "$out" ]]; then
-        # Some zsh builds echo without quotes: ^I expand-or-complete
-        rest="${out#${seq} }"
-    fi
-    local w="${rest%% *}"
+    # bindkey echoes `<key> <widget>` in ^X caret notation — the widget name is
+    # always the LAST field. Never match the key textually: for a raw-byte key
+    # sequence the echo does not contain those bytes, and the key text would be
+    # mistaken for the widget. (See the identical note in lib/event/zle.zsh.)
+    local w="${out##* }"
     # "undefined-key" = no single binding for this seq/range. Report UNBOUND
     # so callers fall back to the real default instead of restoring/dispatching
     # to the no-op pseudo-widget.

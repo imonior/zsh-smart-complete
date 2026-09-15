@@ -53,4 +53,5 @@ jobs:
           zsh tests/test-ranking.zsh
           zsh tests/test-atuin.zsh
           zsh tests/test-zle.zsh
+          zsh tests/test-menu.zsh
           zsh tests/test-integration.zsh

@@ -151,7 +151,7 @@ rm -rf ~/.zsh-smart-complete
 
 ## 변경 내역
 
-전체 기록은 [CHANGELOG](./CHANGELOG.ko.md)을 참조하세요.
+전체 기록은 [CHANGELOG](./CHANGELOG.ko.md)을 참조하세요. GitHub Release의 릴리스 노트는 이 다국어 CHANGELOG 파일(en / zh-CN / zh-TW / ja / ko)에서 추출됩니다.
 
 ## 테스트
 

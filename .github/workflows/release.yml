@@ -4,8 +4,9 @@
 #
 # What it does:
 #   - On pushing a `v*` tag (e.g. `v2.2.0`), this runs automatically and
-#     publishes a GitHub Release whose notes are taken from that version's
-#     section in CHANGELOG.md.
+#     publishes a GitHub Release whose notes are the multi-language
+#     (en / zh-CN / zh-TW / ja / ko) section for that version, extracted
+#     from the matching CHANGELOG.<lang>.md files.
 #   - It can also be run manually (workflow_dispatch) for a tag that is
 #     already pushed — handy for back-filling a release.
 #
@@ -54,16 +55,47 @@ jobs:
           ref: ${{ steps.meta.outputs.tag }}
           fetch-depth: 0
 
-      - name: Extract release notes from CHANGELOG.md
+      - name: Build multi-language release notes
         run: |
           TAG="${{ steps.meta.outputs.tag }}"
-          awk -v v="$TAG" '
-            $0 ~ "^## \\[" v "\\]" { f=1; next }
-            f && /^## \[/ { exit }
-            f { print }
-          ' CHANGELOG.md > release-body.md
+          REPO="${{ github.repository }}"
+          {
+            echo "Multi-language release notes — 多语言发布说明"
+            echo
+            echo "The full notes are inline below (English expanded, others collapsible)."
+            echo "Or open the per-language changelog:"
+            echo
+            echo "- [English](https://github.com/${REPO}/blob/${TAG}/CHANGELOG.md)"
+            echo "- [简体中文](https://github.com/${REPO}/blob/${TAG}/CHANGELOG.zh-CN.md)"
+            echo "- [繁體中文](https://github.com/${REPO}/blob/${TAG}/CHANGELOG.zh-TW.md)"
+            echo "- [日本語](https://github.com/${REPO}/blob/${TAG}/CHANGELOG.ja.md)"
+            echo "- [한국어](https://github.com/${REPO}/blob/${TAG}/CHANGELOG.ko.md)"
+            echo
+            for entry in \
+              "CHANGELOG.md:English" \
+              "CHANGELOG.zh-CN.md:简体中文 (Simplified Chinese)" \
+              "CHANGELOG.zh-TW.md:繁體中文 (Traditional Chinese)" \
+              "CHANGELOG.ja.md:日本語 (Japanese)" \
+              "CHANGELOG.ko.md:한국어 (Korean)"; do
+              f="${entry%%:*}"
+              lbl="${entry##*:}"
+              open=""
+              [ "$f" = "CHANGELOG.md" ] && open=" open"
+              echo "<details${open}>"
+              echo "<summary>$lbl</summary>"
+              echo
+              awk -v v="$TAG" '
+                $0 ~ "^## \\[" v "\\]" { f=1; next }
+                f && /^## \[/ { exit }
+                f { print }
+              ' "$f"
+              echo
+              echo "</details>"
+              echo
+            done
+          } > release-body.md
           if [ ! -s release-body.md ]; then
-            echo "::error::No CHANGELOG.md section found for $TAG" >&2
+            echo "::error::Failed to build release notes for $TAG" >&2
             exit 1
           fi
 

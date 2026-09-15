@@ -151,7 +151,7 @@ rm -rf ~/.zsh-smart-complete
 
 ## チェンジログ
 
-全文は [CHANGELOG](./CHANGELOG.ja.md) を参照してください。
+全文は [CHANGELOG](./CHANGELOG.ja.md) を参照してください。GitHub のリリースノートは、これらの多言語 CHANGELOG ファイル（en / zh-CN / zh-TW / ja / ko）から抽出されます。
 
 ## テスト
 

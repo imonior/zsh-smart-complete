@@ -151,7 +151,7 @@ rm -rf ~/.zsh-smart-complete
 
 ## 版本歷史
 
-請見 [CHANGELOG](./CHANGELOG.zh-TW.md) 取得完整歷史。
+請見 [CHANGELOG](./CHANGELOG.zh-TW.md) 取得完整歷史。GitHub Release 的發布說明即是從這些多語言 CHANGELOG 檔案（en / zh-CN / zh-TW / ja / ko）提取。
 
 ## 測試
 

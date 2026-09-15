@@ -152,7 +152,7 @@ rm -rf ~/.zsh-smart-complete
 
 ## Changelog
 
-See [CHANGELOG](./CHANGELOG.md) for the full history.
+See [CHANGELOG](./CHANGELOG.md) for the full history. The GitHub Release notes are extracted from these multi-language CHANGELOG files (en / zh-CN / zh-TW / ja / ko).
 
 ## Testing
 

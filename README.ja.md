@@ -3,7 +3,7 @@
 > Zsh 向けのモダンなスマート補完・候補提示レイヤー。
 > 将来の独立シェルのフロントエンドとして設計。
 >
-> **v2.2.1** — 最新リリース：ライブポップアップがキー入力を飲み込む不具合を修正。灰色サジェストは履歴以外に補完システムへフォールバック可能。名前付きウィジェットと任意の ↑/↓ 履歴検索を追加。
+> **v2.2.2** — 最新リリース：`cd` 補完時に最近のディレクトリ候補を提供。`Tab` の後の `Enter` が行を実際に実行。あいまい一致は文書化のみ（zsh の機能であり、当プラグインのものではありません）。
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------ | ------ |
 | ビルドとテスト (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | リリース | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| バージョン | 2.2.1 |
+| バージョン | 2.2.2 |
 
 ## なぜこれを選ぶか
 
@@ -132,6 +132,13 @@ SMART_INSTALL_GH_MIRROR=https://ghproxy.net/ bash -c "$(curl -fsSL https://ghpro
 # によるスキップ / 候補数 / 処理ミリ秒）が追記される。「ポップアップしなかった」は
 # 「候補が一つで灰色文字に譲った」と見分けがつかないため、このログが役立つ。
 : ${SMART_MENU_DEBUG:=}
+
+# 最近のディレクトリ：`cd` の引数を補完するとき、実際に入ったことのある
+# ディレクトリを候補に出し、`cd ` の直後の空語では即座に一覧します
+# （空語を一覧する価値がある唯一の場所）。読み取り専用で、zsh 自身の
+# recent-dirs データベースを消費するだけで、何も記録しません。
+: ${SMART_RECENT_PATHS:=true}
+: ${SMART_RECENT_PATHS_MAX:=20}
 ```
 
 名前付きウィジェットも公開しているので、`zsh-autosuggestions` と同様に
@@ -141,6 +148,37 @@ SMART_INSTALL_GH_MIRROR=https://ghproxy.net/ bash -c "$(curl -fsSL https://ghpro
 `smart-suggestion-toggle`（灰色候補の ON/OFF）。
 `SMART_MENU_HISTORY_KEYS=true` にすると、行が空でないとき ↑/↓ が履歴の前方一致
 検索になります（既定は無効。これらのキーの慣習が強いため）。
+
+## 追加オプション
+
+### あいまい一致（行うのは zsh であり、本プラグインではない）
+
+ライブポップアップは**あなた自身の**補完システムを実行するので、設定した
+matcher は自動的にそれへ適用されます。`fb` で `foobar.txt` に一致させるには：
+
+```zsh
+zstyle ':completion:*' matcher-list 'r:|[._-]=* r:|=*' 'l:|=* r:|=*'
+```
+
+ここで有効化するスイッチはありません。当側で曖昧一致を実装すると、補完
+システムと衝突するだけです。
+
+### 最近のディレクトリ
+
+`cd` / `pushd` / `chdir` の引数を補完するとき、実際に入ったことのある
+ディレクトリが候補として提示され、さらに `cd ` 直後の**空語**で即座に一覧
+されます（空語を一覧する価値がある唯一の場所）。
+
+データは zsh 自身の recent-dirs データベース——`cdr` や `~[1]` と同じものです。
+プラグインは**読むだけ**で、書き込みは一切しません。まだ空の場合は、次の
+2 行で記録を有効にできます：
+
+```zsh
+autoload -Uz chpwd_recent_dirs add-zsh-hook
+add-zsh-hook chpwd chpwd_recent_dirs
+```
+
+`smart-recent status` で現在いくつ使えるかを確認できます。
 
 ## 実行時コマンド
 
@@ -152,6 +190,7 @@ smart-reindex     # 履歴インデックスを強制再構築
 smart-menu on     # 入力でポップアップするリストをオン
 smart-menu off    # オフ（行内灰色サジェストは影響なし）
 smart-menu status # メニュー設定と直前のリスト結果を表示
+smart-recent on|off|status # 最近ディレクトリ候補 + `cd ` 空語の一覧
 ```
 
 ## アンインストール
@@ -175,17 +214,18 @@ zsh tests/test-atuin.zsh
 zsh tests/test-zle.zsh
 zsh tests/test-menu.zsh
 zsh tests/test-integration.zsh
+zsh tests/test-recent.zsh
 ```
 
-**テスト集計 (v2.2.1)：** 8 ファイル、393 アサーション、すべて合格、0 失敗。
+**テスト集計 (v2.2.2)：** 9 ファイル、438 アサーション、すべて合格、0 失敗。
 
 主要な挙動は、tmux ペイン内の実際の `zsh -i` に対してエンドツーエンドで検証され、
-描画された画面をアサートします（23/23 グリーン）。同じアサーションは v2.1.6 では
-**16/23**——当時「入力でポップアップするメニュー」は存在せず、SS3 の右矢印は死んでいました。
+描画された画面をアサートします（29/29 グリーン）。同じアサーションは v2.1.6 では
+**17/29**——当時「入力でポップアップするメニュー」は存在せず、SS3 の右矢印は死んでいました。
 このハーネスはリポジトリに同梱されています（`tmux` がなくても自動スキップ）：
 
 ```zsh
-./tests/e2e-tmux.sh                              # 23 アサーション
+./tests/e2e-tmux.sh                              # 29 アサーション
 ./tests/e2e-tmux.sh /tmp/zsc-v216               # 旧リリースとの A/B
 ```
 

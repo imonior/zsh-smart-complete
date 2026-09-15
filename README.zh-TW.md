@@ -3,7 +3,7 @@
 > 一個現代化的智慧補全與建議層，專為 Zsh 設計。
 > 作為未來獨立 shell 的前端引擎。
 >
-> **v2.2.1** — 最新釋出：修復即時彈窗吞掉按鍵的缺陷；灰字建議可在歷史之外回落到補全系統；新增具名 widget 與可選的 ↑/↓ 歷史搜尋。
+> **v2.2.2** — 最新釋出：補全 `cd` 時提供最近目錄候選；`Tab` 後按 `Enter` 現在會真正執行該行；模糊匹配改為文件說明（那是 zsh 的能力，不是我們的）。
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------ | ------ |
 | 建置與測試 (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | 釋出 | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| 版本 | 2.2.1 |
+| 版本 | 2.2.2 |
 
 ## 為什麼選擇我們
 
@@ -132,6 +132,12 @@ SMART_INSTALL_GH_MIRROR=https://ghproxy.net/ bash -c "$(curl -fsSL https://ghpro
 # 命中幾個候選 / 花了多少毫秒）都會追加寫進去。「沒彈出來」到底是
 # 哪種原因，螢幕上分不出來，這個日誌能。
 : ${SMART_MENU_DEBUG:=}
+
+# 最近目錄：補全 `cd` 參數時把你 cd 過的目錄作為候選，並在 `cd ` 後的空詞直接
+# 列出（空詞值得列表的唯一位置）。唯讀——消費 zsh 原生的最近目錄資料庫，
+# 自己不記錄任何東西。
+: ${SMART_RECENT_PATHS:=true}
+: ${SMART_RECENT_PATHS_MAX:=20}
 ```
 
 同時提供具名 widget，可以像 `zsh-autosuggestions` 那樣自行改鍵：
@@ -139,6 +145,34 @@ SMART_INSTALL_GH_MIRROR=https://ghproxy.net/ bash -c "$(curl -fsSL https://ghpro
 預設綁 Alt+→）、`smart-execute-suggestion`（接受並執行該行）、
 `smart-suggestion-toggle`（開關灰色建議）。設為 `SMART_MENU_HISTORY_KEYS=true` 後，
 行內非空時 ↑/↓ 會依前綴搜尋歷史——預設關閉，因為這兩個鍵的使用習慣很深。
+
+## 選用增強
+
+### 模糊比對（由 zsh 完成，不是我們）
+
+即時彈窗跑的就是**你自己的**補全系統，所以你設定的 matcher 會自動對它生效。
+想讓 `fb` 也能比對到 `foobar.txt`：
+
+```zsh
+zstyle ':completion:*' matcher-list 'r:|[._-]=* r:|=*' 'l:|=* r:|=*'
+```
+
+這裡沒有開關要撥——我們也不實作模糊演算法，那只會和補全系統打架。
+
+### 最近目錄
+
+補全 `cd` / `pushd` / `chdir` 參數時，你實際去過的目錄會作為候選出現；並且在
+`cd ` 後的**空詞**就直接列出（空詞值得列表的唯一位置）。
+
+資料來自 zsh 原生的最近目錄資料庫——`cdr` 與 `~[1]` 用的是同一份。外掛只**讀**
+它，從不寫入。如果它還是空的，兩行設定即可開啟記錄：
+
+```zsh
+autoload -Uz chpwd_recent_dirs add-zsh-hook
+add-zsh-hook chpwd chpwd_recent_dirs
+```
+
+`smart-recent status` 會顯示目前可用幾筆。
 
 ## 執行時命令
 
@@ -150,6 +184,7 @@ smart-reindex     # 強制重建歷史索引
 smart-menu on     # 開啟打字即彈候選清單
 smart-menu off    # 關閉（行內灰字建議不受影響）
 smart-menu status # 檢視選單設定與上次列舉結果
+smart-recent on|off|status # 最近目錄候選 + `cd ` 空詞列表
 ```
 
 ## 解除安裝
@@ -173,15 +208,16 @@ zsh tests/test-atuin.zsh
 zsh tests/test-zle.zsh
 zsh tests/test-menu.zsh
 zsh tests/test-integration.zsh
+zsh tests/test-recent.zsh
 ```
 
-**測試彙總 (v2.2.1)：** 8 個測試檔案共 393 項全部通過，0 失敗。
+**測試彙總 (v2.2.2)：** 9 個測試檔案共 438 項全部通過，0 失敗。
 
 端到端（真實 ZLE 鍵位）驗證用 tmux `capture-pane` 讀**真實螢幕**完成，
-23 項斷言全綠，涵蓋「打字即彈清單」「候選收窄時清單仍在」「單候選讓位給灰字」
+29 項斷言全綠，涵蓋「打字即彈清單」「候選收窄時清單仍在」「單候選讓位給灰字」
 「右箭頭兩種編碼都能接受」「`Alt+→` 三種編碼都只接受一個詞（用 `echo alpha beta`
 探針，以命令輸出判定緩衝區內容，而非回顯的行）」「開關往返」「Tab 補全仍可用」。
-同一套斷言在 v2.1.6 上過 16/23——即「打字即彈選單」當時確實不存在。
+同一套斷言在 v2.1.6 上過 17/29——即「打字即彈選單」當時確實不存在。
 本版 e2e 新增「緩衝區完整性」斷言：逐字輸入後提示字行必須與鍵入內容完全一致，
 並以**真正執行的命令**的輸出交叉驗證——因為「每畫一次候選清單就吞掉一個按鍵」
 這類靜默丟鍵，能騙過所有「只看螢幕」的檢查。

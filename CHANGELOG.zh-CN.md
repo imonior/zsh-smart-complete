@@ -5,6 +5,38 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/)，并遵循
 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [v2.2.2] - 2026-09-16
+
+### 修复
+- **`Tab` 之后按 `Enter` 现在会真正执行该行**，而不只是重绘。此前补全之后，第一次
+  `Enter` 会被 accept-line widget 吞掉（它把补全当成仍「进行中」，只刷新显示），于是
+  补全过的 `cd …` 需要**再按一次** `Enter` 才执行。现在该 widget 先清理自身状态，再直接
+  调用 `zle .accept-line`。这是个**历史遗留缺陷**——在 v2.2.1 上可以复现。
+
+### 新增
+- **最近目录候选**（`lib/engine/recent.zsh`，`SMART_RECENT_PATHS`，默认 `true`）。补全
+  `cd` / `pushd` / `chdir` 参数时，会把你**真正去过**的目录作为候选；并且在 `cd ` 后的
+  **空词**上立即列出——这是空词唯一值得列表的场景。实现方式是把一个补全器前置到
+  `zstyle ':completion:*' completer`，因此与你自己的补全链共存，`smart-recent off` /
+  `smart-disable` 时干净移除。
+- **只读。** 数据是 zsh 自带的最近目录数据库（`cdr` 与 `~[1]` 用的同一个），插件**从不
+  写入**。`SMART_RECENT_PATHS_MAX`（默认 `20`）限制候选数量；`smart-recent status` 报告
+  当前可用条目数。
+- **`smart-recent on|off|toggle|status`** 运行时命令。
+
+### 变更
+- **模糊匹配只做文档说明，不自己实现。** 实时弹窗跑的就是你自己的补全系统，所以一条
+  `zstyle ':completion:*' matcher-list` 已经自动生效——本插件**刻意不含**模糊匹配代码，
+  自己加只会和 compsys 打架。README 的「可选增强」一节给出了要设的那一行。
+
+### 测试
+- `tests/test-recent.zsh`（38 项断言）：`cd` 参数位置判定、数据库解析（空格 / 引号 / XDG
+  路径 / 失效条目），并**固化一条回归**——补全器是通过 `zstyle ':completion:*' completer`
+  接入的，**不是** `$completer` 数组（那个变量在 zsh 里根本不存在，之前代码「看起来接好了」
+  其实什么都没做）。
+- `tests/e2e-tmux.sh`：新增 **8b**（Tab 后按 Enter 会执行该行）与 **9**（`cd ` 列出最近
+  目录，Tab 补全出完整路径）。共 29 项断言；**在 v2.1.6 上为 17/29**。
+
 ## [v2.2.1] - 2026-09-16
 
 ### 修复

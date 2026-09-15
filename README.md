@@ -3,7 +3,7 @@
 > A modern smart completion & suggestion layer for Zsh.
 > Engineered as the frontend of a future independent shell.
 >
-> **v2.2.1** — Latest release: the live popup no longer eats keystrokes; ghost suggestions can now fall back to the completion system; new named widgets and optional ↑/↓ history search.
+> **v2.2.2** — Latest release: recent-directory candidates while completing `cd`; a `Tab` followed by `Enter` now actually runs the line; fuzzy matching documented (it is zsh's, not ours).
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------- | ------ |
 | Build & test (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | Release | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| Version | 2.2.1 |
+| Version | 2.2.2 |
 
 ## Why
 
@@ -133,6 +133,13 @@ Set these variables **before** the plugin loads:
 # swallowed / match count / measured cost) is appended there. "The popup didn't
 # appear" is otherwise indistinguishable from "one match, so the ghost took over".
 : ${SMART_MENU_DEBUG:=}
+
+# Recent directories: while completing `cd`, offer the directories you have
+# actually been in, and list them immediately on the EMPTY word after `cd `
+# (the one place where an empty word is worth listing). Read-only — it consumes
+# zsh's own recent-dirs database and never records anything itself.
+: ${SMART_RECENT_PATHS:=true}
+: ${SMART_RECENT_PATHS_MAX:=20}
 ```
 
 Named widgets are exposed too, so you can rebind them the way you would with
@@ -142,6 +149,38 @@ Alt+right-arrow), `smart-execute-suggestion` (accept, then run the line) and
 `smart-suggestion-toggle` (turn the grey ghost on/off). With
 `SMART_MENU_HISTORY_KEYS=true`, up/down prefix-search your history while the line
 is non-empty — off by default, because those keys carry strong muscle memory.
+
+## Optional extras
+
+### Fuzzy matching (done by zsh, not by us)
+
+The live popup runs *your* completion system, so any matcher you configure
+applies to it automatically. To let `fb` match `foobar.txt`:
+
+```zsh
+zstyle ':completion:*' matcher-list 'r:|[._-]=* r:|=*' 'l:|=* r:|=*'
+```
+
+There is nothing to switch on here — and no fuzzy-matching code on our side,
+which would only fight the completion system.
+
+### Recent directories
+
+While completing a `cd` / `pushd` / `chdir` argument, the directories you have
+actually been in are offered as candidates, and they are listed immediately on
+the **empty word** after `cd ` (the one place where an empty word is worth
+listing).
+
+The data is zsh's own recent-directories database — the same one `cdr` and `~[1]`
+use. The plugin only *reads* it and never writes anything. If yours is still
+empty, two lines turn collection on:
+
+```zsh
+autoload -Uz chpwd_recent_dirs add-zsh-hook
+add-zsh-hook chpwd chpwd_recent_dirs
+```
+
+`smart-recent status` reports how many entries are usable right now.
 
 ## Runtime commands
 
@@ -153,6 +192,7 @@ smart-reindex     # force a history index rebuild
 smart-menu on     # turn the type-to-popup list on
 smart-menu off    # turn it off (inline ghost text unaffected)
 smart-menu status # show menu config + last listing result
+smart-recent on|off|status # recent-dir candidates + `cd ` empty-word listing
 ```
 
 ## Uninstall
@@ -176,13 +216,14 @@ zsh tests/test-atuin.zsh
 zsh tests/test-zle.zsh
 zsh tests/test-menu.zsh
 zsh tests/test-integration.zsh
+zsh tests/test-recent.zsh
 ```
 
-**Test summary (v2.2.1):** 8 test files, 393 assertions, all passing, 0 failures.
+**Test summary (v2.2.2):** 9 test files, 438 assertions, all passing, 0 failures.
 
 Key behaviours are additionally verified end-to-end against a real `zsh -i` in a
-tmux pane, asserting on the rendered screen (23/23 green). The same assertions
-score **16/23 on v2.1.6** — the type-to-popup menu did not exist and the SS3 right
+tmux pane, asserting on the rendered screen (29/29 green). The same assertions
+score **17/29 on v2.1.6** — the type-to-popup menu did not exist and the SS3 right
 arrow was dead. This version adds a **buffer-integrity** assertion — the prompt
 line must equal what was typed, then the command that actually ran must print the
 expected output — because a popup that silently swallows one keystroke per drawn
@@ -190,7 +231,7 @@ list still "passes" every look-at-the-screen check. The harness ships in the rep
 (auto-skips without `tmux`):
 
 ```zsh
-./tests/e2e-tmux.sh                              # 23 assertions
+./tests/e2e-tmux.sh                              # 29 assertions
 ./tests/e2e-tmux.sh /tmp/zsc-v216               # A/B an older release
 ```
 

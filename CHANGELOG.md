@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [v2.2.2] - 2026-09-16
+
+### Fixed
+- **A `Tab` followed by `Enter` now runs the line**, instead of merely redrawing it.
+  After any completion the first `Enter` was swallowed by the accept-line widget
+  (it treated the completion as still active and only refreshed the display), so a
+  completed `cd …` needed a *second* `Enter` to execute. The widget now clears its
+  own state and calls `zle .accept-line` directly. This is a **pre-existing bug** —
+  it reproduces on v2.2.1.
+
+### Added
+- **Recent-directory candidates** (`lib/engine/recent.zsh`, `SMART_RECENT_PATHS`,
+  default `true`). While completing a `cd` / `pushd` / `chdir` argument, the
+  directories you have actually been in are offered as candidates, and they are
+  listed immediately on the **empty word** after `cd ` — the one place where an
+  empty word is worth listing. It is a completer prepended to
+  `zstyle ':completion:*' completer`, so it composes with your own chain and is
+  removed cleanly on `smart-recent off` / `smart-disable`.
+- **It only reads.** The data is zsh's own recent-directories database — the one
+  `cdr` and `~[1]` use — and the plugin never writes to it. `SMART_RECENT_PATHS_MAX`
+  (default `20`) caps how many are offered; `smart-recent status` reports how many
+  are usable right now.
+- **`smart-recent on|off|toggle|status`** runtime command.
+
+### Changed
+- **Fuzzy matching is documented, not implemented.** The live popup runs *your*
+  completion system, so a `zstyle ':completion:*' matcher-list` already applies to
+  it — there is no fuzzy-matching code here by design, and adding some would only
+  fight compsys. The README "Optional extras" section shows the one line to set.
+
+### Tests
+- `tests/test-recent.zsh` (38 assertions): `cd`-argument detection, database parsing
+  (spaces / quotes / XDG location / stale entries), and — pinned as a regression —
+  that the completer is wired through `zstyle ':completion:*' completer` and **not**
+  a `$completer` array (which does not exist; the code "looked wired" and did
+  nothing).
+- `tests/e2e-tmux.sh`: **8b** (Tab-then-Enter runs the line) and **9** (recent dirs
+  listed on `cd `, Tab completes the path). 29 assertions; **17/29 on v2.1.6**.
+
 ## [v2.2.1] - 2026-09-16
 
 ### Fixed

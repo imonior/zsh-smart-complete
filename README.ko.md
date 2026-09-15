@@ -3,7 +3,7 @@
 > Zsh 용 현대적인 스마트 완성 및 제안 레이어.
 > 미래의 독립 셸 프런트엔드로 설계됨.
 >
-> **v2.2.1** — 최신 릴리스: 라이브 팝업이 키 입력을 삼키던 버그를 수정했습니다. 회색 제안이 히스토리 외에 완성 시스템으로 폴백할 수 있습니다. 이름 있는 위젯과 선택적 ↑/↓ 히스토리 검색을 추가했습니다.
+> **v2.2.2** — 최신 릴리스: `cd` 완성 시 최근 디렉터리 후보 제공. `Tab` 후 `Enter`가 줄을 실제로 실행. 퍼지 매칭은 문서화만(이는 zsh의 기능이며 저희 것이 아닙니다).
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------ | ------ |
 | 빌드 및 테스트 (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | 릴리스 | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| 버전 | 2.2.1 |
+| 버전 | 2.2.2 |
 
 ## 왜 이 플러그인인가
 
@@ -132,6 +132,13 @@ SMART_INSTALL_GH_MIRROR=https://ghproxy.net/ bash -c "$(curl -fsSL https://ghpro
 # 후보 수 / 측정 밀리초)이 추가됨. "팝업 안 뜸"은 "후보 하나라 회색 글자에 양보함"과
 # 구분할 수 없으므로 이 로그가 도움이 됨.
 : ${SMART_MENU_DEBUG:=}
+
+# 최근 디렉터리: `cd` 인자를 완성할 때 실제로 들어가 본 디렉터리를 후보로
+# 제시하고, `cd ` 직후의 빈 단어에서는 즉시 목록을 보여 줍니다(빈 단어를
+# 나열할 가치가 있는 유일한 위치). 읽기 전용이며, zsh 자체의 recent-dirs
+# 데이터베이스를 소비할 뿐 아무것도 기록하지 않습니다.
+: ${SMART_RECENT_PATHS:=true}
+: ${SMART_RECENT_PATHS_MAX:=20}
 ```
 
 이름 있는 위젯도 제공하므로 `zsh-autosuggestions`처럼 키를 다시 지정할 수
@@ -141,6 +148,37 @@ SMART_INSTALL_GH_MIRROR=https://ghproxy.net/ bash -c "$(curl -fsSL https://ghpro
 `smart-suggestion-toggle`(회색 제안 켜기/끄기).
 `SMART_MENU_HISTORY_KEYS=true`이면 줄이 비어 있지 않을 때 ↑/↓가 접두사 히스토리
 검색이 됩니다(기본 꺼짐 — 이 키들의 사용 습관이 강하기 때문).
+
+## 선택 확장
+
+### 퍼지 매칭 (zsh가 하며, 이 플러그인이 아닙니다)
+
+라이브 팝업은 **사용자 자신의** 완성 시스템을 실행하므로, 설정한 matcher가
+자동으로 적용됩니다. `fb`가 `foobar.txt`에 매칭되게 하려면:
+
+```zsh
+zstyle ':completion:*' matcher-list 'r:|[._-]=* r:|=*' 'l:|=* r:|=*'
+```
+
+여기서 켤 스위치는 없습니다. 퍼지 매칭을 직접 구현하면 완성 시스템과
+충돌할 뿐입니다.
+
+### 최근 디렉터리
+
+`cd` / `pushd` / `chdir` 인자를 완성할 때 실제로 들어가 본 디렉터리가 후보로
+제시되고, `cd ` 직후의 **빈 단어**에서는 즉시 목록이 표시됩니다(빈 단어를
+나열할 가치가 있는 유일한 위치).
+
+데이터는 zsh 자체의 recent-dirs 데이터베이스이며 `cdr` 및 `~[1]`과 같은
+것입니다. 플러그인은 **읽기만** 하고 아무것도 쓰지 않습니다. 아직 비어 있다면
+다음 두 줄로 기록을 켤 수 있습니다:
+
+```zsh
+autoload -Uz chpwd_recent_dirs add-zsh-hook
+add-zsh-hook chpwd chpwd_recent_dirs
+```
+
+`smart-recent status`로 현재 몇 개를 쓸 수 있는지 확인할 수 있습니다.
 
 ## 실행 시 명령
 
@@ -152,6 +190,7 @@ smart-reindex     # 히스토리 인덱스 강제 재구성
 smart-menu on     # 입력하면 팝업되는 목록 켜기
 smart-menu off    # 끄기 (행 내부 회색 제안은 영향 없음)
 smart-menu status # 메뉴 설정과 마지막 목록 결과 보기
+smart-recent on|off|status # 최근 디렉터리 후보 + `cd ` 빈 단어 목록
 ```
 
 ## 제거
@@ -175,17 +214,18 @@ zsh tests/test-atuin.zsh
 zsh tests/test-zle.zsh
 zsh tests/test-menu.zsh
 zsh tests/test-integration.zsh
+zsh tests/test-recent.zsh
 ```
 
-**테스트 요약 (v2.2.1):** 8개 파일, 393개 어설션, 전부 통과, 0 실패.
+**테스트 요약 (v2.2.2):** 9개 파일, 438개 어설션, 전부 통과, 0 실패.
 
 주요 동작은 tmux 페인 안의 실제 `zsh -i`에 대해 엔드투엔드로 검증되며, 렌더링된
-화면을 어설트합니다(23/23 그린). 같은 어설션은 v2.1.6에서는 **16/23** — 당시
+화면을 어설트합니다(29/29 그린). 같은 어설션은 v2.1.6에서는 **17/29** — 당시
 "입력하면 팝업되는 메뉴"는 존재하지 않았고 SS3 우측 화살표는 죽어 있었습니다.
 이 하니스는 저장소에 포함됩니다(`tmux` 없으면 자동 스킵):
 
 ```zsh
-./tests/e2e-tmux.sh                              # 23 어설션
+./tests/e2e-tmux.sh                              # 29 어설션
 ./tests/e2e-tmux.sh /tmp/zsc-v216               # 이전 릴리스와 A/B
 ```
 

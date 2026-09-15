@@ -99,6 +99,20 @@ setopt extended_glob no_warn_create_global
 # no matches; this keeps the per-keystroke cost bounded).
 : ${SMART_MENU_MAX_PREFIX:=64}
 
+# LISTMAX while the live popup is being drawn. zsh normally asks
+# "do you wish to see all N possibilities (M lines)?" when a candidate list is
+# longer than the screen; -1 tells it to NEVER ask and just show the (scrollable)
+# list instead, so typing is never interrupted by a y/n prompt. This is exactly
+# how zsh-autocomplete avoids that prompt. Set a positive number to bring the
+# prompt back above that many lines, or 0 to always prompt.
+: ${SMART_MENU_LISTMAX:=-1}
+
+# Hard ceiling on candidates shown by the live popup. 0 = uncapped (the list
+# simply scrolls). Set to e.g. 500 to *suppress* the popup entirely when a word
+# has more matches than this — handy on gigantic directories (/bin, /usr/lib)
+# where a live list is neither readable nor worth re-rendering on every keystroke.
+: ${SMART_MENU_MAX_MATCHES:=0}
+
 # Adaptive throttle. A listing that takes at least this many milliseconds buys a
 # cool-down, so typing stays responsive in genuinely expensive completion
 # contexts (huge directory listings, completions that shell out).

@@ -318,5 +318,33 @@ fi
 SMART_MENU_COOLDOWN_KEYS=0
 
 print -r -- ""
+print -r -- "=== 场景 11: 列表上限 / 「do you wish to see all」提示抑制 ==="
+# The live popup must never pop zsh's interactive "do you wish to see all N
+# possibilities (M lines)?" confirmation on a huge dir like /bin. That prompt is
+# gated by LISTMAX (we scope it to -1 while drawing); and a capped directory is
+# suppressed outright by _smart_menu_decide_list, which is unit-tested here.
+assert_eq "SMART_MENU_LISTMAX default suppresses the prompt" "${SMART_MENU_LISTMAX}" "-1"
+assert_eq "SMART_MENU_MAX_MATCHES default uncapped"          "${SMART_MENU_MAX_MATCHES}" "0"
+
+# _smart_menu_decide_list <nmatches>: 0 = draw, 1 = suppress
+local mn="${SMART_MENU_MIN_MATCHES:-2}" mc="${SMART_MENU_MAX_MATCHES:-0}"
+SMART_MENU_MIN_MATCHES=2
+SMART_MENU_MAX_MATCHES=0
+assert_eq "1 match (< MIN_MATCHES) -> suppress"  "$( ( _smart_menu_decide_list 1; print $? ) )" "1"
+assert_eq "2 matches (== MIN_MATCHES) -> draw"   "$( ( _smart_menu_decide_list 2; print $? ) )" "0"
+assert_eq "50 matches -> draw"                   "$( ( _smart_menu_decide_list 50; print $? ) )" "0"
+assert_eq "0 matches -> suppress"                "$( ( _smart_menu_decide_list 0; print $? ) )" "1"
+
+SMART_MENU_MAX_MATCHES=300
+assert_eq "cap=300, 300 matches (== cap) -> draw"  "$( ( _smart_menu_decide_list 300; print $? ) )" "0"
+assert_eq "cap=300, 301 matches (> cap) -> suppress (huge dir)" "$( ( _smart_menu_decide_list 301; print $? ) )" "1"
+assert_eq "cap=300, 1467 matches (/bin) -> suppress"            "$( ( _smart_menu_decide_list 1467; print $? ) )" "1"
+
+SMART_MENU_MAX_MATCHES=0          # restore default (uncapped)
+assert_eq "uncapped, 1467 matches -> draw (scrolls, no prompt)"  "$( ( _smart_menu_decide_list 1467; print $? ) )" "0"
+SMART_MENU_MIN_MATCHES="$mn"
+SMART_MENU_MAX_MATCHES="$mc"
+
+print -r -- ""
 print -r -- "=== TOTAL: $PASS passed, $FAIL failed ==="
 (( FAIL == 0 )) && exit 0 || exit 1

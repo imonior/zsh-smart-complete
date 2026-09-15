@@ -3,7 +3,7 @@
 > A modern smart completion & suggestion layer for Zsh.
 > Engineered as the frontend of a future independent shell.
 >
-> **v2.1.1** — Latest release: zsh reinstall prompt, fast-syntax-highlighting via Zinit, full Phase 0 combo install.
+> **v2.1.5** — Latest release: full p10k/OMZ remover (incl. Zinit plugin dirs), `.zwc` cache cleared on update, engine global-leak + history-cap fixes.
 
 ## Status
 
@@ -11,7 +11,7 @@
 | ------- | ------ |
 | Build & test (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | Release | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| Version | 2.1.1 |
+| Version | 2.1.5 |
 
 ## Why
 
@@ -426,6 +426,29 @@ rm -rf ~/.zsh-smart-complete
 
 All notable changes to this project will be documented in this file.
 
+### [v2.1.5] - 2026-09-15
+
+#### Fixed
+- **Installer - p10k/OMZ removers**: `_remove_p10k` / `_remove_omz` now also delete the Zinit-cloned plugin dir under `$ZINIT_PLUGINS_DIR` (e.g. `romkatzen---powerlevel10k`, `OMZ::ohmyzsh---ohmyzsh`), so picking a non-p10k/OMZ combo fully clears stale remnants that previously re-loaded on next start. `.bak.*` artifacts are deleted directly to avoid cascading backups.
+- **Installer - `.zwc` bytecode**: the plugin update path (`git reset --hard`) now also removes Zinit-compiled `*.zwc` caches, so engine fixes actually take effect after an update (previously stale compiled code loaded).
+- **Engine - global leak**: `cmd_cwd` / `cmd_host` / `cmd_exit` in `lib/engine/suggest.zsh` are now declared `local` (were leaking as globals on every keystroke).
+- **Engine - history cap**: `_SMART_CMDS` is now capped to `SMART_SUGGEST_HISTORY_LIMIT` (default 20000); when `SMART_HISTORY_REBUILD_EVERY=0` disables the periodic rebuild, the oldest entry is dropped and its bucket/assoc slots stay in sync.
+
+### [v2.1.4] - 2026-09-12
+
+#### Fixed
+- fzf install was silently skipped (no interaction); install progress shown twice (Phase 0/5 then Phase 1-4). Added a `RAN_COMBO` guard and made fzf prompts interactive.
+
+### [v2.1.3] - 2026-09-11
+
+#### Fixed
+- `read: -: invalid option` crash on every y/N prompt - `IFS=$'\n\t'` broke `read $_args`; switched to `read "$@"`.
+
+### [v2.1.2] - 2026-09-10
+
+#### Fixed
+- Installer prompts now block until the user confirms each step; conflict-plugin `.bak.*` cascade fixed (primary dir backed up once); stale plugin now actually updated via `git fetch --depth 1` + `git reset --hard`.
+
 ### [v2.1.1] - 2026-09-09
 
 #### Added
@@ -509,7 +532,7 @@ v2.0.0  Engine & installer overhaul — O(bucket) prefix index, de-subShell scor
 v2.1.0  Phase 0 full combo install (zsh + fzf + starship + atuin + zinit + zsh-smart-complete), interactive backup cleanup
    │
    ▼
-v2.1.1  zsh reinstall prompt (brew/apt), fast-syntax-highlighting via Zinit, restore SKIP_DEPS guards  ← you are here
+v2.1.5  p10k/OMZ remover (incl. Zinit dirs), .zwc cache cleared on update, engine fixes  ← you are here
    │
    ▼
 v0.5.x  smart-shell-engine (Rust / Go) over IPC  (future, opt-in)
@@ -534,7 +557,7 @@ zsh tests/test-zle.zsh
 zsh tests/test-integration.zsh
 ```
 
-**Test summary (v2.1.1):** `248 passed, 0 failed` across all 7 test files.
+**Test summary (v2.1.5):** `248 passed, 0 failed` across all 7 test files.
 
 ## License
 

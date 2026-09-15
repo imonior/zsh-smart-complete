@@ -176,8 +176,33 @@ _smart_index_bucket_promote() {
     return 0
 }
 
+# Drop every index slot for a command. Used when capping _SMART_CMDS so a
+# disabled auto-rebuild (SMART_HISTORY_REBUILD_EVERY=0) cannot grow the
+# in-memory index without bound.
+_smart_history_forget() {
+    local cmd="$1" fc0="${cmd[1]}" raw out l
+    raw="${_SMART_CMDS_FIRST[$fc0]:-}"
+    if [[ -n "$raw" ]]; then
+        out=()
+        for l in ${(f)raw}; do
+            [[ "$l" == "$cmd" ]] || out+=("$l")
+        done
+        if (( ${#out[@]} == 0 )); then
+            unset "_SMART_CMDS_FIRST[$fc0]"
+        else
+            _SMART_CMDS_FIRST[$fc0]="${(F)out}"
+        fi
+    fi
+    unset "_SMART_STATE_A[history.frequency|$cmd]"
+    unset "_SMART_STATE_A[history.recency|$cmd]"
+    unset "_SMART_STATE_A[history.cwd|$cmd]"
+    unset "_SMART_STATE_A[history.host|$cmd]"
+    unset "_SMART_STATE_A[history.exit|$cmd]"
+}
+
 _smart_history_upsert() {
     local cmd="$1" cwd="${2:-}"
+    local limit="${SMART_SUGGEST_HISTORY_LIMIT:-20000}"
     [[ -z "$cmd" ]] && return 0
     [[ -n "$cwd" ]] && _smart_state_a_set history.cwd "$cmd" "$cwd"
 
@@ -196,6 +221,23 @@ _smart_history_upsert() {
     if (( idx < 0 )); then
         # New distinct command -> newest.
         _SMART_CMDS=("$cmd" "${_SMART_CMDS[@]}")
+        # Cap in-memory index size: when SMART_HISTORY_REBUILD_EVERY=0 disables
+        # the periodic full rebuild, drop the oldest entry (tail) so _SMART_CMDS
+        # cannot grow without bound. The bucket + assoc slots stay in sync.
+        # NOTE: build via an explicit `kept` loop (do NOT use
+        # _SMART_CMDS=("${_SMART_CMDS[1,-2]}") — the outer quotes join every
+        # element into a single string in zsh).
+        if (( ${#_SMART_CMDS[@]} > limit )); then
+            local oldest="${_SMART_CMDS[-1]}"
+            local -a kept=()
+            local k=1 kn=${#_SMART_CMDS[@]}
+            while (( k < kn )); do
+                kept+=("${_SMART_CMDS[$k]}")
+                (( k++ ))
+            done
+            _SMART_CMDS=("${kept[@]}")
+            _smart_history_forget "$oldest"
+        fi
         if [[ -z "${_SMART_CMDS_FIRST[$fc0]:-}" ]]; then
             _SMART_CMDS_FIRST[$fc0]="$cmd"
         else

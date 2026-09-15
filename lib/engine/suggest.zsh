@@ -47,7 +47,7 @@ _smart_suggest_on_candidate() {
     # Direct associative reads — no subshell in the hot path.
     # Index via $key variables so the compound keys (with "|" + spaces)
     # are treated literally, not as glob patterns.
-    local key
+    local key cmd_cwd cmd_host cmd_exit
     key="history.cwd|$cmd";  cmd_cwd="${_SMART_STATE_A[$key]:-}"
     key="history.host|$cmd"; cmd_host="${_SMART_STATE_A[$key]:-}"
     key="history.exit|$cmd"; cmd_exit="${_SMART_STATE_A[$key]:-}"

@@ -1304,6 +1304,11 @@ if [[ "${SKIP_DEPS:-}" != "1" && "${NONINTERACTIVE:-0}" != "1" ]]; then
             ( cd "$zsc_dir" && { git fetch --depth 1 origin main 2>/dev/null && git reset --hard origin/main 2>/dev/null; } ) \
               || ( cd "$zsc_dir" && git pull --ff-only 2>/dev/null ) \
               || warn "zsh-smart-complete update failed (non-fatal); existing code kept."
+            # Zinit compiles plugins to *.zwc bytecode. That cache is NOT tracked by
+            # git, so `git reset --hard` leaves the OLD (leaky) bytecode behind and
+            # zsh keeps loading it. Drop it so the next `exec zsh` uses the fixed
+            # source instead of stale compiled output.
+            find "$zsc_dir" -name '*.zwc' -delete 2>/dev/null
         fi
         # --- conflict cleanup ---
         # (Deferred to end of script — see clean_conflict_plugin() calls
@@ -1448,6 +1453,9 @@ if [[ "${SKIP_DEPS:-0}" != "1" ]]; then
         ( cd "$SMART_COMPLETE_INSTALL_DIR" && { git fetch --depth 1 origin main 2>/dev/null && git reset --hard origin/main 2>/dev/null; } ) \
           || ( cd "$SMART_COMPLETE_INSTALL_DIR" && git pull --ff-only 2>/dev/null ) \
           || warn "zsh-smart-complete update failed (non-fatal); existing code kept."
+        # Zinit compiles plugins to *.zwc bytecode (untracked by git). Remove it so
+        # the fixed source is loaded, not stale compiled output from before the fix.
+        find "$SMART_COMPLETE_INSTALL_DIR" -name '*.zwc' -delete 2>/dev/null
     fi
 fi
 fi
@@ -1762,9 +1770,23 @@ _remove_omz() {
     if [[ -d "$HOME/.oh-my-zsh" ]] && prompt_yes "Delete ~/.oh-my-zsh directory (backed up as .bak)?" 1; then
         mv "$HOME/.oh-my-zsh" "$HOME/.oh-my-zsh.bak.$(date +%s)" && success "Backed up + removed ~/.oh-my-zsh"
     fi
+    # Zinit-managed OMZ snippet dir (e.g. OMZ::ohmyzsh---ohmyzsh). When OMZ was
+    # previously loaded via a Zinit snippet, the clone lives here and is NOT
+    # removed by the steps above — clear it so a stale OMZ never re-loads.
+    local omz_pdir
+    for omz_pdir in "$ZINIT_PLUGINS_DIR"/*oh-my-zsh* "$ZINIT_PLUGINS_DIR"/*OMZ*; do
+        [[ -d "$omz_pdir" ]] || continue
+        if [[ "$(basename "$omz_pdir")" == *.bak.* ]]; then
+            rm -rf "$omz_pdir" && success "Removed stale backup: $(basename "$omz_pdir")"
+            continue
+        fi
+        if prompt_yes "Delete zinit OMZ dir $(basename "$omz_pdir") (backed up)?" 1; then
+            mv "$omz_pdir" "$omz_pdir.bak.$(date +%s)" && success "Backed up + removed zinit OMZ dir: $(basename "$omz_pdir")"
+        fi
+    done
 }
 _remove_p10k() {
-    # 交互确认：用户选Yes才删除，默认No避免误操作
+    # 交互确认：用户选Yes才删除，默认No避免误操作（zinit 插件目录默认Yes，属管理器克隆的残留）
     comment_out_zshrc 'powerlevel10k'
     comment_out_zshrc 'p10k.zsh'
     if [[ -f "$ZDOTDIR/.p10k.zsh" ]] && prompt_yes "Delete ~/.p10k.zsh (backed up)?" 1; then
@@ -1773,6 +1795,21 @@ _remove_p10k() {
     if [[ -d "$HOME/.powerlevel10k" ]] && prompt_yes "Delete ~/.powerlevel10k directory (backed up)?" 1; then
         mv "$HOME/.powerlevel10k" "$HOME/.powerlevel10k.bak.$(date +%s)" && success "Removed ~/.powerlevel10k"
     fi
+    # Zinit-managed powerlevel10k plugin dir (e.g. romkatzen---powerlevel10k).
+    # When p10k was previously installed via Zinit, the clone lives here and is
+    # NOT removed by the steps above — leaving a stale p10k that re-loads on the
+    # next start. Always clear it when the user picks a non-p10k combo.
+    local p10k_pdir
+    for p10k_pdir in "$ZINIT_PLUGINS_DIR"/*powerlevel10k* "$ZINIT_PLUGINS_DIR"/*p10k*; do
+        [[ -d "$p10k_pdir" ]] || continue
+        if [[ "$(basename "$p10k_pdir")" == *.bak.* ]]; then
+            rm -rf "$p10k_pdir" && success "Removed stale backup: $(basename "$p10k_pdir")"
+            continue
+        fi
+        if prompt_yes "Delete zinit plugin dir $(basename "$p10k_pdir") (backed up)?" 1; then
+            mv "$p10k_pdir" "$p10k_pdir.bak.$(date +%s)" && success "Backed up + removed zinit plugin dir: $(basename "$p10k_pdir")"
+        fi
+    done
 }
 _apply_combo() {
     CONFIG_COMBO="$1"

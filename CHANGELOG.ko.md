@@ -5,6 +5,36 @@
 형식은 [Keep a Changelog](https://keepachangelog.com/)을 따르며, 이 프로젝트는
 [의미론적 버전](https://semver.org/lang/ko/)을 준수합니다.
 
+## [v2.2.1] - 2026-09-16
+
+### 수정
+- **라이브 팝업이 더 이상 키 입력을 삼키지 않습니다.** 이전에는 `LISTMAX=-1`을 목록 호출
+  앞뒤로 스코프 대입해 zsh의 "N개 전부 표시할까요(M줄)?" 프롬프트를 억제했는데, 이것이
+  ZLE의 다음 입력 읽기를 손상시킵니다. `git status`를 입력해도 버퍼에는 `gitstatus`만
+  들어가고 셸은 **잘못된 명령**을 실행했습니다. 이제 `LISTMAX`는 전혀 건드리지 않고,
+  너무 큰 후보 목록을 아예 그리지 않는 방식(`SMART_MENU_MAX_MATCHES`, 기본값을
+  "무제한"에서 `100`으로 변경)으로 억제합니다. 짧은 후보 목록과 1200개 항목 디렉터리
+  양쪽에서 모두 깨끗했던 유일한 설정입니다.
+- `smart-menu status`와 tick 디버그 로그가 "최소값 미만"과 "상한 초과"를 구분합니다.
+  이전에는 둘 다 `below min`으로 기록되어 디버깅 방향을 잘못 잡게 했습니다.
+
+### 추가
+- **`SMART_SUGGEST_STRATEGY`** (`history` | `history,completion`,
+  zsh-autosuggestions와 동일한 이름). `completion`을 추가하면 히스토리에 없는 경로,
+  옵션, 하위 명령도 회색 제안으로 표시할 수 있습니다(커서 위치 단어의 "모호하지 않은
+  접두사"를 완성 시스템에 질의).
+- **이름 있는 재지정 가능 위젯**: `smart-accept-suggestion`, `smart-accept-word`,
+  `smart-execute-suggestion`, `smart-suggestion-toggle`.
+- **`SMART_MENU_HISTORY_KEYS`** (기본 `false`): `true`이면 줄이 비어 있지 않을 때
+  ↑/↓가 접두사 히스토리 검색(zsh-autocomplete의 대표 기능)이 되고, 빈 줄에서는 일반
+  히스토리 이동으로 돌아갑니다.
+
+### 테스트
+- `tests/e2e-tmux.sh`에 실제 터미널에서의 **버퍼 무결성** 검증을 추가했습니다. 한 글자씩
+  입력해 문자가 유실되지 않아야 하고, **실제로 실행된 명령**이 입력한 그대로여야 합니다.
+  이전 스위트는 "목록이 그려졌는가"만 확인해서, 팝업이 모든 명령줄을 망가뜨리는 동안에도
+  전부 통과했습니다.
+
 ## [v2.2.0] - 2026-09-15
 
 이 플러그인이 존재하는 **전체 이유**를 드디어 제공한 릴리스: `zsh-autocomplete` +

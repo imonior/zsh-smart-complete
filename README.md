@@ -3,7 +3,7 @@
 > A modern smart completion & suggestion layer for Zsh.
 > Engineered as the frontend of a future independent shell.
 >
-> **v2.2.0** — Latest release: native type-to-popup candidate menu (the `zsh-autocomplete` half), `Alt+→` accepts one word, right-arrow SS3 fix.
+> **v2.2.1** — Latest release: the live popup no longer eats keystrokes; ghost suggestions can now fall back to the completion system; new named widgets and optional ↑/↓ history search.
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------- | ------ |
 | Build & test (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | Release | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| Version | 2.2.0 |
+| Version | 2.2.1 |
 
 ## Why
 
@@ -106,6 +106,7 @@ Set these variables **before** the plugin loads:
 # Engines
 : ${SMART_SUGGEST:=true}
 : ${SMART_COMPLETE:=true}
+: ${SMART_SUGGEST_STRATEGY:=history}  # history | history,completion (completion also draws on the completion system)
 # History backend: zsh | atuin | smart-engine (future)
 : ${SMART_HISTORY_BACKEND:=zsh}
 # UI
@@ -117,7 +118,9 @@ Set these variables **before** the plugin loads:
 : ${SMART_MENU_MIN_PREFIX_CMD:=2}     # min chars in the COMMAND word before listing
 : ${SMART_MENU_MIN_PREFIX:=1}         # min chars in an ARGUMENT word (0 = also right after a space)
 : ${SMART_MENU_MIN_MATCHES:=2}        # below this many candidates, no list (a single one stays ghost text)
+: ${SMART_MENU_MAX_MATCHES:=100}       # more candidates than this -> no list (keeps huge dirs, and zsh's "see all N possibilities" prompt, away)
 : ${SMART_MENU_MAX_PREFIX:=64}
+: ${SMART_MENU_HISTORY_KEYS:=false}  # true = up/down prefix-search history while the line is non-empty
 # Throttle: OFF by default. Measured cost is only 10-30ms per listing, so there is
 # nothing to throttle; this knob is for a *persistently* expensive completion. When
 # on, a listing >= SLOW_MS buys COOLDOWN_KEYS skipped edits. Note: a skipped edit is
@@ -131,6 +134,14 @@ Set these variables **before** the plugin loads:
 # appear" is otherwise indistinguishable from "one match, so the ghost took over".
 : ${SMART_MENU_DEBUG:=}
 ```
+
+Named widgets are exposed too, so you can rebind them the way you would with
+`zsh-autosuggestions`: `smart-accept-suggestion` (accept the whole suggestion,
+bound to the right arrow), `smart-accept-word` (accept one word, bound to
+Alt+right-arrow), `smart-execute-suggestion` (accept, then run the line) and
+`smart-suggestion-toggle` (turn the grey ghost on/off). With
+`SMART_MENU_HISTORY_KEYS=true`, up/down prefix-search your history while the line
+is non-empty — off by default, because those keys carry strong muscle memory.
 
 ## Runtime commands
 
@@ -167,15 +178,19 @@ zsh tests/test-menu.zsh
 zsh tests/test-integration.zsh
 ```
 
-**Test summary (v2.2.0):** 8 test files, 359 assertions, all passing, 0 failures.
+**Test summary (v2.2.1):** 8 test files, 393 assertions, all passing, 0 failures.
 
 Key behaviours are additionally verified end-to-end against a real `zsh -i` in a
-tmux pane, asserting on the rendered screen (13/13 green). The same assertions
-score **6/13 on v2.1.6** — the type-to-popup menu did not exist and the SS3 right
-arrow was dead. The harness ships in the repo (auto-skips without `tmux`):
+tmux pane, asserting on the rendered screen (23/23 green). The same assertions
+score **16/23 on v2.1.6** — the type-to-popup menu did not exist and the SS3 right
+arrow was dead. This version adds a **buffer-integrity** assertion — the prompt
+line must equal what was typed, then the command that actually ran must print the
+expected output — because a popup that silently swallows one keystroke per drawn
+list still "passes" every look-at-the-screen check. The harness ships in the repo
+(auto-skips without `tmux`):
 
 ```zsh
-./tests/e2e-tmux.sh                              # 13 assertions
+./tests/e2e-tmux.sh                              # 23 assertions
 ./tests/e2e-tmux.sh /tmp/zsc-v216               # A/B an older release
 ```
 

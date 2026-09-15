@@ -3,7 +3,7 @@
 > Zsh 용 현대적인 스마트 완성 및 제안 레이어.
 > 미래의 독립 셸 프런트엔드로 설계됨.
 >
-> **v2.2.0** — 최신 릴리스: 네이티브 "입력하면 팝업되는 후보 메뉴"(zsh-autocomplete 쪽), `Alt+→` 한 단어 수락, 우측 화살표 SS3 수정.
+> **v2.2.1** — 최신 릴리스: 라이브 팝업이 키 입력을 삼키던 버그를 수정했습니다. 회색 제안이 히스토리 외에 완성 시스템으로 폴백할 수 있습니다. 이름 있는 위젯과 선택적 ↑/↓ 히스토리 검색을 추가했습니다.
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------ | ------ |
 | 빌드 및 테스트 (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | 릴리스 | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| 버전 | 2.2.0 |
+| 버전 | 2.2.1 |
 
 ## 왜 이 플러그인인가
 
@@ -106,6 +106,7 @@ SMART_INSTALL_GH_MIRROR=https://ghproxy.net/ bash -c "$(curl -fsSL https://ghpro
 # 엔진
 : ${SMART_SUGGEST:=true}
 : ${SMART_COMPLETE:=true}
+: ${SMART_SUGGEST_STRATEGY:=history}  # history | history,completion (completion은 완성 시스템도 제안 소스로 사용)
 # 히스토리 백엔드: zsh | atuin | smart-engine (미래)
 : ${SMART_HISTORY_BACKEND:=zsh}
 # UI
@@ -117,7 +118,9 @@ SMART_INSTALL_GH_MIRROR=https://ghproxy.net/ bash -c "$(curl -fsSL https://ghpro
 : ${SMART_MENU_MIN_PREFIX_CMD:=2}     # 목록 표시 전 명령어 단어 최소 문자 수
 : ${SMART_MENU_MIN_PREFIX:=1}         # 인수 단어 최소 문자 수 (0 = 공백 직후에도 표시)
 : ${SMART_MENU_MIN_MATCHES:=2}        # 이보다 적은 후보는 목록 비표시 (단일 후보는 회색 글자가 담당)
+: ${SMART_MENU_MAX_MATCHES:=100}       # 이보다 많은 후보는 목록 비표시 (거대 디렉터리와 zsh의 "N개 모두 표시?" 프롬프트 회피)
 : ${SMART_MENU_MAX_PREFIX:=64}
+: ${SMART_MENU_HISTORY_KEYS:=false}  # true = 줄이 비어 있지 않을 때 ↑/↓ 접두사 히스토리 검색
 # 스로틀: 기본 끄기. 실측상 목록 가져오기는 10~30ms뿐이라 줄일 것이 없으며,
 # 이 스위치는 "지속적으로 비싼" 완성을 위한 것. 켜면 SLOW_MS 이상인 목록 가져오기가
 # COOLDOWN_KEYS회 스킵을 유발. 주의: 스킵된 키 입력은 재도화되지 않아 그 순간
@@ -130,6 +133,14 @@ SMART_INSTALL_GH_MIRROR=https://ghproxy.net/ bash -c "$(curl -fsSL https://ghpro
 # 구분할 수 없으므로 이 로그가 도움이 됨.
 : ${SMART_MENU_DEBUG:=}
 ```
+
+이름 있는 위젯도 제공하므로 `zsh-autosuggestions`처럼 키를 다시 지정할 수
+있습니다: `smart-accept-suggestion`(전체 제안 수락, 기본 →),
+`smart-accept-word`(한 단어만 수락, 기본 Alt+→),
+`smart-execute-suggestion`(수락 후 그 줄 실행),
+`smart-suggestion-toggle`(회색 제안 켜기/끄기).
+`SMART_MENU_HISTORY_KEYS=true`이면 줄이 비어 있지 않을 때 ↑/↓가 접두사 히스토리
+검색이 됩니다(기본 꺼짐 — 이 키들의 사용 습관이 강하기 때문).
 
 ## 실행 시 명령
 
@@ -166,17 +177,22 @@ zsh tests/test-menu.zsh
 zsh tests/test-integration.zsh
 ```
 
-**테스트 요약 (v2.2.0):** 8개 파일, 359개 어설션, 전부 통과, 0 실패.
+**테스트 요약 (v2.2.1):** 8개 파일, 393개 어설션, 전부 통과, 0 실패.
 
 주요 동작은 tmux 페인 안의 실제 `zsh -i`에 대해 엔드투엔드로 검증되며, 렌더링된
-화면을 어설트합니다(13/13 그린). 같은 어설션은 v2.1.6에서는 **6/13** — 당시
+화면을 어설트합니다(23/23 그린). 같은 어설션은 v2.1.6에서는 **16/23** — 당시
 "입력하면 팝업되는 메뉴"는 존재하지 않았고 SS3 우측 화살표는 죽어 있었습니다.
 이 하니스는 저장소에 포함됩니다(`tmux` 없으면 자동 스킵):
 
 ```zsh
-./tests/e2e-tmux.sh                              # 13 어설션
+./tests/e2e-tmux.sh                              # 23 어설션
 ./tests/e2e-tmux.sh /tmp/zsc-v216               # 이전 릴리스와 A/B
 ```
+
+이 버전의 e2e는 "버퍼 무결성"을 검증합니다. 한 글자씩 입력한 뒤 프롬프트 줄이
+입력 내용과 정확히 일치해야 하고, **실제로 실행된 명령**의 출력으로 교차
+검증합니다. 목록을 그릴 때마다 키를 하나 삼키던 조용한 버그는 "화면만 보는"
+모든 검사를 통과해 버리기 때문입니다.
 
 방법은 `headless-pty-zle-verify` 스킬에 정리되어 있습니다.
 

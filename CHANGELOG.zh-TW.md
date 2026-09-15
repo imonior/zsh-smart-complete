@@ -5,6 +5,31 @@
 格式基於 [Keep a Changelog](https://keepachangelog.com/)，並遵循
 [語意化版本](https://semver.org/lang/zh-TW/)。
 
+## [v2.2.1] - 2026-09-16
+
+### 修復
+- **即時彈窗不再吞按鍵。** 之前用 `LISTMAX=-1` 作用域包裹列表呼叫（用來壓掉 zsh 的
+  「是否顯示全部 N 項（M 行）」提示），會破壞 ZLE 的下一次輸入讀取：輸入 `git status`
+  實際進入緩衝區的是 `gitstatus`，shell 執行的是**錯命令**。現在**完全不碰 `LISTMAX`**，
+  改為對超大候選清單直接不繪製（`SMART_MENU_MAX_MATCHES`，預設由「不封頂」改為 `100`）
+  ——這是實測在「短候選清單」與「1200 項目錄」兩種情境下都乾淨的唯一設定。
+- `smart-menu status` 與 tick 除錯日誌現在能區分「低於下限」與「超過上限」，先前兩者
+  都被寫成 `below min`，會把排查方向帶偏。
+
+### 新增
+- **`SMART_SUGGEST_STRATEGY`**（`history` | `history,completion`，與
+  zsh-autosuggestions 同名）。加上 `completion` 後，灰色建議可以來自補全系統——路徑、
+  選項、子命令等歷史裡沒有的內容，做法是取游標處單詞的「無歧義前綴」。
+- **具名可改鍵 widget**：`smart-accept-suggestion`、`smart-accept-word`、
+  `smart-execute-suggestion`、`smart-suggestion-toggle`。
+- **`SMART_MENU_HISTORY_KEYS`**（預設 `false`）：設為 `true` 時，行內非空則 ↑/↓ 依前綴
+  搜尋歷史（zsh-autocomplete 的招牌行為），行內為空則退回原生歷史導覽。
+
+### 測試
+- `tests/e2e-tmux.sh` 新增真終端下的**緩衝區完整性**斷言：逐字輸入不得丟字元，且**真正
+  被執行的命令**就是輸入的那一條。先前的案例只斷言「清單有沒有畫出來」，因此彈窗在破壞
+  每一條命令列的同時測試仍然全綠。
+
 ## [v2.2.0] - 2026-09-15
 
 這個版本終於交付了本外掛存在的**全部理由**：把 `zsh-autocomplete` +

@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [v2.2.1] - 2026-09-16
+
+### Fixed
+- **The live popup no longer eats a keystroke.** Scoping `LISTMAX=-1` around the
+  listing call — the previous way of suppressing zsh's "do you wish to see all N
+  possibilities (M lines)?" prompt — corrupts ZLE's next input read: typing
+  `git status` left `gitstatus` in the buffer and the shell ran the wrong
+  command. `LISTMAX` is no longer touched at all. The prompt is prevented instead
+  by declining to draw an oversized list (`SMART_MENU_MAX_MATCHES`, default
+  changed from uncapped to `100`), the only setting measured clean for both short
+  candidate lists and a 1200-entry directory.
+- `smart-menu status` and the tick debug trace now tell "below the minimum" apart
+  from "over the cap"; both used to be logged as `below min`, which sent
+  debugging in the wrong direction.
+
+### Added
+- **`SMART_SUGGEST_STRATEGY`** (`history` | `history,completion`, same names as
+  zsh-autosuggestions). With `completion`, the ghost can suggest paths, options
+  and subcommands that are not in your history, by asking the completion system
+  for the unambiguous prefix of the word under the cursor.
+- **Named, rebindable widgets**: `smart-accept-suggestion`, `smart-accept-word`,
+  `smart-execute-suggestion`, `smart-suggestion-toggle`.
+- **`SMART_MENU_HISTORY_KEYS`** (default `false`): with `true`, up/down
+  prefix-search your history while the line is non-empty — zsh-autocomplete's
+  headline behaviour — falling back to plain history navigation on an empty line.
+
+### Tests
+- `tests/e2e-tmux.sh` now asserts **buffer integrity** in a real terminal:
+  typing must never lose a character, and the command that actually executes is
+  the one that was typed. The previous suite only checked whether a list was
+  drawn, so it stayed green while the popup was corrupting every command line.
+
 ## [v2.2.0] - 2026-09-15
 
 The release that finally delivers the *whole* reason this plugin exists: the two

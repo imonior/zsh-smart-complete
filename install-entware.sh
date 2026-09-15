@@ -788,14 +788,25 @@ elif [[ "${SKIP_DEPS:-0}" != "1" ]] && prompt_yes "$(msg prompt.starship)" 0; th
         if [[ ! -f "$STARSHIP_CONFIG_FILE" ]]; then
             cat > "$STARSHIP_CONFIG_FILE" <<'TOML'
 add_newline = false
-[line_break]
+# Two-line: USER (icon) + current dir on line 1; ":>" on line 2
+format = """
+[$user]($style) $directory
+$character"""
+[username]
+show_always = true
+style_user = "bold green"
+style_root = "bold red"
+format = "[ $user]($style)"
+[hostname]
 disabled = true
-[character]
-success_symbol = "[❯](bold green)"
-error_symbol   = "[❯](bold red)"
 [directory]
 truncation_length = 3
+truncation_symbol = "…/"
 style = "bold cyan"
+format = "[$path]($style)"
+[character]
+success_symbol = "[:> ](bold green)"
+error_symbol   = "[:> ](bold red)"
 TOML
             success "Starship config written to $STARSHIP_CONFIG_FILE"
         fi

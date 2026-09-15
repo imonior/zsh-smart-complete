@@ -549,21 +549,25 @@ _smart_widget_history_prefix_down() {
 }
 zle -N _smart_widget_history_prefix_down 2>/dev/null
 
-# The "accept-line" widget.
-# If completion menu is active: accept current selection, DON'T execute.
-# Otherwise: clear display, schedule index bump, execute the line.
+# The "accept-line" widget (Enter).
+#
+# ALWAYS executes the line. An open completion menu does NOT change what Enter
+# means, and this used to be treated as "accept the selection but do not run":
+# any Tab press set _SMART_COMPLETION_ACTIVE, so the very next Enter was
+# swallowed — the command sat there unchanged until you pressed Enter a second
+# time. Measured on released v2.2.1 as well, so it is a long-standing bug, not a
+# regression. Nothing is lost by executing: our Tab bridge uses `menu-complete`,
+# which inserts a candidate outright (zsh's own menu-select likewise inserts the
+# selection and accepts in one keystroke), so there is no pending choice to defer
+# to.
+#
+# What we still do here is tidy up: the completion-state flag and the ghost text
+# must never leak into the next line.
 _smart_widget_accept_line() {
-    # Completion active → accept selection but don't execute.
-    if (( ${+_SMART_COMPLETION_ACTIVE} )) && (( _SMART_COMPLETION_ACTIVE == 1 )); then
-        _smart_native_reset_completion 2>/dev/null
-        _smart_display_clear 2>/dev/null
-        # Leave the completed word in BUFFER; user can continue editing.
-        zle redisplay 2>/dev/null
-        return 0
-    fi
-
-    # Normal execute path.
+    _smart_native_reset_completion 2>/dev/null
     _smart_display_clear 2>/dev/null
+
+    # Make sure the history-on-new-command hook is registered exactly once.
     if (( ${+preexec_functions} )); then
         local already=0 f
         for f in "${preexec_functions[@]}"; do

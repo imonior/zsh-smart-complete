@@ -55,6 +55,9 @@ assert_fn_exists() {
 source "${ROOT}/lib/config.zsh"
 source "${ROOT}/lib/state.zsh"
 source "${ROOT}/lib/engine/native.zsh"
+# menu.zsh consults _smart_recent_cd_empty_ok (guarded), so the module has to be
+# present for the `cd ` empty-word rule to be exercised below.
+source "${ROOT}/lib/engine/recent.zsh"
 source "${ROOT}/lib/engine/menu.zsh"
 source "${ROOT}/lib/display/display.zsh"
 # zle.zsh owns _smart_evt_build_seq_lists (the multi-encoding arrow bindings).
@@ -99,6 +102,10 @@ assert_eq "SMART_MENU_MAX_MATCHES default is a real cap" "${SMART_MENU_MAX_MATCH
 # Prefix history search must be OPT-IN: it rebinds a key with strong muscle memory.
 assert_eq "SMART_MENU_HISTORY_KEYS default is off" "${SMART_MENU_HISTORY_KEYS}" "false"
 assert_eq "SMART_SUGGEST_STRATEGY default is history" "${SMART_SUGGEST_STRATEGY}" "history"
+# recent directories: on by default (it is the one place where a list on an
+# empty word is what the user actually wants), data read-only.
+assert_eq "SMART_RECENT_PATHS default is true" "${SMART_RECENT_PATHS}" "true"
+assert_eq "SMART_RECENT_PATHS_MAX default"     "${SMART_RECENT_PATHS_MAX}" "20"
 
 # ---------------------------------------------------------------------------
 print -r -- ""
@@ -209,6 +216,24 @@ SMART_MENU_MIN_PREFIX=0
 LBUFFER="git "
 assert_rc "MIN_PREFIX=0 -> list on an empty word too" 0 _smart_menu_should_list
 SMART_MENU_MIN_PREFIX=1
+
+# `cd ` is the ONE empty word we list while MIN_PREFIX is still 1: "which
+# directories have I been in?" is exactly the question being asked there, and
+# stock zsh shows nothing until Tab. Deliberately narrower than MIN_PREFIX=0,
+# which would dump every candidate after every space.
+SMART_RECENT_PATHS=true
+LBUFFER="cd "
+assert_rc "cd + empty word -> list (recent dirs)" 0 _smart_menu_should_list
+LBUFFER="cd p"
+assert_rc "cd + partial word -> list" 0 _smart_menu_should_list
+LBUFFER="pushd "
+assert_rc "pushd + empty word -> list" 0 _smart_menu_should_list
+LBUFFER="git "
+assert_rc "every other empty word is still refused" 1 _smart_menu_should_list
+SMART_RECENT_PATHS=false
+LBUFFER="cd "
+assert_rc "SMART_RECENT_PATHS=false -> cd empty word refused too" 1 _smart_menu_should_list
+SMART_RECENT_PATHS=true
 
 SMART_MENU=false
 LBUFFER="git s"

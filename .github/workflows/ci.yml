@@ -55,3 +55,4 @@ jobs:
           zsh tests/test-zle.zsh
           zsh tests/test-menu.zsh
           zsh tests/test-integration.zsh
+          zsh tests/test-recent.zsh

@@ -62,9 +62,10 @@ _smart_source() {
 #   6. engine/ranking  -- scoring functions (depends on nothing)
 #   7. engine/suggest  -- suggestion engine (depends on history + ranking + state)
 #   8. engine/native   -- native completion bridge (depends on state only)
-#   9. engine/menu     -- type-to-popup candidate list (depends on native)
-#  10. display        -- inline rendering (depends on state only)
-#  11. event/zle      -- widgets + keymap (depends on everything above)
+#   9. engine/recent   -- recent-dir candidates for `cd` (depends on native)
+#  10. engine/menu     -- type-to-popup candidate list (depends on native+recent)
+#  11. display        -- inline rendering (depends on state only)
+#  12. event/zle      -- widgets + keymap (depends on everything above)
 # ---------------------------------------------------------------------------
 _smart_source \
     lib/config.zsh \
@@ -75,6 +76,7 @@ _smart_source \
     lib/engine/ranking.zsh \
     lib/engine/suggest.zsh \
     lib/engine/native.zsh \
+    lib/engine/recent.zsh \
     lib/engine/menu.zsh \
     lib/display/display.zsh \
     lib/event/zle.zsh
@@ -90,8 +92,9 @@ smart-status() {
     print -r -- "zsh-smart-complete $(cat -- "${SMART_ROOT}/VERSION" 2>/dev/null || print -r -- unknown)"
     print -r -- "  enabled:          $(_smart_state_get enabled)"
     print -r -- "  suggest:          ${SMART_SUGGEST}   inline: ${SMART_INLINE}   strategy: ${SMART_SUGGEST_STRATEGY:-history}"
-    print -r -- "  menu (type popup): ${SMART_MENU:-true}  min/max matches: ${SMART_MENU_MIN_MATCHES:-2}/${SMART_MENU_MAX_MATCHES:-0}  last: matches=${_SMART_MENU_NMATCHES:-0} listed=${_SMART_MENU_LISTED:-0}"
+    print -r -- "  menu (type popup): ${SMART_MENU:-true}  min/max matches: ${SMART_MENU_MIN_MATCHES:-2}/${SMART_MENU_MAX_MATCHES:-100}  last: matches=${_SMART_MENU_NMATCHES:-0} listed=${_SMART_MENU_LISTED:-0}"
     print -r -- "  menu history keys: ${SMART_MENU_HISTORY_KEYS:-false}"
+    print -r -- "  recent dirs:      ${SMART_RECENT_PATHS:-true}  max: ${SMART_RECENT_PATHS_MAX:-20}  completer wired: $(( ${_SMART_RECENT_INSTALLED:-0} == 1 ))"
     if (( ${SMART_MENU_COOLDOWN_KEYS:-0} > 0 )); then
         print -r -- "  menu throttle:    on (slow >= ${SMART_MENU_SLOW_MS}ms -> skip ${SMART_MENU_COOLDOWN_KEYS})  ticks/skips: ${_SMART_MENU_TICKS:-0}/${_SMART_MENU_SKIPS:-0}"
     else
@@ -109,6 +112,9 @@ smart-status() {
 smart-disable() {
     _smart_event_unbind 2>/dev/null
     _smart_display_clear 2>/dev/null
+    # Leave the user's completer chain (the `zstyle ':completion:*' completer`
+    # definition) exactly as we found it.
+    _smart_recent_uninstall 2>/dev/null
     _smart_state_set enabled 0
     zle reset-prompt 2>/dev/null
     return 0
@@ -118,6 +124,7 @@ smart-disable() {
 smart-enable() {
     _smart_state_set enabled 1
     _smart_event_bind 2>/dev/null
+    _smart_recent_install 2>/dev/null
     # Build the index lazily if it hasn't been built yet.
     if (( $(_smart_state_get history.count) == 0 )); then
         _smart_history_rebuild 2>/dev/null
@@ -166,6 +173,10 @@ _smart_bootstrap_once() {
     if (( $(_smart_state_get enabled) == 1 )); then
         _smart_history_rebuild 2>/dev/null
         _smart_event_bind      2>/dev/null
+        # Joining the completer chain needs a live compsys, so this belongs here
+        # rather than at source time. _smart_menu_tick re-checks as a fallback,
+        # which covers plugin managers that load us before compinit.
+        _smart_recent_install  2>/dev/null
     fi
     # Remove self so we run exactly once.
     precmd_functions=("${(@)precmd_functions:#_smart_bootstrap_once}")

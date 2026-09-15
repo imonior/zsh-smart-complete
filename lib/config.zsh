@@ -171,6 +171,37 @@ setopt extended_glob no_warn_create_global
 : ${SMART_MENU_DEBUG:=}
 
 # ---------------------------------------------------------------------------
+# Recent directories in the completion menu ("recent-paths")
+# ---------------------------------------------------------------------------
+# When true, the directories you have cd'd into are offered as candidates while
+# you complete a `cd` / `pushd` / `chdir` argument — and, because that is the
+# one place where such a list is actually what you want, the popup also opens
+# on the EMPTY word right after `cd ` (every other empty word still follows
+# SMART_MENU_MIN_PREFIX and shows nothing).
+#
+# The data is zsh's own recent-directories database — the same one `cdr` and
+# `~[<n>]` use. We only READ it: if you have never enabled collection there is
+# simply nothing to show. Two lines turn it on (see README):
+#
+#     autoload -Uz chpwd_recent_dirs add-zsh-hook
+#     add-zsh-hook chpwd chpwd_recent_dirs
+#
+# Implementation note: this works by prepending a completer to
+# `zstyle ':completion:*' completer`, so it runs before `_complete` (which would
+# otherwise end the chain before our turn). It never replaces anything —
+# candidates are added and the chain continues. `smart-recent off` restores the
+# zstyle exactly as it was found (including removing it, if you had not set one).
+#
+# Do NOT be tempted to append to a `$completer` array: no such variable exists.
+# `_main_complete` reads the chain from the zstyle above and falls back to
+# `_complete _ignored` when it is unset, so writing `$completer` looks wired up
+# and silently does nothing.
+: ${SMART_RECENT_PATHS:=true}
+
+# Upper bound on how many recent directories are offered. 0 = no limit.
+: ${SMART_RECENT_PATHS_MAX:=20}
+
+# ---------------------------------------------------------------------------
 # Ranking algorithm (v0.1.3)
 # ---------------------------------------------------------------------------
 # Exponential time decay: recency_score = 1000000 / (1000 + alpha * rec)

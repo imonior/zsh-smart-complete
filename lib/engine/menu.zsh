@@ -31,6 +31,7 @@
 #   SMART_MENU_MIN_MATCHES=n  don't list unless there are at least n (2)
 #   SMART_MENU_MAX_MATCHES=n  don't list when there are more than n (100)
 #   SMART_MENU_HISTORY_KEYS=true  ↑/↓ prefix-search history (off by default)
+#   SMART_RECENT_PATHS=false  drop recent directories + `cd ` empty-word listing
 #   or, at runtime:  smart-menu off | on | status
 #
 # THROTTLE
@@ -134,6 +135,12 @@ _smart_menu_should_list() {
     w="$(_smart_menu_word)"
     if _smart_menu_is_command_word; then
         min="${SMART_MENU_MIN_PREFIX_CMD:-2}"
+    elif (( ${+functions[_smart_recent_cd_empty_ok]} )) && _smart_recent_cd_empty_ok; then
+        # `cd ` / `pushd ` with recent dirs enabled: list immediately, because
+        # "which directories have I been in?" is exactly the question being
+        # asked there. Deliberately narrower than SMART_MENU_MIN_PREFIX=0,
+        # which would dump every candidate after every space.
+        min=0
     else
         min="${SMART_MENU_MIN_PREFIX:-1}"
     fi
@@ -284,6 +291,14 @@ _smart_menu_note_cost() {
 # The policy itself lives in _smart_menu_note_cost, above.
 _smart_menu_tick() {
     _smart_menu_should_list || { _smart_menu_dbg "skip gate word=[$(_smart_menu_word)]"; return 0; }
+
+    # Fallback for the completer wiring: if the bootstrap precmd ran before the
+    # user's compinit (some plugin managers load us first), join the chain now —
+    # we are provably inside the completion path, so compsys is alive.
+    # One integer test per tick; the install itself is idempotent.
+    if (( ${+functions[_smart_recent_install]} )) && (( ! ${_SMART_RECENT_INSTALLED:-0} )); then
+        _smart_recent_install 2>/dev/null
+    fi
 
     if (( _SMART_MENU_COOLDOWN > 0 )); then
         (( _SMART_MENU_COOLDOWN-- ))

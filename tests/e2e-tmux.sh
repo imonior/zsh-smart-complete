@@ -35,10 +35,28 @@ SESS="zsc_e2e_$$"
 ZD="$(mktemp -d "${TMPDIR:-/tmp}/zsc_e2e.XXXXXX")"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/zsc_work.XXXXXX")"   # probe cwd: NOT a git repo
 BIG=""                                                  # 1200-entry dir, created in 3c
+RD=""                                                   # recent-dirs fixture, created below
 # Deliberately under /tmp, not $TMPDIR: on macOS $TMPDIR is a ~65-character
 # /var/folders/... path, and typing one character at a time through a live
 # popup costs ~35ms — a path that long takes ~2.5s to echo, which makes any
 # fixed sleep in this file race the echo instead of testing the plugin.
+
+# Recent-directory fixture (scenarios 8b/9). The database is written exactly the
+# way `chpwd_recent_filehandler` writes it — one $'...'-quoted path per line — so
+# the parser is exercised against the real format rather than a convenient one.
+# `never-was` deliberately does not exist on disk and must be filtered out.
+RD="$(mktemp -d /tmp/zsc_rd.XXXXXX)"
+mkdir -p "$RD/proj-alpha" "$RD/proj-beta"
+RDB="$RD/db"
+zsh -fc 'p=( "$1/proj-alpha" "$1/proj-beta" "$1/never-was" ); print -rl ${(qqqq)p}' _ "$RD" > "$RDB"
+# Tab-completion probe for 8b: completing `echo tabprobe` to this name makes the
+# command print a line that is exactly `tabprobe-one`. It lives in SHORT because
+# scenarios 8b/9 have to `cd` to it BY TYPING: a burst `send-keys -l` of a long
+# path is dropped character by character (each keystroke triggers a redraw), and
+# macOS $TMPDIR is ~65 characters. Never type a long path into a live popup.
+SHORT="/tmp/zsc_e2e_short.$$"
+mkdir -p "$SHORT"
+touch "$SHORT/tabprobe-one"
 
 PASS=0; FAIL=0
 ok(){ PASS=$((PASS+1)); printf '  PASS  %s\n' "$1"; }
@@ -59,11 +77,12 @@ HISTFILE=$ZD/.zsh_history
 HISTSIZE=2000
 SAVEHIST=2000
 autoload -Uz compinit && compinit -u -d $ZD/.zcompdump
+zstyle ':chpwd:' recent-dirs-file $RDB
 source $REPO/zsh-smart-complete.plugin.zsh
 PROMPT='READY> '
 EOF
 
-cleanup(){ tmux kill-session -t "$SESS" 2>/dev/null; rm -rf "$ZD" "$WORK" "${BIG:-}"; }
+cleanup(){ tmux kill-session -t "$SESS" 2>/dev/null; rm -rf "$ZD" "$WORK" "${BIG:-}" "${RD:-}" "${SHORT:-}"; }
 trap cleanup EXIT
 
 tmux kill-session -t "$SESS" 2>/dev/null
@@ -307,6 +326,53 @@ R=$(rows_below_prompt); [ "$R" -ge 1 ] && ok "menu on -> popup returns ($R rows)
 echo "== 8. Tab completion unaffected =="
 reset_line; slowtype 'git swit'; sleep 0.6; key Tab; sleep 1.0
 grep -qF 'switch' <<<"$(pane)" && ok "Tab still completes (switch)" || no "Tab completion broken"
+
+echo "== 8b. Tab, then Enter, must actually RUN the line =="
+# Regression, present in released v2.2.1: any Tab press set the
+# completion-active flag, and accept-line read that as "accept the selection but
+# do not execute" — so the FIRST Enter after any Tab was swallowed and the
+# command just sat on the line until you pressed Enter again.
+#
+# Assert on the command's OUTPUT, never on the echoed line: completing
+# `echo tabprobe` to `tabprobe-one` makes the shell print a line that is exactly
+# `tabprobe-one`, which the prompt echo (`READY> echo tabprobe-one`) is not.
+reset_line
+slowtype "cd $SHORT"; sleep 0.4; key Enter; sleep 0.9
+reset_line
+slowtype 'echo tabprobe'; sleep 0.6
+key Tab; sleep 1.0
+key Enter; sleep 1.0
+pane | grep -qx 'tabprobe-one' \
+    && ok "one Enter after Tab ran the line" \
+    || { no "Enter after Tab was swallowed (command did not run)"
+         echo "    --- 8b screen ---"; pane | grep -n . | tail -8 | sed 's/^/    /'; }
+
+echo "== 9. recent dirs: 'cd ' lists them, Tab completes the full path =="
+reset_line
+# Stay somewhere that contains none of the fixture names, so a completed path can
+# only have come from the recent-dirs database.
+slowtype "cd $SHORT"; sleep 0.4; key Enter; sleep 0.9
+reset_line
+slowtype 'cd '; sleep 1.5
+S="$(pane)"
+# An empty word after `cd ` is the one place we list on zero characters. We typed
+# no directory name, so finding one on screen proves it is a candidate.
+grep -qF 'proj-alpha' <<<"$S" && ok "recent dir listed on the empty word" || no "recent dir not listed on 'cd '"
+grep -qF 'proj-beta'  <<<"$S" && ok "second recent dir listed"            || no "second recent dir missing"
+grep -qF 'never-was'  <<<"$S" && no "non-existent entry was offered"      || ok "entry missing from disk is filtered out"
+
+reset_line
+slowtype 'cd proj-be'; sleep 0.9
+# `$WORK` contains no such name, so a completed path can only come from us.
+key Tab; sleep 1.0
+grep -qF "$RD/proj-beta" <<<"$(pane)" \
+    && ok "Tab completed the recent dir to its full path" \
+    || no "Tab did not complete the recent dir"
+key Enter; sleep 0.9
+slowtype 'pwd'; key Enter; sleep 1.0
+pane | grep -qx "$RD/proj-beta" \
+    && ok "cd landed in the recent dir" \
+    || no "cd did not land in the recent dir"
 
 echo "-----"
 echo "E2E TOTAL PASS=$PASS FAIL=$FAIL"

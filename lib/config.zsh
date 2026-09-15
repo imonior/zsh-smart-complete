@@ -27,6 +27,23 @@ setopt extended_glob no_warn_create_global
 : ${SMART_SUGGEST:=true}           # compute inline suggestions
 : ${SMART_COMPLETE:=true}          # participate in Tab completion
 
+# Where the inline (grey) suggestion comes from. Comma-separated, tried in
+# order; the first one that yields something wins.
+#
+#   history     = the best prefix match from your history (ranked + scored by
+#                 lib/engine/ranking.zsh). Cheap, and the reason this plugin
+#                 exists.  <-- default
+#   completion  = the completion system's unambiguous prefix for the current
+#                 word (what Tab would insert before it needed to choose).
+#                 Lets the ghost suggest paths, options and subcommands that
+#                 are NOT in your history. Costs one extra completion run on
+#                 each keystroke that history could not answer, so it is
+#                 opt-in: SMART_SUGGEST_STRATEGY=history,completion
+#
+# The same names as zsh-autosuggestions' ZSH_AUTOSUGGEST_STRATEGY, so muscle
+# memory transfers.
+: ${SMART_SUGGEST_STRATEGY:=history}
+
 # ---------------------------------------------------------------------------
 # History backend
 # ---------------------------------------------------------------------------
@@ -99,19 +116,35 @@ setopt extended_glob no_warn_create_global
 # no matches; this keeps the per-keystroke cost bounded).
 : ${SMART_MENU_MAX_PREFIX:=64}
 
-# LISTMAX while the live popup is being drawn. zsh normally asks
-# "do you wish to see all N possibilities (M lines)?" when a candidate list is
-# longer than the screen; -1 tells it to NEVER ask and just show the (scrollable)
-# list instead, so typing is never interrupted by a y/n prompt. This is exactly
-# how zsh-autocomplete avoids that prompt. Set a positive number to bring the
-# prompt back above that many lines, or 0 to always prompt.
-: ${SMART_MENU_LISTMAX:=-1}
+# Hard ceiling on candidates shown by the live popup. When a word has more
+# matches than this, the popup is *suppressed* entirely instead of drawn.
+#
+# This is what keeps the live popup from (a) re-rendering thousands of rows on
+# every keystroke and (b) tripping zsh's interactive
+# "do you wish to see all N possibilities (M lines)?" confirmation. zsh gates
+# that confirmation on LISTMAX, and the popup deliberately does NOT touch
+# LISTMAX: setting it around a `zle` listing call corrupts ZLE's next input
+# read and silently EATS ONE KEYSTROKE (measured: `git status` typed into the
+# popup arrives as `gitstatus`, and the shell then runs the wrong command).
+# Capping the list is the fix that is both correct and fast. zsh/complist is
+# still loaded so any list that *is* drawn stays scrollable.
+#
+# 0 = uncapped (not recommended: an unbounded live list is where both the
+# re-render cost and the prompt problem come from).
+: ${SMART_MENU_MAX_MATCHES:=100}
 
-# Hard ceiling on candidates shown by the live popup. 0 = uncapped (the list
-# simply scrolls). Set to e.g. 500 to *suppress* the popup entirely when a word
-# has more matches than this — handy on gigantic directories (/bin, /usr/lib)
-# where a live list is neither readable nor worth re-rendering on every keystroke.
-: ${SMART_MENU_MAX_MATCHES:=0}
+# Prefix-search history on ↑ / ↓ while the popup is enabled (opt-in).
+#
+# false (default) = ↑ / ↓ keep their native behaviour (plain history
+#                   navigation). Turning this on silently changes a key most
+#                   people have hard muscle memory for, so it is not the
+#                   default.
+# true          = with a NON-EMPTY line, ↑ / ↓ walk the history entries that
+#                   start with what you typed (zsh's own
+#                   history-beginning-search-backward/forward). With an empty
+#                   line they fall through to plain history navigation, so you
+#                   never lose the ability to scroll history.
+: ${SMART_MENU_HISTORY_KEYS:=false}
 
 # Adaptive throttle. A listing that takes at least this many milliseconds buys a
 # cool-down, so typing stays responsive in genuinely expensive completion

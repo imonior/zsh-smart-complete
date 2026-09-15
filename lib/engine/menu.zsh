@@ -29,6 +29,8 @@
 #   SMART_MENU_MIN_PREFIX=n   min chars in an ARGUMENT word before listing (1)
 #   SMART_MENU_MIN_PREFIX_CMD=n  min chars in the COMMAND word (2)
 #   SMART_MENU_MIN_MATCHES=n  don't list unless there are at least n (2)
+#   SMART_MENU_MAX_MATCHES=n  don't list when there are more than n (100)
+#   SMART_MENU_HISTORY_KEYS=true  ↑/↓ prefix-search history (off by default)
 #   or, at runtime:  smart-menu off | on | status
 #
 # THROTTLE
@@ -50,9 +52,16 @@ setopt extended_glob no_warn_create_global
 
 # Make completion lists scrollable instead of dumping every line. zsh/complist
 # is what turns a long candidate list into a scrollable panel (one screenful at
-# a time, paged with Space) and — combined with LISTMAX below — is what stops
-# zsh's "do you wish to see all N possibilities (M lines)?" confirmation from
-# interrupting typing. This is the same mechanism zsh-autocomplete relies on.
+# a time, paged with Space) instead of dumping every row at once.
+#
+# DO NOT scope-assign LISTMAX around the listing call. It looks like the obvious
+# way to stop zsh asking "do you wish to see all N possibilities (M lines)?",
+# but it corrupts ZLE's next input read and silently EATS ONE KEYSTROKE per
+# listing: with it, typing `git status` leaves `gitstatus` in the buffer and the
+# shell runs the wrong command. It was measured A/B across short and long lists
+# (both directions broken) and is permanently gone. The prompt is prevented
+# instead by SMART_MENU_MAX_MATCHES (see _smart_menu_decide_list), which simply
+# declines to draw a list that big.
 zmodload zsh/complist 2>/dev/null
 
 # Defaults live in lib/config.zsh (the single source of truth).
@@ -144,10 +153,14 @@ _smart_menu_should_list() {
 #   1 = suppress it
 # A match count is suppressed when it is below SMART_MENU_MIN_MATCHES (a lone
 # candidate is already shown as inline ghost text) or above SMART_MENU_MAX_MATCHES
-# (a gigantic directory listing — suppress it so we never trigger zsh's
-# "do you wish to see all N possibilities" prompt or re-render thousands of rows
-# on every keystroke). Split out of the completer so it is unit-testable without
-# a compsys/ZLE context (same idea as _smart_menu_note_cost).
+# (a gigantic directory listing — suppress it so we never re-render thousands of
+# rows on every keystroke). The cap is ALSO what keeps zsh's interactive
+# "do you wish to see all N possibilities (M lines)?" confirmation from ever
+# appearing: that prompt fires for lists longer than the screen, so simply never
+# drawing such a list is the robust fix. (Scoping LISTMAX instead eats
+# keystrokes — see the note at the top of this file.)
+# Split out of the completer so it is unit-testable without a compsys/ZLE
+# context (same idea as _smart_menu_note_cost).
 _smart_menu_decide_list() {
     local n="$1"
     (( n >= ${SMART_MENU_MIN_MATCHES:-2} )) || return 1
@@ -174,8 +187,9 @@ _smart_menu_list_main() {
         _SMART_MENU_TRUNCATED=0
     else
         # Suppressed: either below the minimum (ghost takes over) or above the
-        # cap (huge dir — the popup would be unreadable and we'd otherwise hit
-        # the "do you wish to see all" prompt). Note which, for status output.
+        # cap (huge dir — the popup would be unreadable, and declining to draw
+        # it is also what keeps zsh's "do you wish to see all N possibilities"
+        # prompt out of the way). Note which, for status output.
         compstate[list]=''
         _SMART_MENU_LISTED=0
         if (( ${SMART_MENU_MAX_MATCHES:-0} > 0 && _SMART_MENU_NMATCHES > ${SMART_MENU_MAX_MATCHES} )); then
@@ -187,6 +201,48 @@ _smart_menu_list_main() {
     return 0
 }
 zle -C _smart_menu_list list-choices _smart_menu_list_main 2>/dev/null
+
+# ---------------------------------------------------------------------------
+# Completion-strategy probe (the `completion` half of SMART_SUGGEST_STRATEGY)
+# ---------------------------------------------------------------------------
+
+# _smart_menu_probe_main -- the completer behind the unambiguous-prefix probe.
+#
+# Runs the user's completion and lets zsh insert ONLY the unambiguous prefix
+# (the part Tab would add before it had to choose). The caller then diffs
+# $BUFFER to learn what completion proposed and reverts it, so the text becomes
+# a *suggestion* rather than an edit.
+#
+# compstate[list] is cleared: this channel proposes text, it never paints a list
+# (drawing belongs to _smart_menu_list, so the two can never fight over it).
+_smart_menu_probe_main() {
+    _main_complete "$@"
+    compstate[insert]='unambiguous'
+    compstate[list]=''
+    return 0
+}
+zle -C _smart_menu_probe complete-word _smart_menu_probe_main 2>/dev/null
+
+# _smart_menu_completion_suffix -- echo what completion would append, or "".
+#
+# MUST be called from inside a ZLE widget (it runs `zle`). Read-only with
+# respect to the user's line: the buffer is restored before returning.
+_smart_menu_completion_suffix() {
+    (( ${+widgets[_smart_menu_probe]} )) || { print -r -- ""; return 0; }
+    # Only meaningful at end of line — completion would replace the word under
+    # the cursor, and we cannot express that as a pure suffix.
+    (( CURSOR == ${#BUFFER} )) || { print -r -- ""; return 0; }
+    _smart_native_have_compinit 2>/dev/null || { print -r -- ""; return 0; }
+
+    local before="$BUFFER" cur="$CURSOR" after
+    zle _smart_menu_probe 2>/dev/null
+    after="$BUFFER"
+    BUFFER="$before"          # this channel proposes, it never edits
+    CURSOR="$cur"
+    [[ "$after" == "$before"* ]] || { print -r -- ""; return 0; }
+    print -r -- "${after#$before}"
+    return 0
+}
 
 # ---------------------------------------------------------------------------
 # Tick — called by the event layer after every buffer edit
@@ -241,20 +297,20 @@ _smart_menu_tick() {
 
     local t0=$(_smart_menu_now_ms)
     _SMART_MENU_LISTED=0
-    # LISTMAX governs zsh's "do you wish to see all N possibilities (M lines)?"
-    # confirmation: with the default it pops a y/n prompt for any list longer
-    # than the screen, which would interrupt typing on a huge dir like /bin.
-    # We temporarily set it to SMART_MENU_LISTMAX (-1 = never ask, just show the
-    # scrollable list via zsh/complist) for the duration of THIS listing only,
-    # so the user's own Tab completion keeps whatever LISTMAX they have set.
-    typeset -g _smart_saved_listmax="${LISTMAX:-}"
-    LISTMAX="${SMART_MENU_LISTMAX:--1}"
+    # NOTE: no LISTMAX juggling here. It used to be scoped to -1 around this
+    # call to suppress zsh's "do you wish to see all N possibilities" prompt;
+    # that corrupts ZLE's next input read and eats one keystroke per listing.
+    # The prompt is prevented by SMART_MENU_MAX_MATCHES instead (see above).
     zle _smart_menu_list 2>/dev/null
-    LISTMAX="$_smart_saved_listmax"
     (( _SMART_MENU_LISTED )) || {
-        # Below the match threshold: we deliberately suppressed the list, so
-        # there is nothing drawn and nothing to throttle.
-        _smart_menu_dbg "list n=${_SMART_MENU_NMATCHES} below min -> no list"
+        # Nothing was drawn. Report WHICH gate refused: "below the minimum" and
+        # "over the cap" look identical on screen but have opposite fixes, and
+        # conflating them in the log (as this used to) misleads debugging.
+        if (( ${_SMART_MENU_TRUNCATED:-0} == 1 )); then
+            _smart_menu_dbg "list n=${_SMART_MENU_NMATCHES} over cap=${SMART_MENU_MAX_MATCHES:-0} -> no list"
+        else
+            _smart_menu_dbg "list n=${_SMART_MENU_NMATCHES} below min=${SMART_MENU_MIN_MATCHES:-2} -> no list"
+        fi
         return 0
     }
     if _smart_menu_have_clock; then
@@ -297,13 +353,18 @@ smart-menu() {
             fi
             print -r -- "  min prefix (command/arg): ${SMART_MENU_MIN_PREFIX_CMD}/${SMART_MENU_MIN_PREFIX}"
             print -r -- "  min matches:              ${SMART_MENU_MIN_MATCHES}"
+            print -r -- "  max matches (cap):        ${SMART_MENU_MAX_MATCHES:-0}$( (( ${SMART_MENU_MAX_MATCHES:-0} == 0 )) && print -r -- ' (uncapped)' || print -r -- ' (bigger lists are suppressed)')"
+            if [[ "${SMART_MENU_HISTORY_KEYS:-false}" == "true" ]]; then
+                print -r -- "  history keys:             on (↑/↓ prefix-search history when the line is non-empty)"
+            else
+                print -r -- "  history keys:             off (↑/↓ keep native history navigation)"
+            fi
             if (( ${SMART_MENU_COOLDOWN_KEYS:-0} > 0 )); then
                 print -r -- "  throttle:                 on (slow >= ${SMART_MENU_SLOW_MS}ms -> skip ${SMART_MENU_COOLDOWN_KEYS})"
             else
                 print -r -- "  throttle:                 off (list always matches the current word)"
             fi
             print -r -- "  last listing:             matches=${_SMART_MENU_NMATCHES} listed=${_SMART_MENU_LISTED} cost=${_SMART_MENU_LAST_MS}ms"
-            print -r -- "  list-max (cap/prompt):    SMART_MENU_MAX_MATCHES=${SMART_MENU_MAX_MATCHES:-0} SMART_MENU_LISTMAX=${SMART_MENU_LISTMAX:--1}"
             if (( ${_SMART_MENU_TRUNCATED:-0} == 1 )); then
                 print -r -- "  note:                    last popup suppressed (matches > SMART_MENU_MAX_MATCHES)"
             fi

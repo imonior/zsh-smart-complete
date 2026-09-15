@@ -257,6 +257,10 @@ _smart_evt_after_edit() {
     if [[ "$BUFFER" != "$last_buf" ]]; then
         # Buffer actually changed → compute + render.
         _smart_suggest_compute "$BUFFER"
+        # SMART_SUGGEST_STRATEGY may allow the completion system as a fallback
+        # source when history had nothing. Runs BEFORE we record the buffer,
+        # because the probe temporarily edits and restores $BUFFER.
+        _smart_evt_completion_fallback
         _smart_state_set buffer "$BUFFER"
         _smart_display_update 2>/dev/null
     elif [[ -n "$POSTDISPLAY" ]]; then
@@ -264,6 +268,31 @@ _smart_evt_after_edit() {
         # (it's still valid) but re-render in case cursor moved off the end.
         _smart_display_show 2>/dev/null
     fi
+    return 0
+}
+
+# _smart_evt_completion_fallback
+#
+# zsh-autosuggestions' `strategy=completion`, reimplemented on our side: when
+# history produced nothing and the configured strategy allows it, ask the
+# completion system for the unambiguous prefix of the word under the cursor and
+# offer THAT as the ghost. This is what lets the suggestion channel cover paths,
+# options and subcommands that were never in the history file.
+#
+# Cost control: it only runs when history came up empty, so an ordinary session
+# (history usually answers) pays nothing.
+_smart_evt_completion_fallback() {
+    [[ -n "$(_smart_state_get suggestion.text "")" ]] && return 0
+    _smart_suggest_strategy_has completion || return 0
+    (( ${+functions[_smart_menu_completion_suffix]} )) || return 0
+
+    local suffix
+    suffix="$(_smart_menu_completion_suffix)"
+    [[ -n "$suffix" ]] || return 0
+
+    _smart_state_set suggestion.text  "${BUFFER}${suffix}"
+    _smart_state_set suggestion.source "completion"
+    _smart_state_set suggestion.score  ""
     return 0
 }
 
@@ -350,6 +379,60 @@ _smart_widget_accept_word() {
 }
 zle -N _smart_widget_accept_word 2>/dev/null
 
+# ---------------------------------------------------------------------------
+# Public, user-bindable widget names (parity with zsh-autosuggestions)
+#
+# zsh-autosuggestions exposes named widgets so users can rebind them
+# (`bindkey '^ ' autosuggest-accept`, etc.). These are the equivalents, so the
+# same recipes work after swapping the plugin:
+#
+#   smart-accept-suggestion   accept the whole suggestion (else forward-char)
+#   smart-accept-word         accept one word of the suggestion
+#   smart-execute-suggestion  accept the whole suggestion, then run the line
+#   smart-suggestion-toggle   turn the inline ghost on/off at runtime
+#
+# They are deliberately thin wrappers: all logic stays in one place, so a fix
+# can never apply to the default binding but not to a user's rebinding.
+# ---------------------------------------------------------------------------
+
+smart-accept-suggestion() { _smart_widget_forward_char }
+zle -N smart-accept-suggestion 2>/dev/null
+
+smart-accept-word() { _smart_widget_accept_word }
+zle -N smart-accept-word 2>/dev/null
+
+# Accept the suggestion and execute, in one keystroke — the "just do what I
+# meant" binding some people put on a spare key.
+smart-execute-suggestion() {
+    local sug
+    sug="$(_smart_state_get suggestion.text "")"
+    if (( CURSOR == ${#BUFFER} )) && [[ -n "$sug" ]] && [[ "$sug" == "$BUFFER"* ]]; then
+        _smart_display_accept_partial
+        (( ${+functions[_smart_menu_clear]} )) && _smart_menu_clear
+    fi
+    _smart_widget_accept_line
+}
+zle -N smart-execute-suggestion 2>/dev/null
+
+# Toggle the inline ghost without touching the candidate menu (the menu has its
+# own switch: `smart-menu off`). Useful when a suggestion is in the way.
+smart-suggestion-toggle() {
+    case "${SMART_INLINE}" in
+        false|no|off|0|disabled)
+            SMART_INLINE=true
+            print -r -- "smart-suggestion: on"
+            ;;
+        *)
+            SMART_INLINE=false
+            _smart_display_clear 2>/dev/null
+            print -r -- "smart-suggestion: off"
+            ;;
+    esac
+    zle reset-prompt 2>/dev/null
+    return 0
+}
+zle -N smart-suggestion-toggle 2>/dev/null
+
 _smart_widget_kill_word() {
     local km="${KEYMAP:-emacs}"
     case "$km" in
@@ -410,6 +493,61 @@ _smart_widget_history_down() {
     _smart_evt_after_edit
 }
 zle -N _smart_widget_history_down 2>/dev/null
+
+# ---------------------------------------------------------------------------
+# ↑ / ↓ prefix history search (zsh-autocomplete's headline behaviour).
+#
+# Opt-in via SMART_MENU_HISTORY_KEYS=true, because it takes over a key most
+# people have deep muscle memory for. What it does:
+#
+#   line non-empty -> ↑ / ↓ walk the history entries that START WITH the line
+#                     you have typed, using zsh's own
+#                     history-beginning-search-backward / -forward. So typing
+#                     `git ch` then ↑ recalls your last `git checkout ...`.
+#   line empty     -> falls straight through to plain history navigation, so
+#                     you can always still scroll the history.
+#
+# It is built on stock ZLE widgets (not a reimplementation): the search is
+# zsh's, we only add the "which of the two behaviours" rule and keep the ghost
+# and the candidate menu in sync afterwards.
+# ---------------------------------------------------------------------------
+
+_smart_widget_history_prefix_up() {
+    if [[ -z "$BUFFER" ]] || ! _smart_menu_enabled 2>/dev/null; then
+        _smart_widget_history_up
+        return 0
+    fi
+    (( ${+functions[_smart_native_reset_completion]} )) && _smart_native_reset_completion 2>/dev/null
+    _smart_display_clear 2>/dev/null
+    if (( ${+widgets[.history-beginning-search-backward]} )); then
+        zle .history-beginning-search-backward
+    else
+        zle .up-line-or-history
+    fi
+    # The recalled line is a new buffer as far as the engines are concerned.
+    _smart_state_set buffer ""
+    _smart_evt_after_edit_all
+    return 0
+}
+zle -N _smart_widget_history_prefix_up 2>/dev/null
+
+_smart_widget_history_prefix_down() {
+    if [[ -z "$BUFFER" ]] || ! _smart_menu_enabled 2>/dev/null; then
+        _smart_widget_history_down
+        return 0
+    fi
+    (( ${+functions[_smart_native_reset_completion]} )) && _smart_native_reset_completion 2>/dev/null
+    _smart_display_clear 2>/dev/null
+    if (( ${+widgets[.history-beginning-search-forward]} )); then
+        zle .history-beginning-search-forward
+    else
+        zle .down-line-or-history
+    fi
+    _smart_state_set buffer ""
+    _smart_evt_after_edit_all
+    return 0
+}
+zle -N _smart_widget_history_prefix_down 2>/dev/null
 
 # The "accept-line" widget.
 # If completion menu is active: accept current selection, DON'T execute.
@@ -508,9 +646,27 @@ _smart_event_bind() {
         bindkey -M "$km" "^M"   _smart_widget_accept_line 2>/dev/null
     done
 
-    # History arrows only in viins (emacs keymap arrow up/down goes through
-    # multi-line by default and users expect that behaviour).
-    if (( ${#kms[(r)viins]} > 0 )); then
+    # History arrows.
+    #
+    # Default (SMART_MENU_HISTORY_KEYS=false): only viins is wrapped, purely to
+    # reset completion/ghost state — emacs arrows keep their stock
+    # up-line-or-history so nothing about them changes.
+    #
+    # SMART_MENU_HISTORY_KEYS=true: ↑/↓ become prefix history search in EVERY
+    # keymap in scope (that is the whole point of the option). The wrapper still
+    # degrades to plain history navigation on an empty line, so nothing is lost.
+    if [[ "${SMART_MENU_HISTORY_KEYS:-false}" == "true" ]]; then
+        for km2 in "${kms[@]}"; do
+            for _s in "${_SMART_EVT_UP_SEQS[@]}"; do
+                [[ -z "$_s" ]] && continue
+                bindkey -M "$km2" "$_s" _smart_widget_history_prefix_up 2>/dev/null
+            done
+            for _s in "${_SMART_EVT_DOWN_SEQS[@]}"; do
+                [[ -z "$_s" ]] && continue
+                bindkey -M "$km2" "$_s" _smart_widget_history_prefix_down 2>/dev/null
+            done
+        done
+    elif (( ${#kms[(r)viins]} > 0 )); then
         for _s in "${_SMART_EVT_UP_SEQS[@]}"; do
             [[ -z "$_s" ]] && continue
             bindkey -M viins "$_s" _smart_widget_history_up 2>/dev/null

@@ -89,8 +89,9 @@ unfunction _smart_source 2>/dev/null
 smart-status() {
     print -r -- "zsh-smart-complete $(cat -- "${SMART_ROOT}/VERSION" 2>/dev/null || print -r -- unknown)"
     print -r -- "  enabled:          $(_smart_state_get enabled)"
-    print -r -- "  suggest:          ${SMART_SUGGEST}   inline: ${SMART_INLINE}"
-    print -r -- "  menu (type popup): ${SMART_MENU:-true}  min matches: ${SMART_MENU_MIN_MATCHES:-2}  last: matches=${_SMART_MENU_NMATCHES:-0} listed=${_SMART_MENU_LISTED:-0}"
+    print -r -- "  suggest:          ${SMART_SUGGEST}   inline: ${SMART_INLINE}   strategy: ${SMART_SUGGEST_STRATEGY:-history}"
+    print -r -- "  menu (type popup): ${SMART_MENU:-true}  min/max matches: ${SMART_MENU_MIN_MATCHES:-2}/${SMART_MENU_MAX_MATCHES:-0}  last: matches=${_SMART_MENU_NMATCHES:-0} listed=${_SMART_MENU_LISTED:-0}"
+    print -r -- "  menu history keys: ${SMART_MENU_HISTORY_KEYS:-false}"
     if (( ${SMART_MENU_COOLDOWN_KEYS:-0} > 0 )); then
         print -r -- "  menu throttle:    on (slow >= ${SMART_MENU_SLOW_MS}ms -> skip ${SMART_MENU_COOLDOWN_KEYS})  ticks/skips: ${_SMART_MENU_TICKS:-0}/${_SMART_MENU_SKIPS:-0}"
     else

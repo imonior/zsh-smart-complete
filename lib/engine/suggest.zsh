@@ -26,6 +26,19 @@ setopt extended_glob no_warn_create_global
 # How many distinct prefix matches to score.
 : ${_SMART_SUGGEST_CANDIDATES:=64}
 
+# _smart_suggest_strategy_has <name>
+#
+# Is <name> one of the comma-separated strategies in SMART_SUGGEST_STRATEGY?
+# (`history` | `completion`, tried in the order written — mirroring
+# zsh-autosuggestions' ZSH_AUTOSUGGEST_STRATEGY.) Pure, so it is unit-tested.
+_smart_suggest_strategy_has() {
+    local want="$1" item
+    for item in ${(s.,.)${SMART_SUGGEST_STRATEGY:-history}}; do
+        [[ "$item" == "$want" ]] && return 0
+    done
+    return 1
+}
+
 # ---------------------------------------------------------------------------
 # Candidate accumulator.
 #
@@ -115,7 +128,11 @@ _smart_suggest_compute() {
 
     # Ask history layer for prefix candidates.
     # The iterator calls _smart_suggest_on_candidate per candidate.
-    _smart_history_iter_prefix "$buf" "$_SMART_SUGGEST_CANDIDATES" _smart_suggest_on_candidate 2>/dev/null
+    # Skipped entirely when the user configured `completion` only — there is no
+    # point indexing history we are not allowed to use.
+    if _smart_suggest_strategy_has history; then
+        _smart_history_iter_prefix "$buf" "$_SMART_SUGGEST_CANDIDATES" _smart_suggest_on_candidate 2>/dev/null
+    fi
 
     if [[ -n "$_SMART_SUGGEST_BEST_TEXT" && $_SMART_SUGGEST_BEST_SCORE -gt 0 ]]; then
         _smart_state_set suggestion.text   "$_SMART_SUGGEST_BEST_TEXT"

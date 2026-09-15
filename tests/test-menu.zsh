@@ -91,6 +91,14 @@ assert_eq "SMART_MENU_SLOW_MS default"      "${SMART_MENU_SLOW_MS}"     "250"
 assert_eq "SMART_MENU_COOLDOWN_KEYS default is off" "${SMART_MENU_COOLDOWN_KEYS}" "0"
 # The debug trace must be a documented, inert-by-default knob.
 assert_eq "SMART_MENU_DEBUG default is empty" "${SMART_MENU_DEBUG}" ""
+# Candidate cap: the fix that replaces LISTMAX scoping. Must be a positive
+# default, because an uncapped live list is where BOTH the per-keystroke
+# re-render cost and zsh's "do you wish to see all N possibilities" prompt come
+# from.
+assert_eq "SMART_MENU_MAX_MATCHES default is a real cap" "${SMART_MENU_MAX_MATCHES}" "100"
+# Prefix history search must be OPT-IN: it rebinds a key with strong muscle memory.
+assert_eq "SMART_MENU_HISTORY_KEYS default is off" "${SMART_MENU_HISTORY_KEYS}" "false"
+assert_eq "SMART_SUGGEST_STRATEGY default is history" "${SMART_SUGGEST_STRATEGY}" "history"
 
 # ---------------------------------------------------------------------------
 print -r -- ""
@@ -320,11 +328,16 @@ SMART_MENU_COOLDOWN_KEYS=0
 print -r -- ""
 print -r -- "=== 场景 11: 列表上限 / 「do you wish to see all」提示抑制 ==="
 # The live popup must never pop zsh's interactive "do you wish to see all N
-# possibilities (M lines)?" confirmation on a huge dir like /bin. That prompt is
-# gated by LISTMAX (we scope it to -1 while drawing); and a capped directory is
-# suppressed outright by _smart_menu_decide_list, which is unit-tested here.
-assert_eq "SMART_MENU_LISTMAX default suppresses the prompt" "${SMART_MENU_LISTMAX}" "-1"
-assert_eq "SMART_MENU_MAX_MATCHES default uncapped"          "${SMART_MENU_MAX_MATCHES}" "0"
+# possibilities (M lines)?" confirmation on a huge dir like /bin. The fix is to
+# simply DECLINE to draw such a list (SMART_MENU_MAX_MATCHES), verified by
+# _smart_menu_decide_list below.
+#
+# It used to scope LISTMAX=-1 around the listing call instead. That was removed:
+# it corrupts ZLE's next input read and silently ate one keystroke per listing
+# (typing `git status` left `gitstatus`). The regression for THAT is an on-screen
+# assertion in tests/e2e-tmux.sh ("buffer integrity"), because a unit test
+# cannot observe a lost keystroke.
+assert_eq "no SMART_MENU_LISTMAX knob any more (keystroke-eating)" "${+SMART_MENU_LISTMAX}" "0"
 
 # _smart_menu_decide_list <nmatches>: 0 = draw, 1 = suppress
 local mn="${SMART_MENU_MIN_MATCHES:-2}" mc="${SMART_MENU_MAX_MATCHES:-0}"
@@ -340,10 +353,67 @@ assert_eq "cap=300, 300 matches (== cap) -> draw"  "$( ( _smart_menu_decide_list
 assert_eq "cap=300, 301 matches (> cap) -> suppress (huge dir)" "$( ( _smart_menu_decide_list 301; print $? ) )" "1"
 assert_eq "cap=300, 1467 matches (/bin) -> suppress"            "$( ( _smart_menu_decide_list 1467; print $? ) )" "1"
 
-SMART_MENU_MAX_MATCHES=0          # restore default (uncapped)
-assert_eq "uncapped, 1467 matches -> draw (scrolls, no prompt)"  "$( ( _smart_menu_decide_list 1467; print $? ) )" "0"
+# The SHIPPED default must already suppress /bin-sized listings.
+SMART_MENU_MAX_MATCHES="$mc"
+assert_eq "shipped default suppresses the /bin case"  "$( ( _smart_menu_decide_list 1467; print $? ) )" "1"
+assert_eq "shipped default still draws an ordinary list" "$( ( _smart_menu_decide_list 12; print $? ) )" "0"
+
+SMART_MENU_MAX_MATCHES=0          # explicit opt-in to uncapped
+assert_eq "uncapped, 1467 matches -> draw"  "$( ( _smart_menu_decide_list 1467; print $? ) )" "0"
 SMART_MENU_MIN_MATCHES="$mn"
 SMART_MENU_MAX_MATCHES="$mc"
+
+# ---------------------------------------------------------------------------
+print -r -- ""
+print -r -- "=== 场景 12: 建议策略解析（SMART_SUGGEST_STRATEGY）==="
+# Same names as zsh-autosuggestions' ZSH_AUTOSUGGEST_STRATEGY, so recipes
+# transfer. The event layer uses this to decide whether to fall back to the
+# completion system when history had nothing.
+source "${ROOT}/lib/engine/suggest.zsh"
+
+SMART_SUGGEST_STRATEGY="history"
+assert_rc "history -> has history"      0 _smart_suggest_strategy_has history
+assert_rc "history -> no completion"    1 _smart_suggest_strategy_has completion
+SMART_SUGGEST_STRATEGY="history,completion"
+assert_rc "history,completion -> history"    0 _smart_suggest_strategy_has history
+assert_rc "history,completion -> completion" 0 _smart_suggest_strategy_has completion
+SMART_SUGGEST_STRATEGY="completion"
+assert_rc "completion only -> no history"    1 _smart_suggest_strategy_has history
+assert_rc "completion only -> completion"    0 _smart_suggest_strategy_has completion
+SMART_SUGGEST_STRATEGY=""
+# config.zsh assigns with `:=`, so an empty value can never survive load — the
+# documented reading of empty is "unset", i.e. fall back to history. Asserting
+# it here pins that invariant: emptying the knob must NOT turn suggestions off.
+assert_rc "empty strategy falls back to history (not 'nothing')" 0 _smart_suggest_strategy_has history
+assert_rc "empty strategy: no completion fallback"               1 _smart_suggest_strategy_has completion
+SMART_SUGGEST_STRATEGY="history"
+assert_rc "unset/odd value does not explode" 0 _smart_suggest_strategy_has history
+
+# ---------------------------------------------------------------------------
+print -r -- ""
+print -r -- "=== 场景 13: 公开可绑定的 widget（对齐 zsh-autosuggestions）==="
+# These exist so users can rebind rather than being stuck with our defaults.
+for w in smart-accept-suggestion smart-accept-word smart-execute-suggestion \
+         smart-suggestion-toggle _smart_widget_history_prefix_up \
+         _smart_widget_history_prefix_down _smart_menu_completion_suffix \
+         _smart_menu_probe_main; do
+    assert_fn_exists "$w"
+done
+# The completion probe must also be REGISTERED, otherwise
+# _smart_menu_completion_suffix silently returns "" and the `completion`
+# strategy looks wired up while doing nothing.
+if (( ${+widgets[_smart_menu_probe]} )); then
+    (( PASS++ )); print -r -- "  PASS  widget _smart_menu_probe is registered"
+else
+    (( FAIL++ )); print -r -- "  FAIL  widget _smart_menu_probe missing (completion strategy would be inert)" >&2
+fi
+
+# The toggle must actually flip the config, and flip back.
+SMART_INLINE=true
+smart-suggestion-toggle >/dev/null 2>&1
+assert_eq "suggestion-toggle turns the ghost off" "${SMART_INLINE}" "false"
+smart-suggestion-toggle >/dev/null 2>&1
+assert_eq "suggestion-toggle turns it back on"    "${SMART_INLINE}" "true"
 
 print -r -- ""
 print -r -- "=== TOTAL: $PASS passed, $FAIL failed ==="

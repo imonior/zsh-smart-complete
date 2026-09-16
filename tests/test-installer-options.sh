@@ -90,11 +90,15 @@ echo "== 2. shipped defaults (nothing answered) =="
 # NONINTERACTIVE=1 takes exactly these.
 D="$TMP/defaults.zshrc"; build_smart_options > "$D"
 assert_has "default: popup on"              "$D" 'export SMART_MENU=true'
-assert_has "default: single column on"      "$D" 'export SMART_MENU_SINGLE_COLUMN=true'
+assert_has "default: single column OFF"     "$D" 'export SMART_MENU_SINGLE_COLUMN=false'
 assert_has "default: recent paths on"       "$D" 'export SMART_RECENT_PATHS=true'
 assert_has "default: history keys OFF"      "$D" 'export SMART_MENU_HISTORY_KEYS=false'
 assert_has "default: strategy is history"   "$D" 'export SMART_SUGGEST_STRATEGY="history"'
 assert_lacks "default: no fzf-tab"          "$D" 'fzf-tab'
+# WHO draws the list is written down explicitly rather than implied by the
+# absence of a plugin line: the generated config has to state which lister owns
+# the screen, or the "two boxes" question is left to the user to solve.
+assert_has "default: built-in lister"       "$D" 'export SMART_MENU_LISTER=builtin'
 
 echo "== 2b. every default answer agrees with lib/config.zsh =="
 # The cross-check that matters. An installer default that disagrees with the
@@ -107,20 +111,29 @@ assert_eq "SMART_MENU default agrees"               "$(_zsc_bool "$ZSC_OPT_MENU"
 assert_eq "SMART_MENU_SINGLE_COLUMN default agrees" "$(_zsc_bool "$ZSC_OPT_SINGLE_COLUMN")"  "$(_cfg_default SMART_MENU_SINGLE_COLUMN)"
 assert_eq "SMART_RECENT_PATHS default agrees"       "$(_zsc_bool "$ZSC_OPT_RECENT_PATHS")"   "$(_cfg_default SMART_RECENT_PATHS)"
 assert_eq "SMART_MENU_HISTORY_KEYS default agrees"  "$(_zsc_bool "$ZSC_OPT_HISTORY_KEYS")"   "$(_cfg_default SMART_MENU_HISTORY_KEYS)"
+# The lister is DERIVED (fzf-tab chosen => fzf-tab), so the derived default has
+# to equal lib/config.zsh's own default or a non-interactive install would
+# silently hand the screen to a lister that is not installed.
+assert_eq "SMART_MENU_LISTER default agrees" \
+    "$( (( ZSC_OPT_FZF_TAB )) && printf 'fzf-tab' || printf 'builtin' )" \
+    "$(_cfg_default SMART_MENU_LISTER)"
 assert_eq "SMART_NATIVE_MENU_SELECT default agrees" "$(_zsc_bool "$ZSC_OPT_NATIVE_MENU")"   "$(_cfg_default SMART_NATIVE_MENU_SELECT)"
 assert_eq "SMART_SUGGEST_STRATEGY default agrees"   "$ZSC_OPT_STRATEGY"                      "$(_cfg_default SMART_SUGGEST_STRATEGY)"
 
 echo "== 3. answers are honoured, including the non-default ones =="
-ZSC_OPT_MENU=0; ZSC_OPT_SINGLE_COLUMN=0; ZSC_OPT_RECENT_PATHS=0
+ZSC_OPT_MENU=0; ZSC_OPT_SINGLE_COLUMN=1; ZSC_OPT_RECENT_PATHS=0
 ZSC_OPT_HISTORY_KEYS=1; ZSC_OPT_NATIVE_MENU=1; ZSC_OPT_FZF_TAB=0
 ZSC_OPT_STRATEGY="history,completion"
 D="$TMP/answers.zshrc"; build_smart_options > "$D"
 assert_has "popup off"                "$D" 'export SMART_MENU=false'
-assert_has "multi-column grid chosen" "$D" 'export SMART_MENU_SINGLE_COLUMN=false'
+assert_has "single column opt-in honoured" "$D" 'export SMART_MENU_SINGLE_COLUMN=true'
 assert_has "recent paths off"         "$D" 'export SMART_RECENT_PATHS=false'
 assert_has "history keys on"          "$D" 'export SMART_MENU_HISTORY_KEYS=true'
 assert_has "native Tab menu on"       "$D" 'export SMART_NATIVE_MENU_SELECT=true'
 assert_has "strategy list written"    "$D" 'export SMART_SUGGEST_STRATEGY="history,completion"'
+# Declining fzf-tab means the BUILT-IN list stays the owner. The switch is
+# emitted either way, so "which lister" is never left ambiguous.
+assert_has "fzf declined -> built-in lister" "$D" 'export SMART_MENU_LISTER=builtin'
 
 # ---------------------------------------------------------------------------
 echo "== 4. full-stack path: replaced in place, above the plugin load =="
@@ -175,6 +188,9 @@ assert_has "fzf-tab disables the menu"       "$TMP/fzf.zshrc" "zstyle ':completi
 # The installer forces this off when fzf-tab is chosen (see ask_smart_options),
 # so the emitted block must never claim both listers are on.
 assert_has "built-in Tab menu reported off"  "$TMP/fzf.zshrc" 'export SMART_NATIVE_MENU_SELECT=false'
+# ...and the list itself is handed over. Two listers both drawing IS the
+# reported symptom, so choosing fzf-tab must turn ours off.
+assert_has "fzf-tab chosen -> we stop listing" "$TMP/fzf.zshrc" 'export SMART_MENU_LISTER=fzf-tab'
 ZSC_OPT_FZF_TAB=0
 build_smart_options > "$TMP/nofzf.zshrc"
 assert_lacks "fzf-tab absent when declined"  "$TMP/nofzf.zshrc" 'Aloxaf/fzf-tab'

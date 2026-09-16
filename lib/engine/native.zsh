@@ -188,7 +188,14 @@ _smart_native_complete() {
     esac
 
     # Configure menu-select style on first use.
+    #
+    # Suppressed when the list has been handed to an external picker: zsh's
+    # selectable menu is itself a list drawer, so arming it would put a second
+    # box back on the screen — exactly what SMART_MENU_LISTER=fzf-tab exists to
+    # prevent. The guard on the function keeps this safe if the menu module did
+    # not load (a `$menu`-less setup, or a partially sourced plugin).
     if [[ "${SMART_NATIVE_MENU_SELECT}" == "true" ]] && \
+       { (( ! ${+functions[_smart_menu_lister_is_builtin]} )) || _smart_menu_lister_is_builtin; } && \
        (( ${+functions[compinit]} )); then
         zstyle ':completion:*' menu select 2>/dev/null
         if [[ "${SMART_NATIVE_LIST_COLORS}" == "true" ]] && \

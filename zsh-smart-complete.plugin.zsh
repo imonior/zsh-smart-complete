@@ -93,7 +93,8 @@ smart-status() {
     print -r -- "  enabled:          $(_smart_state_get enabled)"
     print -r -- "  suggest:          ${SMART_SUGGEST}   inline: ${SMART_INLINE}   strategy: ${SMART_SUGGEST_STRATEGY:-history}"
     print -r -- "  menu (type popup): ${SMART_MENU:-true}  min/max matches: ${SMART_MENU_MIN_MATCHES:-2}/${SMART_MENU_MAX_MATCHES:-100}  last: matches=${_SMART_MENU_NMATCHES:-0} listed=${_SMART_MENU_LISTED:-0}"
-    if [[ "${SMART_MENU_SINGLE_COLUMN:-true}" == "true" ]]; then
+    print -r -- "  menu lister:      $(_smart_menu_lister)  (SMART_MENU_LISTER=${SMART_MENU_LISTER:-builtin})"
+    if [[ "${SMART_MENU_SINGLE_COLUMN:-false}" == "true" ]]; then
         print -r -- "  menu layout:      single column (one candidate per line)"
     else
         print -r -- "  menu layout:      native multi-column grid"

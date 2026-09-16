@@ -94,6 +94,15 @@ fi
 # export SMART_MENU_MIN_MATCHES=2       # a single candidate stays ghost-text
 # export SMART_MENU_MAX_MATCHES=100     # above this the list is not drawn
 #
+# WHO DRAWS THE LIST. `builtin` (the installer writes this by default) = this
+# plugin drives zsh's list. `fzf-tab` = this plugin draws NOTHING, so an
+# external floating picker is the only list on screen. Two listers are both
+# entitled to draw, so this is the switch that resolves "two boxes at once".
+# The inline grey suggestion is unaffected either way.
+# export SMART_MENU_LISTER=builtin      # or: fzf-tab
+#   (aliases: on/yes/true/1/native -> builtin; off/no/false/0 -> fzf-tab.
+#    `off` means OUR lister off, not "no list" — that is SMART_MENU=false.)
+#
 # Throttle, OFF by default: listings measure 10-30ms, so there is nothing to
 # throttle. Enable it only for a persistently expensive completion — a skipped
 # edit also drops the list that was on screen.
@@ -108,3 +117,4 @@ fi
 #   smart-suggest off | on                    # the inline grey suggestion
 #   smart-status                              # everything at a glance
 #   smart-doctor                              # who else is drawing a list?
+#   smart-lister builtin | fzf-tab            # which lister owns the list

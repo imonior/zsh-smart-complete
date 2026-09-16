@@ -31,10 +31,20 @@
 #   SMART_MENU_MIN_MATCHES=n  don't list unless there are at least n (2)
 #   SMART_MENU_MAX_MATCHES=n  don't list when there are more than n (100)
 #   SMART_MENU_SINGLE_COLUMN=true  draw candidates one per line (vertical list)
-#                                     instead of zsh's native multi-column grid
+#                                     instead of zsh's native multi-column grid.
+#                                     OPT-IN (off by default): it is generated
+#                                     rather than taken from compsys, so it
+#                                     loses descriptions / colours / fuzzy
+#                                     matching, and flips back to the grid for
+#                                     contexts it cannot generate. See
+#                                     lib/config.zsh for the full trade-off.
+#   SMART_MENU_LISTER=fzf-tab  stop drawing OUR list; hand the screen to an
+#                                     external floating picker (fzf-tab). Use it
+#                                     when two lists appear at once. Inline
+#                                     suggestion is unaffected.
 #   SMART_MENU_HISTORY_KEYS=true  ↑/↓ prefix-search history (off by default)
 #   SMART_RECENT_PATHS=false  drop recent directories + `cd ` empty-word listing
-#   or, at runtime:  smart-menu off | on | status
+#   or, at runtime:  smart-menu off | on | status   /   smart-lister builtin|fzf-tab
 #
 # THROTTLE
 #   OFF by default (SMART_MENU_COOLDOWN_KEYS=0), so the list always matches what
@@ -134,9 +144,57 @@ _smart_menu_is_command_word() {
     [[ -z "${before//[[:space:]]/}" ]]
 }
 
+# _smart_menu_lister -- normalise SMART_MENU_LISTER to `builtin` or `fzf-tab`.
+#
+# Normalising (rather than comparing the raw string everywhere) means the
+# spelling `fzf_tab`, `fzf`, `external`, `none` or `off` all work, and a typo
+# degrades to the safe default instead of silently disabling the popup. The
+# accepted spellings live here and in _smart_menu_lister_recognised below; a
+# unit test asserts the two agree, because that duplication is the only thing
+# that can drift.
+# The accepted spellings live in exactly ONE comment block, repeated verbatim in
+# the three functions below. Keep them identical: the test suite drives
+# `smart-lister` itself precisely because hand-copied lists drift.
+#
+#   builtin : builtin smart internal native built-in on  yes true  1  (and unset/empty)
+#   fzf-tab : fzf-tab fzf_tab fzf     ftb   external none off no  false 0
+#
+# `off`/`no`/`false`/`0` mean "OUR lister off" — i.e. handed to the other one —
+# not "no list at all", which is what SMART_MENU=false is for.
+_smart_menu_lister() {
+    case "${SMART_MENU_LISTER:-builtin}" in
+        fzf-tab|fzf_tab|fzf|ftb|external|none|off|no|false|0) print -r -- "fzf-tab" ;;
+        *)                                                   print -r -- "builtin" ;;
+    esac
+    return 0
+}
+
+# _smart_menu_lister_is_builtin -- 0 when this plugin owns the list.
+_smart_menu_lister_is_builtin() {
+    [[ "$(_smart_menu_lister)" == "builtin" ]]
+}
+
+# _smart_menu_lister_recognised -- 0 when the raw value is a spelling we
+# document. Used by the status output so an unrecognised value is REPORTED
+# instead of quietly behaving like `builtin` (which looks like the switch
+# "not working").
+_smart_menu_lister_recognised() {
+    case "${SMART_MENU_LISTER:-builtin}" in
+        # builtin spellings
+        builtin|smart|internal|native|built-in|on|yes|true|1) return 0 ;;
+        # fzf-tab spellings
+        fzf-tab|fzf_tab|fzf|ftb|external|none|off|no|false|0) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 # _smart_menu_should_list -- all preconditions for running completion.
 _smart_menu_should_list() {
     _smart_menu_enabled || return 1
+    # Handed to an external lister? Then there is no list for US to draw.
+    # Checked early: it is a single string compare and it makes the log line
+    # unambiguous ("nothing was drawn" has two very different causes).
+    _smart_menu_lister_is_builtin || return 1
     # compsys has to be alive; otherwise there is nothing to list.
     (( ${+functions[_smart_native_have_compinit]} )) || return 1
     _smart_native_have_compinit || return 1
@@ -195,17 +253,21 @@ _smart_menu_decide_list() {
 # `compstate` is only writable from in here, which is exactly why the list is
 # driven by a completion widget instead of calling `zle list-choices` naked.
 #
-# Single-column mode (SMART_MENU_SINGLE_COLUMN=true, the default): candidates
-# are generated directly for the common cases (commands, filesystem paths,
-# cd recent-directories) and painted one per line. This avoids shadowing
-# zsh's `compadd` (which, on some zsh builds, stops adding matches once
-# `compadd` is a function) yet still yields a clean vertical list. For
-# contexts the generator can't cover (git subcommands, ssh hosts, …) we fall
-# through to the native rich completion below, so nothing is lost.
+# Single-column mode is OPT-IN (SMART_MENU_SINGLE_COLUMN=true; default false).
+# Candidates are generated directly for the common cases (commands, filesystem
+# paths, cd recent-directories) and painted one per line, because there is no
+# reliable way to capture compsys' own matches (shadowing `compadd` with a
+# function makes several zsh builds stop adding matches at all — measured).
+#
+# The price of generating them is why this is not the default: this branch
+# never calls `_main_complete`, so it also drops the user's descriptions /
+# list-colors / matcher-list (fuzzy) for those contexts, and every context it
+# cannot generate falls through to the native grid below. That fall-through is
+# exactly why the popup can change shape mid-typing.
 _smart_menu_list_main() {
     compstate[insert]=''          # this channel only displays, never inserts
 
-    if [[ "${SMART_MENU_SINGLE_COLUMN:-true}" == "true" ]]; then
+    if [[ "${SMART_MENU_SINGLE_COLUMN:-false}" == "true" ]]; then
         _smart_menu_candidates
         local _sc_n=$#_SMART_MENU_CAND
         if (( _sc_n >= ${SMART_MENU_MIN_MATCHES:-2} )) && \
@@ -428,7 +490,10 @@ _smart_menu_note_cost() {
 # does not repaint, so the list that was on screen is gone for that keystroke.
 # The policy itself lives in _smart_menu_note_cost, above.
 _smart_menu_tick() {
-    _smart_menu_should_list || { _smart_menu_dbg "skip gate word=[$(_smart_menu_word)]"; return 0; }
+    _smart_menu_should_list || {
+        _smart_menu_dbg "skip gate word=[$(_smart_menu_word)] lister=$(_smart_menu_lister)"
+        return 0
+    }
 
     # Fallback for the completer wiring: if the bootstrap precmd ran before the
     # user's compinit (some plugin managers load us first), join the chain now —
@@ -507,7 +572,15 @@ smart-menu() {
             print -r -- "  min prefix (command/arg): ${SMART_MENU_MIN_PREFIX_CMD}/${SMART_MENU_MIN_PREFIX}"
             print -r -- "  min matches:              ${SMART_MENU_MIN_MATCHES}"
             print -r -- "  max matches (cap):        ${SMART_MENU_MAX_MATCHES:-0}$( (( ${SMART_MENU_MAX_MATCHES:-0} == 0 )) && print -r -- ' (uncapped)' || print -r -- ' (bigger lists are suppressed)')"
-            if [[ "${SMART_MENU_SINGLE_COLUMN:-true}" == "true" ]]; then
+            if [[ "$(_smart_menu_lister)" == "builtin" ]]; then
+                print -r -- "  lister:                   builtin (this plugin draws the list)"
+            else
+                print -r -- "  lister:                   fzf-tab (we draw nothing — an external picker owns the list)"
+            fi
+            if ! _smart_menu_lister_recognised; then
+                print -r -- "  note:                     SMART_MENU_LISTER='${SMART_MENU_LISTER}' is not a known value — behaving as 'builtin'"
+            fi
+            if [[ "${SMART_MENU_SINGLE_COLUMN:-false}" == "true" ]]; then
                 print -r -- "  layout:                   single column (one candidate per line)"
             else
                 print -r -- "  layout:                   native multi-column grid"
@@ -527,6 +600,63 @@ smart-menu() {
                 print -r -- "  note:                    last popup suppressed (matches > SMART_MENU_MAX_MATCHES)"
             fi
             print -r -- "  listings/skipped:         ${_SMART_MENU_TICKS}/${_SMART_MENU_SKIPS}"
+            ;;
+    esac
+    return 0
+}
+
+# smart-lister -- choose which lister draws the candidate list.
+#
+# Same rationale as SMART_MENU_LISTER, but switchable in a running shell, which
+# is what you want while diagnosing "two boxes": flip it, retype, and see which
+# one stays. `builtin` re-arms the popup immediately; `fzf-tab` clears whatever
+# we drew so no stale box is left behind.
+# _smart_menu_lister_status -- print the current owner. Split out so the
+# argument error path can show it too (without duplicating the text).
+_smart_menu_lister_status() {
+    if [[ "$(_smart_menu_lister)" == "builtin" ]]; then
+        print -r -- "smart-lister: builtin"
+        print -r -- "  this plugin drives zsh's list; SMART_MENU specifies on/off."
+    else
+        print -r -- "smart-lister: fzf-tab"
+        print -r -- "  this plugin draws no list; an external floating picker must."
+    fi
+    if ! _smart_menu_lister_recognised; then
+        print -r -- "  note: SMART_MENU_LISTER='${SMART_MENU_LISTER}' is not a known value — behaving as 'builtin'"
+    fi
+    print -r -- "  switch with: smart-lister builtin | fzf-tab"
+    return 0
+}
+
+smart-lister() {
+    local arg="${1:-status}"
+    case "$arg" in
+        # --- builtin spellings (see the list above _smart_menu_lister) ---
+        builtin|smart|internal|native|built-in|on|yes|true|1)
+            SMART_MENU_LISTER=builtin
+            export SMART_MENU_LISTER
+            print -r -- "smart-lister: builtin — this plugin draws the candidate list"
+            ;;
+        # --- fzf-tab spellings ---
+        fzf-tab|fzf_tab|fzf|ftb|external|none|off|no|false|0)
+            SMART_MENU_LISTER=fzf-tab
+            export SMART_MENU_LISTER
+            # Drop anything we already drew: switching owner must not leave our
+            # old list on screen, or the switch looks like it did nothing.
+            _smart_menu_clear 2>/dev/null
+            zle -R 2>/dev/null
+            print -r -- "smart-lister: fzf-tab — we draw nothing; an external picker owns the list"
+            print -r -- "              (inline grey suggestion is unaffected; run smart-doctor if no list appears)"
+            ;;
+        status)
+            _smart_menu_lister_status
+            ;;
+        *)
+            # A typo used to fall through to the status output, so
+            # `smart-lister fzf-tb` looked like it had worked. Say so instead.
+            print -ru2 -- "smart-lister: '$arg' is not a known value (expected: builtin | fzf-tab)"
+            _smart_menu_lister_status
+            return 1
             ;;
     esac
     return 0
@@ -555,6 +685,10 @@ smart-doctor() {
     setopt localoptions extended_glob
     local n_foreign=0 fn body st km w
     local -a hits
+    # Set when SMART_MENU_LISTER handed the list to a picker that is not loaded.
+    # This outranks every other verdict: it means NO list is drawn at all, which
+    # is a worse state than the two-list problem the doctor usually explains.
+    local handover_broken=0
 
     print -r -- "zsh-smart-complete doctor"
     print -r -- "  zsh ${ZSH_VERSION}   term ${TERM:-?}   ${COLUMNS:-?}x${LINES:-?}"
@@ -632,19 +766,43 @@ smart-doctor() {
     # --- 5. our own side ---------------------------------------------------
     print -r -- ""
     print -r -- "5. zsh-smart-complete"
+    local _lister; _lister="$(_smart_menu_lister)"
+    print -r -- "   lister: SMART_MENU_LISTER=${SMART_MENU_LISTER:-builtin} -> ${_lister}"
+    if ! _smart_menu_lister_recognised; then
+        print -r -- "   [!]  that value is not recognised — behaving as 'builtin'"
+    fi
+    if [[ "$_lister" == "fzf-tab" ]]; then
+        # The switch makes US stop listing, so it is only correct if something
+        # else IS listing. Checked here rather than at load time on purpose:
+        # with `zinit wait lucid` we are usually sourced BEFORE the other
+        # plugin, so a load-time check would report a false negative.
+        if (( ${+functions[_ftb_complete]} )) || (( ${+widgets[fzf-tab-complete]} )); then
+            print -r -- "   ok   handed over, and fzf-tab looks loaded"
+        else
+            print -r -- "   [!]  handed over to fzf-tab, but fzf-tab is NOT loaded in this"
+            print -r -- "        shell — NOTHING will draw a candidate list. Either load"
+            print -r -- "        fzf-tab, or run: smart-lister builtin"
+            handover_broken=1
+        fi
+    fi
     if (( ${+widgets[_smart_menu_list]} )); then
         print -r -- "   ok   listing widget registered"
     else
         print -r -- "   [!]  listing widget NOT registered (module not loaded?)"
     fi
-    print -r -- "   SMART_MENU=${SMART_MENU:-true}  SMART_MENU_SINGLE_COLUMN=${SMART_MENU_SINGLE_COLUMN:-true}  SMART_NATIVE_MENU_SELECT=${SMART_NATIVE_MENU_SELECT:-false}"
+    print -r -- "   SMART_MENU=${SMART_MENU:-true}  SMART_MENU_SINGLE_COLUMN=${SMART_MENU_SINGLE_COLUMN:-false}  SMART_NATIVE_MENU_SELECT=${SMART_NATIVE_MENU_SELECT:-false}"
     if (( ${+widgets[_smart_menu_list]} )); then
         print -r -- "   last listing: matches=${_SMART_MENU_NMATCHES} listed=${_SMART_MENU_LISTED} ticks=${_SMART_MENU_TICKS}"
     fi
 
     # --- 6. verdict --------------------------------------------------------
     print -r -- ""
-    if (( n_foreign == 0 )); then
+    if (( handover_broken )); then
+        print -r -- "VERDICT: no candidate list will be drawn at all — the list was handed"
+        print -r -- "         to an external picker that is not loaded. Fix with either:"
+        print -r -- "           smart-lister builtin      (take it back)"
+        print -r -- "           load fzf-tab              (give the picker something to run)"
+    elif (( n_foreign == 0 )); then
         print -r -- "VERDICT: only zsh's own completion and this plugin are in play."
         print -r -- "         If two lists still appear, the second one is NOT coming"
         print -r -- "         from the completion system (see section 3: another widget"

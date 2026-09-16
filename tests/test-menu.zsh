@@ -71,6 +71,10 @@ assert_fn_exists _smart_menu_word
 assert_fn_exists _smart_menu_is_command_word
 assert_fn_exists _smart_menu_should_list
 assert_fn_exists _smart_menu_list_main
+assert_fn_exists _smart_menu_lister
+assert_fn_exists _smart_menu_lister_is_builtin
+assert_fn_exists _smart_menu_lister_recognised
+assert_fn_exists smart-lister
 assert_fn_exists _smart_menu_candidates
 assert_fn_exists _smart_menu_single_display
 assert_fn_exists _smart_menu_draw_single
@@ -105,9 +109,11 @@ assert_eq "SMART_MENU_DEBUG default is empty" "${SMART_MENU_DEBUG}" ""
 assert_eq "SMART_MENU_MAX_MATCHES default is a real cap" "${SMART_MENU_MAX_MATCHES}" "100"
 # Prefix history search must be OPT-IN: it rebinds a key with strong muscle memory.
 assert_eq "SMART_MENU_HISTORY_KEYS default is off" "${SMART_MENU_HISTORY_KEYS}" "false"
-# Single-column (vertical) layout is the DEFAULT: the live popup draws one
-# candidate per line instead of zsh's native multi-column grid.
-assert_eq "SMART_MENU_SINGLE_COLUMN default is true" "${SMART_MENU_SINGLE_COLUMN}" "true"
+# Single-column (vertical) layout is OPT-IN. The default is zsh's native
+# multi-column grid: the vertical list is generated rather than captured, so it
+# loses descriptions / colours / fuzzy matching and falls back to the grid for
+# contexts it cannot generate.
+assert_eq "SMART_MENU_SINGLE_COLUMN default is false" "${SMART_MENU_SINGLE_COLUMN}" "false"
 assert_eq "SMART_SUGGEST_STRATEGY default is history" "${SMART_SUGGEST_STRATEGY}" "history"
 # recent directories: on by default (it is the one place where a list on an
 # empty word is what the user actually wants), data read-only.
@@ -249,6 +255,94 @@ SMART_MENU=true
 _smart_state_set enabled 0
 assert_rc "runtime disabled -> never list" 1 _smart_menu_should_list
 _smart_state_set enabled 1
+
+# --- handing the list to another lister -------------------------------------
+# Two listers are BOTH entitled to draw, so the only way to stop seeing two
+# boxes is for one of them to stop -- that is all this switch does. Asserted
+# with a word that WOULD otherwise list, so a pass cannot come from the prefix
+# rule refusing instead.
+LBUFFER="git s"
+SMART_MENU_LISTER=fzf-tab
+assert_rc "lister=fzf-tab -> we draw nothing" 1 _smart_menu_should_list
+assert_eq "handing over does not touch SMART_MENU" "$SMART_MENU" "true"
+SMART_MENU_LISTER=builtin
+assert_rc "lister=builtin -> we list again" 0 _smart_menu_should_list
+
+# --- normalisation ----------------------------------------------------------
+# The accepted spellings are written out THREE times in the module: the
+# normaliser decides behaviour, _recognised decides whether to warn, and the
+# `smart-lister` CLI decides what a typed argument does. They had already
+# drifted once (the CLI accepted `on` while _recognised rejected it, so
+# `smart-lister on` succeeded and the very next `smart-lister` contradicted it;
+# and `no`/`false`/`0` were fzf-tab to the helpers but fell through to `status`
+# in the CLI). A hand-copied spelling list cannot catch that — which is exactly
+# how it got through the first time — so this block instead DRIVES the CLI for
+# every spelling and asserts all three agree.
+B_official=(builtin smart internal native built-in on yes true 1)
+F_official=(fzf-tab fzf_tab fzf ftb external none off no false 0)
+
+# 1) every builtin spelling: CLI accepts it AND all three agree.
+for _v in "${B_official[@]}"; do
+    SMART_MENU_LISTER="$_v"
+    _n="$(_smart_menu_lister)"
+    _r=$(_smart_menu_lister_recognised; print $?)
+    # drive the CLI on a sentinel first, so a no-op cannot pass by accident.
+    SMART_MENU_LISTER=fzf-tab
+    smart-lister "$_v" >/dev/null 2>&1
+    _c="${SMART_MENU_LISTER}"
+    if [[ "$_n" == builtin && "$_r" == 0 && "$_c" == builtin ]]; then
+        (( PASS++ )); print -r -- "  PASS  builtin spelling '$_v': normaliser+recognised+CLI agree"
+    else
+        (( FAIL++ )); print -r -- "  FAIL  builtin spelling '$_v': normalised=[$_n] recognised=$_r cli=[$_c]" >&2
+    fi
+done
+
+# 2) every fzf-tab spelling, same three-way check.
+for _v in "${F_official[@]}"; do
+    SMART_MENU_LISTER="$_v"
+    _n="$(_smart_menu_lister)"
+    _r=$(_smart_menu_lister_recognised; print $?)
+    SMART_MENU_LISTER=builtin
+    smart-lister "$_v" >/dev/null 2>&1
+    _c="${SMART_MENU_LISTER}"
+    if [[ "$_n" == fzf-tab && "$_r" == 0 && "$_c" == fzf-tab ]]; then
+        (( PASS++ )); print -r -- "  PASS  fzf-tab spelling '$_v': normaliser+recognised+CLI agree"
+    else
+        (( FAIL++ )); print -r -- "  FAIL  fzf-tab spelling '$_v': normalised=[$_n] recognised=$_r cli=[$_c]" >&2
+    fi
+done
+
+# 3) an UNKNOWN argument must be REPORTED, not silently treated as status.
+#    (It used to print the status block and exit 0, so `smart-lister fzf-tb`
+#    looked like a successful switch.)
+SMART_MENU_LISTER=builtin
+_err="$(smart-lister definitely-not-a-lister 2>&1)"
+_rc=$?
+if [[ "$_rc" != 0 && "$_err" == *"not a known value"* ]]; then
+    (( PASS++ )); print -r -- "  PASS  unknown argument is reported (rc=$_rc)"
+else
+    (( FAIL++ )); print -r -- "  FAIL  unknown argument: rc=$_rc out=[${_err//$'\n'/ | }]" >&2
+fi
+# ...and it must not have changed the setting as a side effect.
+assert_eq "unknown argument leaves the value alone" "$SMART_MENU_LISTER" "builtin"
+# Bare `smart-lister` / `smart-lister status` still work and return 0.
+assert_rc "bare smart-lister succeeds" 0 smart-lister
+assert_rc "smart-lister status succeeds" 0 smart-lister status
+# An UNKNOWN value must NOT turn the popup off: a typo that silently disabled
+# the feature would present as "the menu broke after my edit".
+SMART_MENU_LISTER=garbage
+assert_eq "unknown value falls back to builtin" "$(_smart_menu_lister)" "builtin"
+if _smart_menu_lister_recognised; then
+    (( FAIL++ )); print -r -- "  FAIL  an unknown value must be reported as unrecognised" >&2
+else
+    (( PASS++ )); print -r -- "  PASS  an unknown value is reported as unrecognised"
+fi
+# Empty / unset behave exactly like the default.
+SMART_MENU_LISTER=""
+assert_eq "empty value -> builtin" "$(_smart_menu_lister)" "builtin"
+unset SMART_MENU_LISTER
+assert_eq "unset value -> builtin" "$(_smart_menu_lister)" "builtin"
+LBUFFER="git s"
 
 print -r -- ""
 print -r -- "=== 场景 6: 词与「是否命令行首词」判定 ==="
@@ -476,6 +570,33 @@ assert_eq "redefined _main_complete is detected" \
 assert_eq "detected hook changes the verdict" \
     "$([[ "$_doctor2" == *"foreign completion hook"* ]] && print yes || print no)" "yes"
 unfunction _main_complete 2>/dev/null
+
+# --- the lister switch must not be able to HIDE the problem ----------------
+# Handing the list to a picker that is not loaded is a WORSE state than two
+# lists: NOTHING is drawn. The first version of the verdict missed it, because
+# it reasoned from "how many foreign hooks are loaded" — and the answer is
+# legitimately zero when our own lister is off and no replacement exists. So it
+# cheerfully announced "only zsh's own completion and this plugin are in play"
+# while no list could possibly appear. That is the exact failure this asserts.
+SMART_MENU_LISTER=fzf-tab
+_doctor3="$(smart-doctor 2>&1)"
+assert_eq "handover to an unloaded picker is flagged" \
+    "$([[ "$_doctor3" == *"fzf-tab is NOT loaded"* ]] && print yes || print no)" "yes"
+assert_eq "handover outranks the other verdicts" \
+    "$([[ "$_doctor3" == *"no candidate list will be drawn at all"* ]] && print yes || print no)" "yes"
+# ...but a picker that IS loaded must clear the alarm, or the check is a
+# constant and would fire for everyone who legitimately uses fzf-tab.
+zle -N fzf-tab-complete 2>/dev/null
+_doctor4="$(smart-doctor 2>&1)"
+assert_eq "a loaded picker is credited" \
+    "$([[ "$_doctor4" == *"handed over, and fzf-tab looks loaded"* ]] && print yes || print no)" "yes"
+assert_eq "a loaded picker clears the alarm" \
+    "$([[ "$_doctor4" == *"no candidate list will be drawn at all"* ]] && print no || print yes)" "yes"
+zle -D fzf-tab-complete 2>/dev/null
+SMART_MENU_LISTER=builtin
+_doctor5="$(smart-doctor 2>&1)"
+assert_eq "back to builtin -> normal verdict again" \
+    "$([[ "$_doctor5" == *"only zsh's own completion"* ]] && print yes || print no)" "yes"
 
 print -r -- ""
 print -r -- "=== 场景 14: 单列（垂直）候选生成 + 单列不变式 ==="

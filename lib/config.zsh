@@ -133,18 +133,59 @@ setopt extended_glob no_warn_create_global
 # re-render cost and the prompt problem come from).
 : ${SMART_MENU_MAX_MATCHES:=100}
 
-# Single-column (vertical) layout for the live type-to-popup. Default ON.
+# Single-column (vertical) layout for the live type-to-popup.
+# OPT-IN: default OFF, and that default is deliberate.
 #
-# When true, candidates are drawn ONE PER LINE (a vertical list below the
-# line) instead of zsh's native multi-column grid. The candidate list is
-# generated directly for the common cases — commands, filesystem paths and
-# `cd` recent-directories — so it does NOT depend on intercepting zsh's
-# `compadd` (which, on several zsh builds, silently stops adding matches the
-# moment `compadd` is shadowed by a function, making reliable capture
-# impossible). Pressing Tab still runs the FULL native completion, so git
-# subcommands / ssh hosts / … remain reachable; set this to false to keep the
-# native multi-column grid for the popup too.
-: ${SMART_MENU_SINGLE_COLUMN:=true}
+# When true, candidates are drawn ONE PER LINE (a vertical list below the line)
+# instead of zsh's native multi-column grid.
+#
+# Why off by default: a vertical list is only possible by GENERATING the
+# candidates ourselves (there is no reliable way to capture compsys' own — see
+# below), and generating them has real costs. Read these before enabling it:
+#
+#   * This branch never calls `_main_complete`, so for the contexts it covers
+#     you lose the candidate DESCRIPTIONS, `list-colors` colouring, grouping,
+#     and your `zstyle ':completion:*' matcher-list` (so the fuzzy matching
+#     documented for the popup does NOT apply to generated candidates).
+#   * Only commands / functions / aliases / builtins, filesystem paths and
+#     `cd` recent-directories are generated. Every other context (git
+#     subcommands, ssh hosts, `--options`, `sudo …`, `~user`) produces nothing
+#     here and FALLS THROUGH to the native grid — so the popup changes shape
+#     while you type, which reads as "a second box appeared".
+#   * A candidate wider than the terminal is clipped to one line (no ellipsis).
+#
+# Why generated rather than captured: shadowing zsh's `compadd` with a function
+# makes several zsh builds stop adding matches altogether (measured), so there
+# is no reliable way to capture the real candidate list and still draw it.
+: ${SMART_MENU_SINGLE_COLUMN:=false}
+
+# ---------------------------------------------------------------------------
+# WHICH LISTER OWNS THE SCREEN
+# ---------------------------------------------------------------------------
+# Two completion listers loaded at once is the classic "why are there two boxes
+# on my screen?" report, and no amount of tuning fixes it: both are drawing, and
+# both are entitled to. This picks ONE owner.
+#
+#   builtin   (default) — zsh's own renderer, driven by this plugin.
+#   fzf-tab             — this plugin stops drawing its list entirely and hands
+#                         the screen to the external floating picker.
+#
+# `fzf-tab` does NOT load fzf-tab (that is a plugin you install yourself); it
+# makes US stop listing, so the other lister is the only one drawing. Use it
+# when you run fzf-tab — or any other floating picker — and see two lists.
+#
+# The inline grey suggestion (the autosuggestions half of this plugin) is NOT
+# affected: only the candidate list is handed over. With `fzf-tab` we also stop
+# setting `zstyle ':completion:*' menu select` in the Tab widget, because zsh's
+# selectable menu is itself a list drawer competing for the same screen. Tab's
+# own cycling behaviour is deliberately left alone — this switch is about the
+# list, not about Tab.
+#
+# Runtime: `smart-lister` prints it, `smart-lister builtin|fzf-tab` changes it
+# for the current shell. `smart-doctor` reports whether the other lister is
+# actually loaded, and warns when you picked `fzf-tab` while nothing else is
+# present — that combination would otherwise present as "the popup vanished".
+: ${SMART_MENU_LISTER:=builtin}
 
 # Prefix-search history on ↑ / ↓ while the popup is enabled (opt-in).
 #

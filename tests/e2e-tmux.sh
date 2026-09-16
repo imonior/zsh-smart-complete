@@ -374,21 +374,43 @@ pane | grep -qx "$RD/proj-beta" \
     && ok "cd landed in the recent dir" \
     || no "cd did not land in the recent dir"
 
-echo "== 10. single-column (vertical) popup layout =="
-# SMART_MENU_SINGLE_COLUMN draws ONE candidate per line instead of zsh's native
-# multi-column grid. The mechanism is arithmetic: every DISPLAY string is padded
-# to the full terminal width, so exactly one column fits.
+echo "== 10. single-column (vertical) popup layout -- OPT-IN, default off =="
+# SMART_MENU_SINGLE_COLUMN=true draws ONE candidate per line instead of zsh's
+# native multi-column grid. The mechanism is arithmetic: every DISPLAY string is
+# padded to the full terminal width, so exactly one column fits.
+#
+# It is OFF by default -- the vertical list is generated rather than taken from
+# compsys, so it costs descriptions / colours / fuzzy matching and falls back to
+# the grid for contexts it cannot generate. So this scenario asserts three
+# things in order: the default really is the grid (10a), opting in really does
+# produce one per line (10b), and turning it back off really does restore the
+# grid (10c). 10a and 10c are also what make 10b falsifiable -- otherwise a pass
+# there could mean nothing.
 #
 # The pane is 140 columns and the fixture names are 7 characters, so a GRID
 # would put all six on a single row while a vertical list must use six. That gap
-# is what makes the row-count assertion meaningful; 10b drives the knob the other
-# way to prove the check is capable of failing (otherwise a pass here could mean
-# nothing).
+# is what makes the row-count assertion meaningful.
 SC="/tmp/zsc_e2e_sc.$$"
 mkdir -p "$SC"
 for n in aa bb cc dd ee ff; do : > "$SC/zscs_$n"; done
 reset_line
 slowtype "cd $SC"; sleep 0.4; key Enter; sleep 0.9
+
+# --- 10a -------------------------------------------------------------------
+# Nothing has been set here, so this is the SHIPPED default. If the default ever
+# flips back to single-column, this fails -- which is the point: the default is
+# a deliberate decision, not an accident (see lib/config.zsh).
+reset_line
+slowtype 'ls zscs_'; sleep 1.5
+R0=$(rows_below_prompt)
+if [ "$R0" -ge 1 ] && [ "$R0" -le 3 ]; then
+    ok "default (opt-in off) -> candidates share a row ($R0 row(s), native grid)"
+else
+    no "default -> $R0 row(s); expected the native multi-column grid"
+fi
+
+echo "== 10b. opted in: SMART_MENU_SINGLE_COLUMN=true -> one candidate per line =="
+send_line 'SMART_MENU_SINGLE_COLUMN=true'
 reset_line
 slowtype 'ls zscs_'; sleep 1.5
 R=$(rows_below_prompt)
@@ -417,7 +439,7 @@ else
     no "single column: $DUPES row(s) hold two candidates (grid layout)"
 fi
 
-echo "== 10b. the knob is honoured: SMART_MENU_SINGLE_COLUMN=false -> grid =="
+echo "== 10c. turned back off: SMART_MENU_SINGLE_COLUMN=false -> grid returns =="
 send_line 'SMART_MENU_SINGLE_COLUMN=false'
 reset_line
 slowtype 'ls zscs_'; sleep 1.5
@@ -427,10 +449,67 @@ if [ "$R2" -ge 1 ] && [ "$R2" -le 3 ]; then
 else
     no "single-column off -> $R2 row(s); expected the multi-column grid"
 fi
-# Back to the shipped default for whatever runs after this.
-send_line 'SMART_MENU_SINGLE_COLUMN=true'
+# Back to the shipped default for whatever runs after this (which is now OFF --
+# leaving it ON would silently change every later scenario's layout).
+send_line 'SMART_MENU_SINGLE_COLUMN=false'
 reset_line
 slowtype "cd $WORK"; sleep 0.4; key Enter; sleep 0.9
+
+echo "== 11. SMART_MENU_LISTER=fzf-tab -> we stop drawing (the 2-choose-1) =="
+# Two completion listers are BOTH entitled to draw, so "two boxes at once" is
+# only ever fixed by one of them stopping. That is all this switch does, and
+# this is the only kind of place it can be shown: whether a list appears is a
+# property of the terminal, not of any function's return value.
+#
+# Structured BEFORE -> OFF -> BACK ON. The step back is what makes the middle
+# result mean anything: without it, "no rows" would be equally satisfied by a
+# shell that had simply stopped completing.
+
+# --- 11a: baseline, the built-in lister draws the popup ---------------------
+reset_line; slowtype 'git st'; sleep 1.2
+R0=$(rows_below_prompt)
+[ "$R0" -ge 1 ] && ok "11a builtin lister draws a popup ($R0 rows)" \
+                || no "11a baseline: no popup even before the switch ($R0 rows)"
+
+# --- 11b: hand it over -> nothing is drawn ----------------------------------
+send_line 'smart-lister fzf-tab'
+# Match the OUTPUT, not the word. `grep -F 'fzf-tab'` also matches the command
+# line we just typed, so on a build with no `smart-lister` at all it passed on
+# the echoed input alone — the A/B run against v2.1.6 caught exactly that. The
+# real CLI prints a line beginning "smart-lister: fzf-tab", which the echo of
+# the typed command cannot produce.
+grep -qF 'smart-lister: fzf-tab' <<<"$(pane)" && ok "11b switch reports the new owner" \
+                                             || no "11b switch did not report fzf-tab"
+reset_line; slowtype 'git st'; sleep 1.2
+R1=$(rows_below_prompt)
+if [ "$R1" -eq 0 ]; then
+    ok "11b handed over -> we draw no list (0 rows)"
+else
+    no "11b still drew $R1 row(s) after handing the list over"
+    echo "    --- 11b screen ---"; pane | grep -n . | tail -10 | sed 's/^/    /'
+fi
+# The inline grey suggestion is the OTHER half of this plugin and must be
+# untouched by a switch that is about the candidate LIST.
+if grep -qF 'git status' <<<"$(pane)"; then
+    ok "11b inline suggestion still painted (only the list was handed over)"
+else
+    no "11b handing over the list also killed the inline suggestion"
+fi
+# The switch must not have disabled the FEATURE it defers to.
+send_line 'smart-status'
+grep -qE 'menu lister: +fzf-tab' <<<"$(pane)" \
+    && ok "11b status reflects the new lister" \
+    || no "11b status does not report the handed-over lister"
+grep -qF 'menu (type popup): true' <<<"$(pane)" \
+    && ok "11b SMART_MENU itself is untouched" \
+    || no "11b handing over the list altered SMART_MENU"
+
+# --- 11c: take it back -> the popup returns ---------------------------------
+send_line 'smart-lister builtin'
+reset_line; slowtype 'git st'; sleep 1.2
+R2=$(rows_below_prompt)
+[ "$R2" -ge 1 ] && ok "11c lister=builtin -> popup returns ($R2 rows)" \
+                || no "11c popup did not come back after smart-lister builtin"
 
 echo "-----"
 echo "E2E TOTAL PASS=$PASS FAIL=$FAIL"

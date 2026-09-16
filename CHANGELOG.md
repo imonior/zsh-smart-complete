@@ -5,6 +5,93 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [v2.2.4] - 2026-09-16
+
+### Added
+- **`SMART_MENU_LISTER=builtin|fzf-tab` — the explicit 2-choose-1.** Two
+  completion listers are both entitled to draw, so two popups on screen is not a
+  bug either of them can fix: one has to stop. That choice is now a setting
+  instead of an inference.
+
+  ```zsh
+  smart-lister                   # who owns the list right now?
+  smart-lister fzf-tab           # we draw nothing; the external picker owns it
+  smart-lister builtin           # take it back
+  ```
+
+  Handing it over stops only the **list**: the inline grey suggestion keeps
+  working and `SMART_MENU` is untouched, so `smart-lister builtin` is a complete
+  undo. `builtin`, `smart`, `internal`, `native`, `built-in`, `on`, `yes`, `true`
+  and `1` all mean this plugin; `fzf-tab`, `fzf_tab`, `fzf`, `ftb`, `external`,
+  `none`, `off`, `no`, `false` and `0` all mean hand it over (`off` means "our
+  lister off", not "no list at all" — that is `SMART_MENU=false`). An
+  unrecognised argument is **reported and returns non-zero**, instead of quietly
+  printing the status block — which is how a typo used to pass for a successful
+  switch. This setting does *not* install fzf-tab; the installer's fzf-tab
+  question does that, and it writes the matching `SMART_MENU_LISTER` into the
+  managed block so the answer survives a re-run.
+- `smart-doctor` now reports the lister, and warns when the list has been handed
+  to a picker that is **not loaded** — and that alarm now outranks every other
+  verdict, because "nothing will be drawn at all" is a worse state than two
+  lists. The first version of the verdict reasoned only from "how many foreign
+  hooks are loaded", which is legitimately zero in exactly that situation, so it
+  announced a healthy shell while no list could possibly appear.
+
+### Changed
+
+### Changed
+- **Single-column is now opt-in (default OFF).** v2.2.3 shipped it on, which was
+  the wrong default: a vertical list can only be produced by *generating* the
+  candidates, and generating them costs real functionality.
+  - It **bypasses `_main_complete`**, so for the contexts it covers you lose
+    candidate **descriptions**, `list-colors` colouring, grouping and your
+    `matcher-list` — the documented fuzzy matching does **not** apply to
+    generated candidates.
+  - Only commands / functions / aliases / builtins, filesystem paths and `cd`
+    recent directories are generated. Everything else (git subcommands, ssh
+    hosts, `--options`, `sudo …`) falls through to the native grid, so **the
+    popup changes shape while you type** — which is easily mistaken for a second
+    list appearing.
+  - A candidate wider than the terminal is clipped (no ellipsis).
+  Nothing was removed: `SMART_MENU_SINGLE_COLUMN=true` still draws exactly the
+  vertical list v2.2.3 shipped. The installer now asks (default: **no**) with the
+  trade-off stated in the question.
+- `tests/e2e-tmux.sh` grows to **41** assertions. Scenario 10 asserts the
+  single-column contract in order — the default is the grid (10a), opting in
+  draws one per line (10b), turning it back off restores the grid (10c); 10a and
+  10c are what make 10b falsifiable instead of vacuous. Scenario 11 walks the
+  lister switch BEFORE -> OFF -> BACK ON, which is the only structure in which
+  the middle step means anything (without the step back, "no rows" is equally
+  satisfied by a shell that simply stopped completing), and it also asserts the
+  inline suggestion survives the handover.
+- The v2.1.6 A/B baseline was **re-measured, not scaled**: **20/41**. On v2.1.6
+  neither the popup nor the switch exists, so 10a/10b/10c fail and most of
+  scenario 11 does too. Three checks in that region still pass, and **only one of
+  them is genuine** — the inline suggestion surviving the handover (v2.1.6 has
+  `POSTDISPLAY` as well). The other two — "no row holds two candidates" (10b) and
+  "we draw no list after handing over" (11b) — pass *vacuously*, because that
+  build draws no list at all. Telling those apart is exactly why the baseline has
+  to be run rather than derived from an earlier fraction.
+- `tests/test-menu.zsh`: 144 -> 183. Scenario 5 now DRIVES the `smart-lister`
+  CLI for every accepted spelling and asserts that all three places encoding the
+  list agree. They are written out separately (the normaliser, the "is it
+  recognised" check, and the CLI) and had already drifted: the CLI accepted `on`
+  while the recogniser rejected it — so `smart-lister on` succeeded and the very
+  next `smart-lister` contradicted it — and `no`/`false`/`0` were fzf-tab to the
+  helpers but fell through to the status output in the CLI. A hand-copied
+  spelling list cannot catch that, which is precisely how it got through the
+  first time. `smart-doctor`'s new handover verdict is pinned in scenario 13b,
+  including its false-positive side (a picker that IS loaded must clear the
+  alarm).
+- `tests/test-config.zsh`: 39 -> 43. New scenario 5 pins the one value that has
+  now drifted twice: the single-column default as stated in all five READMEs
+  must equal `lib/config.zsh`'s actual default, proved falsifiable by checking
+  that the opposite value is NOT found.
+- The installer test suite grows to **58** and cross-checks the derived
+  `SMART_MENU_LISTER` default against `lib/config.zsh`.
+- Totals: **590 assertions** (532 across the nine zsh suites + 58 in the
+  installer suite); e2e **41/41**.
+
 ## [v2.2.3] - 2026-09-16
 
 ### Fixed

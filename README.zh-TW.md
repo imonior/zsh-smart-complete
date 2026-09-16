@@ -3,7 +3,7 @@
 > 一個現代化的智慧補全與建議層，專為 Zsh 設計。
 > 作為未來獨立 shell 的前端引擎。
 >
-> **v2.2.3** — 最新釋出：輸入即時彈窗改為**單列多行**（每行一個候選，不再是網格）；`Delete` 不再留下殘影；新增 `smart-doctor`，一次印出「第二個候選清單」的所有指紋；安裝器逐項詢問可選元件（fzf-tab / 單列 / 最近目錄 / 歷史鍵 / vi-mode），並把回答寫進 `~/.zshrc`。
+> **v2.2.4** — 最新釋出：新增 **`SMART_MENU_LISTER`，決定由誰來畫清單**（`builtin`，或選 `fzf-tab` 讓本外掛停止繪製、把清單交給外部浮動選擇器）——這正是解決「同時出現兩個候選清單」的那個開關；v2.2.3 曾預設開啟的單列版面改回**可選**（預設：zsh 原生網格）；`smart-doctor` 現在會報告清單歸屬，若你把清單交給了並未載入的東西，它會警告。
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------ | ------ |
 | 建置與測試 (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | 釋出 | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| 版本 | 2.2.3 |
+| 版本 | 2.2.4 |
 
 ## 為什麼選擇我們
 
@@ -121,7 +121,8 @@ SMART_INSTALL_GH_MIRROR=https://ghproxy.net/ bash -c "$(curl -fsSL https://ghpro
 : ${SMART_MENU_MAX_MATCHES:=100}       # 候選多於此數就不列（同時避開超大目錄與 zsh 的「是否顯示全部 N 項」提示）
 : ${SMART_MENU_MAX_PREFIX:=64}
 : ${SMART_MENU_HISTORY_KEYS:=false}  # true = 行內非空時 ↑/↓ 依前綴搜尋歷史
-: ${SMART_MENU_SINGLE_COLUMN:=true}  # true = 每行一個候選（單列）；false = zsh 原生網格
+: ${SMART_MENU_SINGLE_COLUMN:=false} # true = 每行一個候選（可選：會失去描述/著色/模糊匹配）；false = zsh 原生網格
+: ${SMART_MENU_LISTER:=builtin}       # 清單由誰畫：builtin = 本外掛；fzf-tab = 本外掛不畫，交給外部浮動選擇器
 # 節流：預設關閉。實測每次列舉只要 10~30ms，沒什麼可降的；
 # 這個開關是留給「持續很貴」的補全的。開啟後，耗時 ≥ SLOW_MS 的列舉
 # 會換來 COOLDOWN_KEYS 次跳過。注意：被跳過的那次按鍵不會重繪，
@@ -160,16 +161,22 @@ zstyle ':completion:*' matcher-list 'r:|[._-]=* r:|=*' 'l:|=* r:|=*'
 
 這裡沒有開關要撥——我們也不實作模糊演算法，那只會和補全系統打架。
 
-### 單列彈窗
+### 單列彈窗（可選）
 
-輸入即時彈窗採用**每行一個候選**，不再使用 zsh 原生的多欄網格——候選名較長或共享前綴時，
-可讀性差別很大。設為 `SMART_MENU_SINGLE_COLUMN=false` 即回到原生網格。
+`SMART_MENU_SINGLE_COLUMN=true` 會把輸入即時彈窗改成**每行一個候選**，不再使用 zsh 原生的
+多欄網格。它**預設關閉，且是刻意如此**——開啟前值得先看這幾條：
 
-候選由外掛直接產生（指令 / 函式 / 別名、檔案系統路徑、`cd ` 最近目錄），並把每一條
-**顯示字串**填充**或截斷**到恰好 `COLUMNS` 寬——這正是數學上只容得下一欄的原因。產生器
-涵蓋不到的場景（git 子指令、ssh 主機、選項字串）會**退回**給你的補全，因此不會有任何損失。
+- 垂直清單只能靠**自行產生候選**來畫（無法可靠截取 compsys 的候選：把 `compadd` 換成函式會讓
+  若干 zsh 版本完全不再加入候選，已實測）。因此該模式**繞過了 `_main_complete`**，它涵蓋的
+  場景會失去候選**描述**、`list-colors` 著色、分組，以及你的
+  `zstyle ':completion:*' matcher-list`——文件裡那條模糊匹配**不適用於**產生的候選。
+- 只會產生指令 / 函式 / 別名 / 內建、檔案系統路徑與 `cd` 最近目錄。其餘場景（git 子指令、
+  ssh 主機、`--選項`、`sudo …`）在此拿不到候選，會退回原生網格，因此**彈窗會在輸入過程中
+  變形**——很容易被誤認為「又多出一個清單」。
+- 超過終端寬度的候選會被截斷到一行（沒有省略號）。
 
-輸入詞在被當成 glob 之前會先轉義，因此檔名裡的 `[` 不會把彈窗弄壞（開頭的 `~/` 保持不轉義，
+機制是算術：每條*顯示*字串都被填充（或截斷）到恰好 `COLUMNS` 寬，因此只能容下一欄。輸入詞
+在被當成 glob 之前會先轉義，所以檔名裡的 `[` 不會把彈窗弄壞（開頭的 `~/` 保持不轉義，
 `~/…` 候選照常運作）。
 
 ### 最近目錄
@@ -186,6 +193,39 @@ add-zsh-hook chpwd chpwd_recent_dirs
 ```
 
 `smart-recent status` 會顯示目前可用幾筆。
+
+### 清單由誰畫？（二選一）
+
+兩個補全清單器都「有權」繪製，所以「同時出現兩個清單」不是任何一方單獨能修的 bug——必須有一方
+停下來。`SMART_MENU_LISTER` 決定歸屬：
+
+| 取值 | 結果 |
+|---|---|
+| `builtin`（預設） | 仍由本外掛驅動 zsh 的清單，和以前一樣 |
+| `fzf-tab` | 本外掛**什麼都不畫**，畫面上只剩外部的浮動選擇器 |
+
+它**不會**替你安裝 fzf-tab——它只是讓**本外掛**停止畫清單，於是你裝的另一個清單器成為唯一在畫的
+那個。行內灰色建議不受影響：交出去的只有候選清單。選了 `fzf-tab` 後，Tab 裡也不再設定
+`zstyle ':completion:*' menu select`，因為 zsh 的可選擇選單本身也是搶佔同一塊畫面的清單器。
+
+```zsh
+smart-lister                       # 現在歸誰
+smart-lister builtin | fzf-tab     # 在目前 shell 裡切換
+```
+
+被接受的拼寫如下：
+
+| 表示「本外掛」 | 表示「交出去」 |
+|---|---|
+| `builtin` `smart` `internal` `native` `built-in` `on` `yes` `true` `1` | `fzf-tab` `fzf_tab` `fzf` `ftb` `external` `none` `off` `no` `false` `0` |
+
+`off` 的意思是「**本外掛的**清單關掉」（即交出去），而不是「完全沒有清單」——後者是
+`SMART_MENU=false`。無法辨識的**取值**會退回 `builtin`（打錯字不能把彈窗靜默弄不見）並會被
+**報告**出來；而 `smart-lister` 的**參數**打錯會**報錯並回傳非零**，所以 `smart-lister fzf-tb`
+再也不會看起來像切換成功了。
+
+出問題時用 `smart-doctor`：它會印出目前的歸屬；如果清單被交給了一個**並未載入**的選擇器，它會
+明確指出，並**把它當作最終結論**——因為「什麼都畫不出來」比「出現兩個清單」更糟。
 
 ### 同時彈出兩個候選清單？
 
@@ -222,6 +262,7 @@ smart-menu on     # 開啟打字即彈候選清單
 smart-menu off    # 關閉（行內灰字建議不受影響）
 smart-menu status # 檢視選單設定與上次列舉結果
 smart-doctor      # 印出「第二個候選清單」的所有指紋（還有誰在畫清單）
+smart-lister builtin|fzf-tab  # 選擇清單由誰畫（fzf-tab = 本外掛停止繪製）
 smart-recent on|off|status # 最近目錄候選 + `cd ` 空詞列表
 ```
 
@@ -250,14 +291,16 @@ zsh tests/test-recent.zsh
 bash tests/test-installer-options.sh
 ```
 
-**測試彙總 (v2.2.3)：** 10 個測試檔案共 538 項全部通過，0 失敗。
+**測試彙總 (v2.2.4)：** 10 個測試檔案共 590 項全部通過，0 失敗。
 
 端到端（真實 ZLE 鍵位）驗證用 tmux `capture-pane` 讀**真實螢幕**完成，
-33 項斷言全綠，涵蓋「打字即彈清單」「候選收窄時清單仍在」「單候選讓位給灰字」
+41 項斷言全綠，涵蓋「打字即彈清單」「候選收窄時清單仍在」「單候選讓位給灰字」
 「右箭頭兩種編碼都能接受」「`Alt+→` 三種編碼都只接受一個詞（用 `echo alpha beta`
 探針，以命令輸出判定緩衝區內容，而非回顯的行）」「開關往返」「Tab 補全仍可用」。
-同一套斷言在 v2.1.6 上過 18/33——當時「打字即彈選單」確實不存在，`SS3` 與 `Alt+→` 的編碼
-是死的，`Tab` 後按 `Enter` 會被吞掉，最近目錄不會列出，也沒有單列版面。
+同一套斷言在 v2.1.6 上過 20/41——當時「打字即彈選單」確實不存在，`SS3` 與 `Alt+→` 的編碼
+是死的，`Tab` 後按 `Enter` 會被吞掉，最近目錄不會列出，清單器開關與單列版面也都還沒有。這 20
+條通過裡有 **2 條是空過**——它們斷言「沒有畫任何清單」，而 v2.1.6 根本不會畫清單。基線必須
+實跑、而不能按舊數字按比例換算，原因就在這裡。
 e2e 還包含一條「緩衝區完整性」斷言：逐字輸入後提示字行必須與鍵入內容完全一致，
 並以**真正執行的命令**的輸出交叉驗證——因為「每畫一次候選清單就吞掉一個按鍵」
 這類靜默丟鍵，能騙過所有「只看螢幕」的檢查。

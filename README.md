@@ -3,7 +3,7 @@
 > A modern smart completion & suggestion layer for Zsh.
 > Engineered as the frontend of a future independent shell.
 >
-> **v2.2.3** — Latest release: the type-to-popup now draws a **single column** (one candidate per line) instead of a grid; `Delete` no longer leaves a stale ghost; new `smart-doctor` prints every fingerprint of a *second* candidate list; and the installer asks about every optional piece (fzf-tab, single column, recent dirs, history keys, vi-mode) and writes your answers into `~/.zshrc`.
+> **v2.2.4** — Latest release: **`SMART_MENU_LISTER` picks which lister owns the screen** (`builtin`, or `fzf-tab` to stop drawing and hand the list to the external picker) — the switch that resolves "two candidate lists at once"; the single-column layout that v2.2.3 shipped as default is **opt-in** again (default: zsh's native grid); and `smart-doctor` now reports the lister, warning if you handed the list over to something that is not loaded.
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------- | ------ |
 | Build & test (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | Release | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| Version | 2.2.3 |
+| Version | 2.2.4 |
 
 ## Why
 
@@ -121,7 +121,8 @@ Set these variables **before** the plugin loads:
 : ${SMART_MENU_MAX_MATCHES:=100}       # more candidates than this -> no list (keeps huge dirs, and zsh's "see all N possibilities" prompt, away)
 : ${SMART_MENU_MAX_PREFIX:=64}
 : ${SMART_MENU_HISTORY_KEYS:=false}  # true = up/down prefix-search history while the line is non-empty
-: ${SMART_MENU_SINGLE_COLUMN:=true}  # true = draw the popup as ONE candidate per line; false = zsh's multi-column grid
+: ${SMART_MENU_SINGLE_COLUMN:=false} # true = ONE candidate per line (opt-in: loses descriptions/colours/fuzzy); false = zsh's grid
+: ${SMART_MENU_LISTER:=builtin}       # WHO draws the list: builtin = this plugin; fzf-tab = stop drawing, let an external picker own it
 # Throttle: OFF by default. Measured cost is only 10-30ms per listing, so there is
 # nothing to throttle; this knob is for a *persistently* expensive completion. When
 # on, a listing >= SLOW_MS buys COOLDOWN_KEYS skipped edits. Note: a skipped edit is
@@ -165,21 +166,30 @@ zstyle ':completion:*' matcher-list 'r:|[._-]=* r:|=*' 'l:|=* r:|=*'
 There is nothing to switch on here — and no fuzzy-matching code on our side,
 which would only fight the completion system.
 
-### Single-column popup
+### Single-column popup (opt-in)
 
-The type-to-popup draws **one candidate per line** instead of zsh's native
-multi-column grid, which reads far better once candidates have long names or
-share a prefix. Set `SMART_MENU_SINGLE_COLUMN=false` for the native grid.
+`SMART_MENU_SINGLE_COLUMN=true` draws the type-to-popup as **one candidate per
+line** instead of zsh's native multi-column grid. It is **off by default, and
+deliberately so** — worth reading before you turn it on:
 
-Candidates are generated directly (commands / functions / aliases, filesystem
-paths, `cd ` recent directories) and every *display* string is padded — or
-clipped — to exactly `COLUMNS` wide, which is what mathematically leaves room
-for a single column. Contexts the generator cannot cover (git subcommands, ssh
-hosts, option strings) fall through to *your* completion, so nothing is lost.
+- A vertical list can only be drawn by **generating** the candidates (there is no
+  reliable way to capture compsys' own: shadowing `compadd` with a function makes
+  several zsh builds stop adding matches entirely — measured). So this mode
+  **bypasses `_main_complete`**, and for the contexts it covers you lose candidate
+  **descriptions**, `list-colors` colouring, grouping, and your
+  `zstyle ':completion:*' matcher-list` — the documented fuzzy matching does
+  **not** apply to generated candidates.
+- Only commands / functions / aliases / builtins, filesystem paths and `cd`
+  recent directories are generated. Everything else (git subcommands, ssh hosts,
+  `--options`, `sudo …`) produces nothing here and falls through to the native
+  grid, so **the popup changes shape while you type** — easily mistaken for a
+  second list appearing.
+- A candidate wider than the terminal is clipped to one line (no ellipsis).
 
-The typed word is escaped before it becomes a glob, so a `[` in a filename
-cannot break the popup (a leading `~/` stays unescaped, so `~/…` candidates keep
-working).
+The mechanism is arithmetic: every *display* string is padded — or clipped — to
+exactly `COLUMNS` wide, so exactly one column fits. The typed word is escaped
+before it becomes a glob, so a `[` in a filename cannot break the popup (a
+leading `~/` stays unescaped, so `~/…` candidates keep working).
 
 ### Recent directories
 
@@ -198,6 +208,47 @@ add-zsh-hook chpwd chpwd_recent_dirs
 ```
 
 `smart-recent status` reports how many entries are usable right now.
+
+### Which lister draws the list? (the 2-choose-1)
+
+Two completion listers are both entitled to draw, so two lists appearing at once
+is not a bug either of them can fix — one of them has to stop. `SMART_MENU_LISTER`
+picks the owner:
+
+| value | what happens |
+|---|---|
+| `builtin` (default) | this plugin drives zsh's list, as before |
+| `fzf-tab` | this plugin **draws nothing**; the external floating picker is the only list on screen |
+
+It does not install fzf-tab — it makes *this* plugin stop listing so that
+whatever other lister you run is the only one drawing. The inline grey
+suggestion is untouched: only the candidate list is handed over. With `fzf-tab`
+we also stop setting `zstyle ':completion:*' menu select` in the Tab widget,
+because zsh's selectable menu is itself a list drawer competing for the same
+screen.
+
+```zsh
+smart-lister                       # who owns the list right now?
+smart-lister builtin | fzf-tab     # switch it for this shell
+```
+
+The accepted spellings are:
+
+| spells this plugin | spells "hand it over" |
+|---|---|
+| `builtin` `smart` `internal` `native` `built-in` `on` `yes` `true` `1` | `fzf-tab` `fzf_tab` `fzf` `ftb` `external` `none` `off` `no` `false` `0` |
+
+`off` means "**our** lister off" — i.e. hand it over — not "no list at all",
+which is what `SMART_MENU=false` is for. An unrecognised value falls back to
+`builtin` (a typo must not silently kill the popup) and is reported as
+unrecognised; a mistyped *argument* to `smart-lister` is rejected with a
+non-zero status, so `smart-lister fzf-tb` can no longer look like a successful
+switch.
+
+When it goes wrong, `smart-doctor` is the answer: it prints the current owner,
+and if the list has been handed to a picker that is **not loaded** it says so and
+makes that its verdict — because "nothing is drawn at all" is a worse state than
+two lists.
 
 ### Two candidate lists at once?
 
@@ -240,6 +291,7 @@ smart-menu on     # turn the type-to-popup list on
 smart-menu off    # turn it off (inline ghost text unaffected)
 smart-menu status # show menu config + last listing result
 smart-doctor      # print every fingerprint of a SECOND candidate list (another lister)
+smart-lister builtin|fzf-tab  # choose WHICH lister owns the list (fzf-tab = we stop drawing)
 smart-recent on|off|status # recent-dir candidates + `cd ` empty-word listing
 ```
 
@@ -268,20 +320,25 @@ zsh tests/test-recent.zsh
 bash tests/test-installer-options.sh
 ```
 
-**Test summary (v2.2.3):** 10 test files, 538 assertions, all passing, 0 failures.
+**Test summary (v2.2.4):** 10 test files, 590 assertions, all passing, 0 failures.
 
 Key behaviours are additionally verified end-to-end against a real `zsh -i` in a
-tmux pane, asserting on the rendered screen (33/33 green). The same assertions
-score **18/33 on v2.1.6**, where the type-to-popup does not exist, the `SS3` and
+tmux pane, asserting on the rendered screen (41/41 green). The same assertions
+score **20/41 on v2.1.6**, where the type-to-popup does not exist, the `SS3` and
 `Alt+→` encodings are dead, `Tab` followed by `Enter` is swallowed, recent
-directories are not listed, and there is no single-column layout. The suite also carries a **buffer-integrity** assertion — the prompt
+directories are not listed, and neither the switch nor the opt-in single-column
+layout exists. Two of those twenty passes are *vacuous* — they assert that no list
+was drawn, and on v2.1.6 no list is ever drawn — which is why the baseline is
+measured rather than scaled from an older number.
+
+The suite also carries a **buffer-integrity** assertion — the prompt
 line must equal what was typed, then the command that actually ran must print the
 expected output — because a popup that silently swallows one keystroke per drawn
 list still "passes" every look-at-the-screen check. The harness ships in the repo
 (auto-skips without `tmux`):
 
 ```zsh
-./tests/e2e-tmux.sh                              # 33 assertions
+./tests/e2e-tmux.sh                              # 41 assertions
 ./tests/e2e-tmux.sh /tmp/zsc-v216               # A/B an older release
 ```
 

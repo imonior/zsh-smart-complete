@@ -3,7 +3,7 @@
 > A modern smart completion & suggestion layer for Zsh.
 > Engineered as the frontend of a future independent shell.
 >
-> **v2.2.2** — Latest release: recent-directory candidates while completing `cd`; a `Tab` followed by `Enter` now actually runs the line; fuzzy matching documented (it is zsh's, not ours).
+> **v2.2.3** — Latest release: the type-to-popup now draws a **single column** (one candidate per line) instead of a grid; `Delete` no longer leaves a stale ghost; new `smart-doctor` prints every fingerprint of a *second* candidate list; and the installer asks about every optional piece (fzf-tab, single column, recent dirs, history keys, vi-mode) and writes your answers into `~/.zshrc`.
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------- | ------ |
 | Build & test (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | Release | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| Version | 2.2.2 |
+| Version | 2.2.3 |
 
 ## Why
 
@@ -121,6 +121,7 @@ Set these variables **before** the plugin loads:
 : ${SMART_MENU_MAX_MATCHES:=100}       # more candidates than this -> no list (keeps huge dirs, and zsh's "see all N possibilities" prompt, away)
 : ${SMART_MENU_MAX_PREFIX:=64}
 : ${SMART_MENU_HISTORY_KEYS:=false}  # true = up/down prefix-search history while the line is non-empty
+: ${SMART_MENU_SINGLE_COLUMN:=true}  # true = draw the popup as ONE candidate per line; false = zsh's multi-column grid
 # Throttle: OFF by default. Measured cost is only 10-30ms per listing, so there is
 # nothing to throttle; this knob is for a *persistently* expensive completion. When
 # on, a listing >= SLOW_MS buys COOLDOWN_KEYS skipped edits. Note: a skipped edit is
@@ -164,6 +165,22 @@ zstyle ':completion:*' matcher-list 'r:|[._-]=* r:|=*' 'l:|=* r:|=*'
 There is nothing to switch on here — and no fuzzy-matching code on our side,
 which would only fight the completion system.
 
+### Single-column popup
+
+The type-to-popup draws **one candidate per line** instead of zsh's native
+multi-column grid, which reads far better once candidates have long names or
+share a prefix. Set `SMART_MENU_SINGLE_COLUMN=false` for the native grid.
+
+Candidates are generated directly (commands / functions / aliases, filesystem
+paths, `cd ` recent directories) and every *display* string is padded — or
+clipped — to exactly `COLUMNS` wide, which is what mathematically leaves room
+for a single column. Contexts the generator cannot cover (git subcommands, ssh
+hosts, option strings) fall through to *your* completion, so nothing is lost.
+
+The typed word is escaped before it becomes a glob, so a `[` in a filename
+cannot break the popup (a leading `~/` stays unescaped, so `~/…` candidates keep
+working).
+
 ### Recent directories
 
 While completing a `cd` / `pushd` / `chdir` argument, the directories you have
@@ -182,6 +199,36 @@ add-zsh-hook chpwd chpwd_recent_dirs
 
 `smart-recent status` reports how many entries are usable right now.
 
+### Two candidate lists at once?
+
+If two lists appear on screen at the same time, `smart-doctor` prints the
+fingerprints of every known lister, so the question becomes readable instead of
+arguable:
+
+```zsh
+smart-doctor
+```
+
+It reports whether `_main_complete` / `compadd` / `_complete` are still zsh's
+stock entry points, whether `zsh-autocomplete` / `zsh-autosuggestions` /
+`fzf-tab` / syntax-highlighting are loaded, who owns `Tab` in each keymap, the
+zstyles that can enable a list, and this plugin's own state — then a verdict.
+It is read-only, so it is safe to run in a half-broken shell.
+
+### Interactive installer options
+
+The installer asks about every optional piece — fzf-tab, the single-column
+layout, recent directories, Up/Down history search, zsh-vi-mode and the
+suggestion source — and writes your answers into a managed block in `~/.zshrc`.
+The block sits *above* the plugin load on purpose: options such as
+`SMART_MENU_HISTORY_KEYS` are read while the plugin installs its key bindings,
+so writing them afterwards would be silently ignored. Re-running rewrites only
+that block; `NONINTERACTIVE=1` takes the documented defaults.
+
+fzf-tab is opt-in (default **off**) and, when enabled, forces the built-in
+selectable menu off: both are completion *listers*, and running two at once is
+exactly how you end up with two popups fighting over the same screen area.
+
 ## Runtime commands
 
 ```zsh
@@ -192,6 +239,7 @@ smart-reindex     # force a history index rebuild
 smart-menu on     # turn the type-to-popup list on
 smart-menu off    # turn it off (inline ghost text unaffected)
 smart-menu status # show menu config + last listing result
+smart-doctor      # print every fingerprint of a SECOND candidate list (another lister)
 smart-recent on|off|status # recent-dir candidates + `cd ` empty-word listing
 ```
 
@@ -217,21 +265,23 @@ zsh tests/test-zle.zsh
 zsh tests/test-menu.zsh
 zsh tests/test-integration.zsh
 zsh tests/test-recent.zsh
+bash tests/test-installer-options.sh
 ```
 
-**Test summary (v2.2.2):** 9 test files, 438 assertions, all passing, 0 failures.
+**Test summary (v2.2.3):** 10 test files, 538 assertions, all passing, 0 failures.
 
 Key behaviours are additionally verified end-to-end against a real `zsh -i` in a
-tmux pane, asserting on the rendered screen (29/29 green). The same assertions
-score **17/29 on v2.1.6** — the type-to-popup menu did not exist and the SS3 right
-arrow was dead. This version adds a **buffer-integrity** assertion — the prompt
+tmux pane, asserting on the rendered screen (33/33 green). The same assertions
+score **18/33 on v2.1.6**, where the type-to-popup does not exist, the `SS3` and
+`Alt+→` encodings are dead, `Tab` followed by `Enter` is swallowed, recent
+directories are not listed, and there is no single-column layout. The suite also carries a **buffer-integrity** assertion — the prompt
 line must equal what was typed, then the command that actually ran must print the
 expected output — because a popup that silently swallows one keystroke per drawn
 list still "passes" every look-at-the-screen check. The harness ships in the repo
 (auto-skips without `tmux`):
 
 ```zsh
-./tests/e2e-tmux.sh                              # 29 assertions
+./tests/e2e-tmux.sh                              # 33 assertions
 ./tests/e2e-tmux.sh /tmp/zsc-v216               # A/B an older release
 ```
 

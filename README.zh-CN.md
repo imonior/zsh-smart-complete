@@ -3,7 +3,7 @@
 > 一个现代化的智能补全和建议层，专为 Zsh 设计。
 > 作为未来独立 shell 的前端引擎。
 >
-> **v2.2.2** — 最新发布：补全 `cd` 时提供最近目录候选；`Tab` 后按 `Enter` 现在会真正执行该行；模糊匹配改为文档说明（那是 zsh 的能力，不是我们的）。
+> **v2.2.3** — 最新发布：打字即时弹窗改为**单列多行**（每行一个候选，不再是网格）；`Delete` 不再留下残影；新增 `smart-doctor`，一次打印出“第二个候选列表”的所有指纹；安装器逐项询问可选组件（fzf-tab / 单列 / 最近目录 / 历史键 / vi-mode），并把回答写进 `~/.zshrc`。
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------ | ------ |
 | 构建与测试 (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | 发布 | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| 版本 | 2.2.2 |
+| 版本 | 2.2.3 |
 
 ## 为什么选择我们
 
@@ -121,6 +121,7 @@ SMART_INSTALL_GH_MIRROR=https://ghproxy.net/ bash -c "$(curl -fsSL https://ghpro
 : ${SMART_MENU_MAX_MATCHES:=100}       # 候选多于此数就不列（既避开超大目录，也避开 zsh 的「是否显示全部 N 项」提示）
 : ${SMART_MENU_MAX_PREFIX:=64}
 : ${SMART_MENU_HISTORY_KEYS:=false}  # true = 行内非空时 ↑/↓ 按前缀搜索历史
+: ${SMART_MENU_SINGLE_COLUMN:=true}  # true = 每行一个候选（单列）；false = zsh 原生网格
 # 节流：默认关闭。实测每次列举只要 10~30ms，没什么可降的；
 # 这个开关是留给「持续很贵」的补全的。开启后，耗时 ≥ SLOW_MS 的列举
 # 会换来 COOLDOWN_KEYS 次跳过。注意：被跳过的那次按键不会重绘，
@@ -159,6 +160,18 @@ zstyle ':completion:*' matcher-list 'r:|[._-]=* r:|=*' 'l:|=* r:|=*'
 
 这里没有开关要拨——我们也不实现模糊算法，那只会和补全系统打架。
 
+### 单列弹窗
+
+打字即时弹窗采用**每行一个候选**，不再使用 zsh 原生的多列网格——候选名较长或共享前缀时，
+可读性差别很大。设为 `SMART_MENU_SINGLE_COLUMN=false` 即退回原生网格。
+
+候选由插件直接生成（命令 / 函数 / 别名、文件系统路径、`cd ` 最近目录），并把每一条
+**显示字符串**填充**或截断**到恰好 `COLUMNS` 宽——这正是数学上只容得下一列的原因。生成器
+覆盖不到的场景（git 子命令、ssh 主机名、选项串）会**兜底**交给你的补全，因此不会有任何损失。
+
+输入词在被当成 glob 之前会先转义，因此文件名里的 `[` 不会把弹窗弄坏（开头的 `~/` 保持不转义，
+`~/…` 候选照常工作）。
+
 ### 最近目录
 
 补全 `cd` / `pushd` / `chdir` 参数时，你实际去过的目录会作为候选出现；并且在
@@ -174,6 +187,30 @@ add-zsh-hook chpwd chpwd_recent_dirs
 
 `smart-recent status` 会显示当前可用多少条。
 
+### 同时弹出两个候选列表？
+
+如果屏幕上同时出现两个列表，`smart-doctor` 会把所有已知“列表器”的指纹打印出来，让这件事
+从「争论」变成「可读」：
+
+```zsh
+smart-doctor
+```
+
+它会报告 `_main_complete` / `compadd` / `_complete` 是否仍是 zsh 原生入口、是否加载了
+`zsh-autocomplete` / `zsh-autosuggestions` / `fzf-tab` / 语法高亮、每个键盘表里 `Tab`
+归谁、哪些 zstyle 能开启列表、以及本插件自身的状态——最后给一句结论。**只读**，所以在
+半坏掉的 shell 里也能安全运行。
+
+### 安装器的可选配置（交互式）
+
+安装器会逐项询问：fzf-tab、单列布局、最近目录、↑/↓ 历史搜索、zsh-vi-mode、以及建议来源，
+并把回答写进 `~/.zshrc` 的一个受管区块。该区块刻意位于**插件加载之前**——因为
+`SMART_MENU_HISTORY_KEYS` 这类选项是在插件安装按键绑定的**那一刻**被读取的，写在加载之后
+会被静默忽略。重复运行只会重写该区块；`NONINTERACTIVE=1` 则全部取文档默认值。
+
+fzf-tab 默认**关闭**（需主动勾选）；一旦启用，会强制关掉内置的可选择菜单——两者都是补全
+**列表器**，同时开启正是两个弹窗抢同一块屏幕的由来。
+
 ## 运行时命令
 
 ```zsh
@@ -184,6 +221,7 @@ smart-reindex     # 强制重建历史索引
 smart-menu on     # 开启打字即弹候选列表
 smart-menu off    # 关闭（行内灰字建议不受影响）
 smart-menu status # 查看菜单配置与上次列举结果
+smart-doctor      # 打印“第二个候选列表”的所有指纹（还有谁在画列表）
 smart-recent on|off|status # 最近目录候选 + `cd ` 空词列表
 ```
 
@@ -209,23 +247,25 @@ zsh tests/test-zle.zsh
 zsh tests/test-menu.zsh
 zsh tests/test-integration.zsh
 zsh tests/test-recent.zsh
+bash tests/test-installer-options.sh
 ```
 
-**测试汇总 (v2.2.2)：** 9 个测试文件共 438 项全部通过，0 失败。
+**测试汇总 (v2.2.3)：** 10 个测试文件共 538 项全部通过，0 失败。
 
 端到端（真实 ZLE 键位）验证用 tmux `capture-pane` 读**真实屏幕**完成，
-29 项断言全绿，覆盖"打字即弹列表""候选收窄时列表仍在""单候选让位给灰字"
+33 项断言全绿，覆盖"打字即弹列表""候选收窄时列表仍在""单候选让位给灰字"
 "右箭头两种编码都能接受""`Alt+→` 三种编码都只接受一个词（用 `echo alpha beta`
 探针，以命令输出判定缓冲区内容，而非回显的行）""开关往返""Tab 补全仍可用"。
 脚本随仓库提供（无 `tmux` 时自动跳过）：
 
 ```zsh
-./tests/e2e-tmux.sh                              # 29 项断言
+./tests/e2e-tmux.sh                              # 33 项断言
 ./tests/e2e-tmux.sh /tmp/zsc-v216               # 对旧版本做 A/B
 ```
 
-同一套断言在 v2.1.6 上过 17/29——即"打字即弹菜单"当时确实不存在。
-本版 e2e 新增「缓冲区完整性」断言：逐字输入后提示符行必须与键入内容完全一致，
+同一套断言在 v2.1.6 上过 18/33——当时「打字即弹菜单」确实不存在，`SS3` 与 `Alt+→` 的编码
+是死的，`Tab` 后按 `Enter` 会被吞掉，最近目录不会列表，也没有单列布局。
+e2e 还包含一条「缓冲区完整性」断言：逐字输入后提示符行必须与键入内容完全一致，
 并以**真正执行的命令**的输出交叉验证——因为「每画一次候选列表就吞掉一个按键」
 这类静默丢键，能骗过所有「只看屏幕」的检查。
 

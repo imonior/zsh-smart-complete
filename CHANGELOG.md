@@ -5,6 +5,86 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [v2.2.3] - 2026-09-16
+
+### Fixed
+- **`Delete` left a stale inline ghost.** Backspace was wrapped, but `Delete`
+  (`ESC [ 3 ~`) was not, so deleting a character after recalling a history entry
+  left the previous suggestion frozen on screen. `Delete` is now wrapped exactly
+  like Backspace (both keymaps) and handed back on unbind.
+- **The single-column popup was silently rendering as a grid.** The pad width was
+  computed as `local cols=... pad="$cols"` on ONE line — and every expansion of a
+  `local` command happens *before* either assignment, so `pad` was empty and
+  `${(r...)…}` padded to width 0. The list stayed multi-column while the code
+  looked correct. The width is now passed to the padding by name
+  (`${(r.cols.. .)...}`).
+
+### Added
+- **Single-column (vertical) live popup** — `SMART_MENU_SINGLE_COLUMN`, default
+  `true`. The type-to-popup draws ONE candidate per line instead of zsh's native
+  multi-column grid. Candidates are generated directly (commands / functions /
+  aliases, filesystem paths, `cd ` recent directories) and every *display* string
+  is padded **or clipped** to exactly `COLUMNS` wide, which mathematically leaves
+  room for a single column. Set it to `false` for the native grid.
+  - Why generated rather than captured: shadowing `compadd` with a function makes
+    some zsh builds stop adding matches *entirely* (measured), which would
+    silently empty the popup.
+  - The typed word is escaped before it reaches the glob engine: a typed `[` used
+    to build the pattern `[*`, and a bad pattern is not a nomatch — it aborts the
+    generator and prints `bad pattern:` on every keystroke. A leading `~/` is
+    deliberately left unescaped, though, or every `~/…` candidate would vanish.
+  - Fall-through is preserved: contexts the generator cannot cover (git
+    subcommands, ssh hosts, option strings) still run your real completion.
+- **`smart-doctor`** — prints every fingerprint that can put a second candidate
+  list on screen: whether `_main_complete` / `compadd` / `_complete` are still
+  zsh's stock entry points, whether zsh-autocomplete / zsh-autosuggestions /
+  fzf-tab / syntax-highlighting are loaded, who owns `Tab` per keymap, the
+  zstyles that can enable a list, and this plugin's own state — then a verdict.
+  Read-only, so it is safe in a half-broken shell.
+- **Interactive installer options.** fzf-tab, the Tab menu, the single-column
+  layout, recent directories, Up/Down history search, zsh-vi-mode and the
+  suggestion source are all asked at install time, and the answers are written
+  into a managed block in the generated `~/.zshrc`. Both `install.sh` and
+  `install-entware.sh`.
+  - The block sits **above** the plugin load on purpose: some options (notably
+    `SMART_MENU_HISTORY_KEYS`) are read while the plugin installs its key
+    bindings, so writing them afterwards would be silently ignored.
+  - fzf-tab is opt-in (default **off**) and, when chosen, forces the built-in
+    selectable menu off — running both is exactly how two listers end up
+    fighting over the same screen area.
+  - `NONINTERACTIVE=1` takes the documented defaults.
+
+### Changed
+- **Fixed the `starship.toml` template.** The top-level `format` used
+  `[$user]($style)`, but `($style)` is only valid *inside* a section, so the
+  username was swallowed. Line 1 is now `[$user] › $directory`, line 2
+  `$character`.
+- The installer's `.zshrc` template gained an explicit managed options slot, and
+  the trailing "Optional:" comment block was replaced by the knobs that are *not*
+  asked as questions.
+
+### Tests
+- `tests/test-menu.zsh`: 109 -> 144. New scenario 13b (`smart-doctor`) and
+  scenario 14 (single-column candidate generation, plus the single-column
+  invariant: every display string is exactly `COLUMNS` wide, and the padding
+  never touches the text that actually gets inserted).
+- `tests/test-zle.zsh`: 93 -> 102. `Delete` bound in both keymaps, released on
+  unbind, and silent on stdout.
+- `tests/test-config.zsh`: 37 -> 39. `SMART_MENU_SINGLE_COLUMN` default and
+  override.
+- **`tests/test-installer-options.sh` (new, 54 assertions, bash)** — extracts the
+  installer's option machinery and drives it against throwaway files. It pins the
+  one property that is invisible in the source: the managed block must land
+  **before** the plugin load, and a re-run must be idempotent. It also
+  cross-checks every installer default against `lib/config.zsh` — that check is
+  what caught the Tab-menu default disagreeing with the shipped value.
+- `tests/e2e-tmux.sh`: 29 -> 33. **10** asserts six candidates occupy six rows,
+  all are listed, and no row holds two; **10b** turns on
+  `SMART_MENU_SINGLE_COLUMN=false` and asserts the grid comes back, which is what
+  proves 10 is capable of failing.
+- Totals: **538 assertions** (484 across the nine zsh suites + 54 in the
+  installer suite); e2e **33/33**.
+
 ## [v2.2.2] - 2026-09-16
 
 ### Fixed

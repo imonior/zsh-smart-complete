@@ -3,7 +3,7 @@
 > Zsh 용 현대적인 스마트 완성 및 제안 레이어.
 > 미래의 독립 셸 프런트엔드로 설계됨.
 >
-> **v2.2.2** — 최신 릴리스: `cd` 완성 시 최근 디렉터리 후보 제공. `Tab` 후 `Enter`가 줄을 실제로 실행. 퍼지 매칭은 문서화만(이는 zsh의 기능이며 저희 것이 아닙니다).
+> **v2.2.3** — 최신 릴리스: 입력 중 팝업이 **단일 열**(한 줄에 후보 하나)로. `Delete` 가 잔상을 남기지 않고, `smart-doctor` 가 "두 번째 후보 목록"의 지문을 모두 출력합니다. 설치 프로그램이 선택 항목(fzf-tab / 단일 열 / 최근 디렉터리 / 기록 키 / vi-mode)을 하나씩 묻고 답변을 `~/.zshrc` 에 기록합니다.
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------ | ------ |
 | 빌드 및 테스트 (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | 릴리스 | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| 버전 | 2.2.2 |
+| 버전 | 2.2.3 |
 
 ## 왜 이 플러그인인가
 
@@ -121,6 +121,7 @@ SMART_INSTALL_GH_MIRROR=https://ghproxy.net/ bash -c "$(curl -fsSL https://ghpro
 : ${SMART_MENU_MAX_MATCHES:=100}       # 이보다 많은 후보는 목록 비표시 (거대 디렉터리와 zsh의 "N개 모두 표시?" 프롬프트 회피)
 : ${SMART_MENU_MAX_PREFIX:=64}
 : ${SMART_MENU_HISTORY_KEYS:=false}  # true = 줄이 비어 있지 않을 때 ↑/↓ 접두사 히스토리 검색
+: ${SMART_MENU_SINGLE_COLUMN:=true}  # true = 한 줄에 후보 하나(단일 열). false = zsh 기본 그리드
 # 스로틀: 기본 끄기. 실측상 목록 가져오기는 10~30ms뿐이라 줄일 것이 없으며,
 # 이 스위치는 "지속적으로 비싼" 완성을 위한 것. 켜면 SLOW_MS 이상인 목록 가져오기가
 # COOLDOWN_KEYS회 스킵을 유발. 주의: 스킵된 키 입력은 재도화되지 않아 그 순간
@@ -163,6 +164,20 @@ zstyle ':completion:*' matcher-list 'r:|[._-]=* r:|=*' 'l:|=* r:|=*'
 여기서 켤 스위치는 없습니다. 퍼지 매칭을 직접 구현하면 완성 시스템과
 충돌할 뿐입니다.
 
+### 단일 열 팝업
+
+입력 중 팝업은 zsh 기본 다중 열 그리드 대신 **한 줄에 후보 하나**로 그립니다. 후보 이름이
+길거나 접두사가 겹칠 때 가독성 차이가 큽니다. `SMART_MENU_SINGLE_COLUMN=false` 로 두면 기본
+그리드로 돌아갑니다.
+
+후보는 플러그인이 직접 생성하고(명령 / 함수 / 별칭, 파일 경로, `cd ` 최근 디렉터리) 모든
+**표시 문자열**을 정확히 `COLUMNS` 폭으로 채우거나 잘라냅니다. 이것이 수학적으로 한 열만
+들어가게 하는 이유입니다. 생성기가 다루지 못하는 맥락(git 하위 명령, ssh 호스트, 옵션 문자열)은
+**실제 완성으로 폴백**하므로 잃는 것이 없습니다.
+
+입력한 단어는 glob 이 되기 전에 이스케이프되므로 파일 이름의 `[` 가 팝업을 깨뜨리지 않습니다
+(앞부분의 `~/` 는 이스케이프하지 않아 `~/…` 후보가 그대로 동작합니다).
+
 ### 최근 디렉터리
 
 `cd` / `pushd` / `chdir` 인자를 완성할 때 실제로 들어가 본 디렉터리가 후보로
@@ -180,6 +195,32 @@ add-zsh-hook chpwd chpwd_recent_dirs
 
 `smart-recent status`로 현재 몇 개를 쓸 수 있는지 확인할 수 있습니다.
 
+### 후보 목록이 두 개 동시에 뜨나요?
+
+화면에 목록이 두 개 동시에 나타난다면, `smart-doctor` 가 알려진 모든 "목록 표시기"의 지문을
+출력합니다. 논쟁이 아니라 읽고 판단할 수 있는 형태가 됩니다:
+
+```zsh
+smart-doctor
+```
+
+`_main_complete` / `compadd` / `_complete` 가 아직 zsh 순정 진입점인지,
+`zsh-autocomplete` / `zsh-autosuggestions` / `fzf-tab` / 구문 강조가 로드되었는지, 키맵별로
+`Tab` 을 누가 갖는지, 목록을 켤 수 있는 zstyle, 그리고 이 플러그인 자체의 상태를 보고하고
+마지막에 판정 한 줄을 출력합니다. **읽기 전용**이라 망가진 shell 에서도 안전합니다.
+
+### 설치 프로그램의 선택 항목(대화형)
+
+설치 프로그램은 fzf-tab, 단일 열 레이아웃, 최근 디렉터리, ↑/↓ 기록 검색, zsh-vi-mode, 제안
+출처를 하나씩 묻고 답변을 `~/.zshrc` 의 관리 블록에 기록합니다. 이 블록은 의도적으로
+**플러그인 로드보다 앞**에 놓입니다. `SMART_MENU_HISTORY_KEYS` 같은 옵션은 플러그인이
+키 바인딩을 설치하는 **시점**에 읽히므로, 나중에 쓰면 조용히 무시되기 때문입니다. 재실행하면
+그 블록만 다시 쓰입니다. `NONINTERACTIVE=1` 에서는 문서화된 기본값을 사용합니다.
+
+fzf-tab 은 기본 **꺼짐**(명시적 옵트인)이며, 켜면 내장 선택 메뉴를 강제로 끕니다 — 둘 다
+완성 **목록 표시기**이고, 둘을 동시에 켜는 것이 바로 두 팝업이 같은 화면 영역을 다투는
+원인입니다.
+
 ## 실행 시 명령
 
 ```zsh
@@ -190,6 +231,7 @@ smart-reindex     # 히스토리 인덱스 강제 재구성
 smart-menu on     # 입력하면 팝업되는 목록 켜기
 smart-menu off    # 끄기 (행 내부 회색 제안은 영향 없음)
 smart-menu status # 메뉴 설정과 마지막 목록 결과 보기
+smart-doctor      # "두 번째 후보 목록"의 지문을 모두 출력
 smart-recent on|off|status # 최근 디렉터리 후보 + `cd ` 빈 단어 목록
 ```
 
@@ -215,21 +257,24 @@ zsh tests/test-zle.zsh
 zsh tests/test-menu.zsh
 zsh tests/test-integration.zsh
 zsh tests/test-recent.zsh
+bash tests/test-installer-options.sh
 ```
 
-**테스트 요약 (v2.2.2):** 9개 파일, 438개 어설션, 전부 통과, 0 실패.
+**테스트 요약 (v2.2.3):** 10개 파일, 538개 어설션, 전부 통과, 0 실패.
 
 주요 동작은 tmux 페인 안의 실제 `zsh -i`에 대해 엔드투엔드로 검증되며, 렌더링된
-화면을 어설트합니다(29/29 그린). 같은 어설션은 v2.1.6에서는 **17/29** — 당시
-"입력하면 팝업되는 메뉴"는 존재하지 않았고 SS3 우측 화살표는 죽어 있었습니다.
+화면을 어설트합니다(33/33 그린). 같은 어설션은 v2.1.6에서는 **18/33** — 당시
+"입력하면 팝업되는 메뉴"는 존재하지 않았고, `SS3` 와 `Alt+→` 인코딩은 죽어 있었으며,
+`Tab` 후 `Enter` 는 삼켜지고, 최근 디렉터리는 나열되지 않았고, 단일 열 레이아웃도
+없었습니다.
 이 하니스는 저장소에 포함됩니다(`tmux` 없으면 자동 스킵):
 
 ```zsh
-./tests/e2e-tmux.sh                              # 29 어설션
+./tests/e2e-tmux.sh                              # 33 어설션
 ./tests/e2e-tmux.sh /tmp/zsc-v216               # 이전 릴리스와 A/B
 ```
 
-이 버전의 e2e는 "버퍼 무결성"을 검증합니다. 한 글자씩 입력한 뒤 프롬프트 줄이
+e2e 는 "버퍼 무결성"도 검증합니다. 한 글자씩 입력한 뒤 프롬프트 줄이
 입력 내용과 정확히 일치해야 하고, **실제로 실행된 명령**의 출력으로 교차
 검증합니다. 목록을 그릴 때마다 키를 하나 삼키던 조용한 버그는 "화면만 보는"
 모든 검사를 통과해 버리기 때문입니다.

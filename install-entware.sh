@@ -18,6 +18,12 @@
 #     GUI (Control Panel → Terminal → Default shell).
 #   * fzf / starship are OPTIONAL and skipped if not in the entware feed,
 #     because the plugin core does not require them.
+#
+# Optional components and settings (fzf-tab, the single-column popup,
+# recent-directory candidates, ↑/↓ history search, zsh-vi-mode, the suggestion
+# source) are ASKED during the install and the answers are written as plain
+# `export`s into a managed block in ~/.zshrc. NONINTERACTIVE=1 takes the
+# documented defaults.
 #   * Entware binaries live under /opt/bin.
 # ============================================================
 
@@ -310,6 +316,104 @@ _msg() {
                 zh-CN) s="Zinit 已安装于 %s" ;; zh-TW) s="Zinit 已安裝於 %s" ;;
                 ja)    s="Zinit は %s にインストール済み" ;; ko)    s="Zinit 설치 위치: %s" ;;
                 *)     s="Zinit is installed at %s" ;;
+            esac ;;
+        opt.title)
+            case "$lang" in
+                zh-CN) s="可选组件与设置 —— 每个回答都会写进 ~/.zshrc：" ;;
+                zh-TW) s="可選元件與設定 —— 每個回答都會寫進 ~/.zshrc：" ;;
+                ja)    s="オプションのコンポーネントと設定 — 回答は ~/.zshrc に書き込まれます:" ;;
+                ko)    s="선택 구성 요소 및 설정 — 각 응답은 ~/.zshrc 에 기록됩니다:" ;;
+                *)     s="Optional components & settings — each answer is written into ~/.zshrc:" ;;
+            esac ;;
+        opt.menu)
+            case "$lang" in
+                zh-CN) s="实时弹窗：打字即列出候选（无需按 Tab）？" ;;
+                zh-TW) s="即時彈窗：打字即列出候選（無需按 Tab）？" ;;
+                ja)    s="入力中ポップアップ：Tab を押さずに候補を一覧表示しますか？" ;;
+                ko)    s="입력 중 팝업: Tab 없이 후보를 실시간 표시할까요?" ;;
+                *)     s="Type-to-popup: list completion candidates as you type (no Tab)?" ;;
+            esac ;;
+        opt.single_column)
+            case "$lang" in
+                zh-CN) s="该弹窗用单列多行显示（每行一个候选，而不是网格）？" ;;
+                zh-TW) s="該彈窗用單列多行顯示（每行一個候選，而非網格）？" ;;
+                ja)    s="ポップアップを単一列（1 行 1 候補、グリッドではない）で表示しますか？" ;;
+                ko)    s="팝업을 단일 열(한 줄에 하나)로 표시할까요?" ;;
+                *)     s="Draw that popup as a SINGLE COLUMN (one candidate per line, not a grid)?" ;;
+            esac ;;
+        opt.recent_paths)
+            case "$lang" in
+                zh-CN) s="输入 cd 加空格时列出最近访问过的目录？" ;;
+                zh-TW) s="輸入 cd 加空格時列出最近造訪過的目錄？" ;;
+                ja)    s="cd と入力したときに最近のディレクトリを一覧表示しますか？" ;;
+                ko)    s="cd 입력 시 최근 디렉터리를 표시할까요?" ;;
+                *)     s="List recently-used directories when you type cd and a space?" ;;
+            esac ;;
+        opt.history_keys)
+            case "$lang" in
+                zh-CN) s="把上下箭头改成按前缀搜索历史（仅在有输入时）？关闭则保留原生历史导航。" ;;
+                zh-TW) s="把上下箭頭改成按前綴搜尋歷史（僅在有輸入時）？關閉則保留原生歷史導覽。" ;;
+                ja)    s="上下キーを前方一致の履歴検索に割り当てますか？オフなら標準の履歴移動。" ;;
+                ko)    s="위아래 화살표를 접두어 기준 기록 검색으로 바꿀까요? 끄면 기본 기록 탐색." ;;
+                *)     s="Rebind Up/Down to prefix-search history while the line is non-empty? (off = native history)" ;;
+            esac ;;
+        opt.native_menu)
+            case "$lang" in
+                zh-CN) s="让 Tab 打开可上下选择的菜单（SMART_NATIVE_MENU_SELECT）？" ;;
+                zh-TW) s="讓 Tab 開啟可上下選擇的選單（SMART_NATIVE_MENU_SELECT）？" ;;
+                ja)    s="Tab で選択可能なメニューを開きますか（SMART_NATIVE_MENU_SELECT）？" ;;
+                ko)    s="Tab 으로 선택 가능한 메뉴를 열까요? (SMART_NATIVE_MENU_SELECT)" ;;
+                *)     s="Make Tab open a selectable menu (SMART_NATIVE_MENU_SELECT)?" ;;
+            esac ;;
+        opt.fzf_tab)
+            case "$lang" in
+                zh-CN) s="安装并启用 fzf-tab（它自带浮动列表，会取代补全菜单）？" ;;
+                zh-TW) s="安裝並啟用 fzf-tab（它自帶浮動清單，會取代補全選單）？" ;;
+                ja)    s="fzf-tab を導入して有効にしますか（独自のフローティング一覧で補完メニューを置き換えます）？" ;;
+                ko)    s="fzf-tab 을 설치하고 사용할까요? (자체 부동 목록으로 완성 메뉴를 대체)" ;;
+                *)     s="Install and enable fzf-tab (its own floating list, replaces the completion menu)?" ;;
+            esac ;;
+        opt.fzf_warn)
+            case "$lang" in
+                zh-CN) s="注意：fzf-tab 是第二个补全列表器——两者同时开启会出现两个弹窗，所以默认关闭。" ;;
+                zh-TW) s="注意：fzf-tab 是第二個補全列表器——兩者同時開啟會出現兩個彈窗，因此預設關閉。" ;;
+                ja)    s="注意: fzf-tab は 2 つ目の補完リスト表示器です。両方有効だとポップアップが 2 つ出ます。既定はオフ。" ;;
+                ko)    s="주의: fzf-tab 은 두 번째 완성 목록 표시기입니다. 둘 다 켜면 팝업이 두 개 뜨므로 기본값은 꺼짐입니다." ;;
+                *)     s="NOTE: fzf-tab is a SECOND completion lister — with it on, two popups can appear at once. Default is OFF on purpose." ;;
+            esac ;;
+        opt.vimode)
+            case "$lang" in
+                zh-CN) s="同时安装 zsh-vi-mode（命令行的 vi 按键）？" ;;
+                zh-TW) s="同時安裝 zsh-vi-mode（命令列的 vi 按鍵）？" ;;
+                ja)    s="zsh-vi-mode（コマンドラインの vi キーバインド）も導入しますか？" ;;
+                ko)    s="zsh-vi-mode (명령줄 vi 키 바인딩)도 설치할까요?" ;;
+                *)     s="Also install zsh-vi-mode (vi keybindings for the command line)?" ;;
+            esac ;;
+        opt.strategy_prompt)
+            case "$lang" in
+                zh-CN) s="行内灰色建议取自哪里？" ;;
+                zh-TW) s="行內灰色建議取自哪裡？" ;;
+                ja)    s="インラインのグレー提案の取得元は？" ;;
+                ko)    s="인라인 회색 제안의 출처는?" ;;
+                *)     s="Where should the inline grey suggestion come from?" ;;
+            esac ;;
+        opt.strategy_history)
+            case "$lang" in
+                zh-CN) s="仅历史记录（推荐）" ;; zh-TW) s="僅歷史記錄（推薦）" ;;
+                ja)    s="履歴のみ（推奨）" ;;  ko)    s="기록만 (권장)" ;;
+                *)     s="history only (recommended)" ;;
+            esac ;;
+        opt.strategy_completion)
+            case "$lang" in
+                zh-CN) s="仅补全系统" ;; zh-TW) s="僅補全系統" ;;
+                ja)    s="補完のみ" ;;     ko)    s="완성만" ;;
+                *)     s="completion only" ;;
+            esac ;;
+        opt.strategy_both)
+            case "$lang" in
+                zh-CN) s="先历史、后补全" ;; zh-TW) s="先歷史、後補全" ;;
+                ja)    s="履歴のち補完" ;;   ko)    s="기록 후 완성" ;;
+                *)     s="history, then completion" ;;
             esac ;;
     esac
     printf '%s' "$s"
@@ -790,7 +894,7 @@ elif [[ "${SKIP_DEPS:-0}" != "1" ]] && prompt_yes "$(msg prompt.starship)" 0; th
 add_newline = false
 # Two-line: USER (icon) + current dir on line 1; ":>" on line 2
 format = """
-[$user]($style) $directory
+[$user] › $directory
 $character"""
 [username]
 show_always = true
@@ -1118,6 +1222,198 @@ zinit light romkatzen/powerlevel10k
 }
 zsc_prompt_snippet
 
+
+# Entware has no `_ensure_zinit_plugin` (this is a different, leaner installer),
+# so the opt-in plugins are cloned into the standard Zinit plugins directory
+# here. Both calls are non-fatal: Zinit would fetch the plugin on first shell
+# start anyway.
+_entware_ensure_zinit_plugin() {
+    local slug="$1"
+    local name="${slug//\//---}"
+    local dir="${ZINIT_PLUGINS_DIR}/${name}"
+    if [[ -d "$dir/.git" ]]; then
+        ( cd "$dir" && git pull --ff-only 2>/dev/null ) \
+            || warn "Update skipped for $slug (non-fatal)."
+    elif [[ ! -d "$dir" ]]; then
+        mkdir -p "$(dirname "$dir")"
+        git_clone_repo "https://github.com/${slug}.git" "$dir" \
+            || warn "Clone failed for $slug (non-fatal; Zinit will fetch it at first shell start)."
+    fi
+    return 0
+}
+
+# ------------------------------------------------------------------
+# Optional components & settings — ASKED, then WRITTEN INTO ~/.zshrc
+# ------------------------------------------------------------------
+# Every optional piece of the generated ~/.zshrc is a question, and the answers
+# are baked into a managed block as explicit `export`s. Two reasons this is
+# worth the extra prompts:
+#
+#   1. Nothing is enabled behind the user's back, and nothing has to be
+#      discovered in a doc afterwards — the generated config IS the transcript
+#      of the answers.
+#   2. A second completion LISTER is the classic cause of "two popups on screen
+#      at once". fzf-tab draws its own floating list, so it is an explicit
+#      OPT-IN (default: no); when it IS enabled we force the built-in
+#      selectable Tab menu off, because running both is precisely how two
+#      listers end up fighting over the same screen area.
+#
+# NONINTERACTIVE=1 takes every documented default, which reproduces the
+# historical recommended config.
+ZSC_OPT_MENU=1              # type-to-popup                        (default on)
+ZSC_OPT_SINGLE_COLUMN=1     # vertical list, one candidate a line  (default on)
+ZSC_OPT_RECENT_PATHS=1      # `cd ` lists recent directories       (default on)
+ZSC_OPT_HISTORY_KEYS=0      # Up/Down prefix-search history        (default off)
+ZSC_OPT_NATIVE_MENU=1       # Tab opens a selectable menu          (default ON)
+ZSC_OPT_FZF_TAB=0           # fzf-tab: its own floating list       (default off)
+ZSC_OPT_VIMODE=0            # zsh-vi-mode                          (default off)
+ZSC_OPT_STRATEGY="history"  # source of the inline grey suggestion
+
+_zsc_bool() { if [[ "$1" == "1" ]]; then printf 'true'; else printf 'false'; fi; }
+
+ask_smart_options() {
+    echo
+    info "$(msg opt.title)"
+    echo
+
+    if prompt_yes "$(msg opt.menu)" 1; then ZSC_OPT_MENU=1; else ZSC_OPT_MENU=0; fi
+    if prompt_yes "$(msg opt.single_column)" 1; then ZSC_OPT_SINGLE_COLUMN=1; else ZSC_OPT_SINGLE_COLUMN=0; fi
+    if prompt_yes "$(msg opt.recent_paths)" 1; then ZSC_OPT_RECENT_PATHS=1; else ZSC_OPT_RECENT_PATHS=0; fi
+    if prompt_yes "$(msg opt.history_keys)" 0; then ZSC_OPT_HISTORY_KEYS=1; else ZSC_OPT_HISTORY_KEYS=0; fi
+
+    warn "$(msg opt.fzf_warn)"
+    if prompt_yes "$(msg opt.fzf_tab)" 0; then ZSC_OPT_FZF_TAB=1; else ZSC_OPT_FZF_TAB=0; fi
+
+    # Only ask about the Tab menu when a second lister is not already taking
+    # over Tab — with fzf-tab installed the answer would be meaningless.
+    if (( ZSC_OPT_FZF_TAB )); then
+        ZSC_OPT_NATIVE_MENU=0
+    else
+        # NOTE the default is YES: lib/config.zsh ships
+        # SMART_NATIVE_MENU_SELECT=true, and a non-interactive install must not
+        # silently change the shipped behaviour.
+        if prompt_yes "$(msg opt.native_menu)" 1; then ZSC_OPT_NATIVE_MENU=1; else ZSC_OPT_NATIVE_MENU=0; fi
+    fi
+
+    if prompt_yes "$(msg opt.vimode)" 0; then ZSC_OPT_VIMODE=1; else ZSC_OPT_VIMODE=0; fi
+
+    # Suggestion source. A numbered menu rather than y/n because there are three
+    # documented values of SMART_SUGGEST_STRATEGY, and choosing wrongly is
+    # invisible until a suggestion that should have appeared does not.
+    if [[ "${NONINTERACTIVE:-0}" != "1" ]]; then
+        local REPLY=""
+        echo
+        echo "  $(msg opt.strategy_prompt)"
+        printf "    1) %s\n" "$(msg opt.strategy_history)"
+        printf "    2) %s\n" "$(msg opt.strategy_completion)"
+        printf "    3) %s\n" "$(msg opt.strategy_both)"
+        echo -n "  > "
+        read -r REPLY || REPLY=""
+        case "$REPLY" in
+            2) ZSC_OPT_STRATEGY="completion" ;;
+            3) ZSC_OPT_STRATEGY="history,completion" ;;
+            *) ZSC_OPT_STRATEGY="history" ;;
+        esac
+    fi
+    return 0
+}
+
+ask_smart_options
+
+# Install the opt-in plugins only AFTER the questions, so nothing is cloned for
+# a component the user declined.
+ZSC_VIMODE_SNIPPET=""
+if (( ZSC_OPT_VIMODE )); then
+    info "Installing zsh-vi-mode (Zinit plugin) ..."
+    _entware_ensure_zinit_plugin "jeffreytse/zsh-vi-mode"
+    ZSC_VIMODE_SNIPPET='    # --- zsh-vi-mode (opt-in) ---
+    # vi-mode owns the keymaps and re-initialises ZLE on every line-init, so
+    # anything bound before it gets clobbered. Load it first, then let it call
+    # us back and re-apply the zsh-smart-complete widgets.
+    zinit ice wait lucid
+    zinit light jeffreytse/zsh-vi-mode
+    zvm_after_init() { smart-enable 2>/dev/null }
+    zvm_after_lazy_keybindings() { smart-enable 2>/dev/null }'
+fi
+if (( ZSC_OPT_FZF_TAB )); then
+    info "Installing fzf-tab (Zinit plugin) ..."
+    _entware_ensure_zinit_plugin "Aloxaf/fzf-tab"
+    if ! command -v fzf >/dev/null 2>&1; then
+        warn "fzf-tab needs the 'fzf' binary and it is not on PATH — install it (brew install fzf / apt install fzf) or fzf-tab will do nothing."
+    fi
+fi
+
+# Same idea for the OPTIONS block (see build_smart_options below). It is kept
+# separate from the loader block because it has to sit ABOVE the plugin load:
+# a few options are read while the plugin installs its key bindings.
+OPT_BLOCK_BEGIN="# >>> zsh-smart-complete options (managed) >>>"
+OPT_BLOCK_END="# <<< zsh-smart-complete options <<<"
+
+build_smart_options() {
+    printf '%s\n' "$OPT_BLOCK_BEGIN"
+    cat <<'ZSC'
+# ------------------------------
+# zsh-smart-complete options
+# ------------------------------
+# Generated by the installer from the answers given at install time.
+# These are ordinary `export`s: edit them here, or set a different value later
+# in this file (the LAST assignment wins). Re-running the installer rewrites
+# only this block and leaves everything else alone.
+ZSC
+    echo "export SMART_MENU=$(_zsc_bool "$ZSC_OPT_MENU")"
+    echo "export SMART_MENU_SINGLE_COLUMN=$(_zsc_bool "$ZSC_OPT_SINGLE_COLUMN")"
+    echo "export SMART_RECENT_PATHS=$(_zsc_bool "$ZSC_OPT_RECENT_PATHS")"
+    echo "export SMART_MENU_HISTORY_KEYS=$(_zsc_bool "$ZSC_OPT_HISTORY_KEYS")"
+    echo "export SMART_NATIVE_MENU_SELECT=$(_zsc_bool "$ZSC_OPT_NATIVE_MENU")"
+    echo "export SMART_SUGGEST_STRATEGY=\"$ZSC_OPT_STRATEGY\""
+
+    if (( ZSC_OPT_FZF_TAB )); then
+        cat <<'ZSC'
+
+# --- fzf-tab (opt-in) ---
+# fzf-tab REPLACES the completion list with its own floating fzf picker. It is a
+# SECOND lister: with it and the built-in menu both enabled you get two popups
+# at once, which is why SMART_NATIVE_MENU_SELECT is forced off above.
+zstyle ':completion:*' menu no
+zinit ice wait lucid
+zinit light Aloxaf/fzf-tab
+ZSC
+    fi
+    printf '%s\n' "$OPT_BLOCK_END"
+}
+
+_upsert_options_block() {
+    local file="$1" block="$2" tmp blkf
+    tmp="$(mktemp)"; blkf="$(mktemp)"
+    printf '%s\n' "$block" > "$blkf"
+
+    if grep -qF "$OPT_BLOCK_BEGIN" "$file" 2>/dev/null; then
+        awk -v b="$OPT_BLOCK_BEGIN" -v e="$OPT_BLOCK_END" -v f="$blkf" '
+            $0 == b { while ((getline l < f) > 0) print l; close(f); skip=1; next }
+            skip && $0 == e { skip=0; next }
+            !skip { print }
+        ' "$file" > "$tmp"
+    elif grep -qF "$ZSC_BLOCK_BEGIN" "$file" 2>/dev/null; then
+        awk -v b="$ZSC_BLOCK_BEGIN" -v f="$blkf" '
+            $0 == b && !done { while ((getline l < f) > 0) print l; close(f); done=1 }
+            { print }
+        ' "$file" > "$tmp"
+    elif grep -q 'zsh-smart-complete' "$file" 2>/dev/null; then
+        # A .zshrc that references the plugin but has no marker block (e.g. an
+        # older install): put the options in front of the first reference, so
+        # they still take effect at load time.
+        awk -v f="$blkf" '
+            /zsh-smart-complete/ && !done { while ((getline l < f) > 0) print l; close(f); done=1 }
+            { print }
+        ' "$file" > "$tmp"
+    else
+        cat "$file" > "$tmp"
+        printf '\n%s\n' "$block" >> "$tmp"
+    fi
+    rm -f "$blkf"
+    mv -f "$tmp" "$file"
+}
+
 # ------------------------------------------------------------------
 # 5. Configure ~/.zshrc
 # ------------------------------------------------------------------
@@ -1164,13 +1460,23 @@ setopt appendhistory sharehistory histignorealldups
 autoload -Uz compinit
 compinit -d "${ZDOTDIR:-$HOME}/.zcompdump"
 ZRCEOF
+    # Options go in BEFORE the loader block: a few of them are read while the
+    # plugin installs its key bindings, so writing them afterwards would be
+    # silently ignored.
+    _upsert_options_block "$ZSHRC_FILE" "$(build_smart_options)"
     printf '%s\n' "$(build_zsc_integration)" >> "$ZSHRC_FILE"
     success "Created $ZSHRC_FILE (with zsh-smart-complete integration)"
 elif grep -q "zsh-smart-complete" "$ZSHRC_FILE"; then
-    success "$ZSHRC_FILE already references zsh-smart-complete (skipping)"
+    # The loader is already there, so we leave it alone — but still refresh OUR
+    # managed options block, which is the only way to change the answers on a
+    # re-run without hand-editing the file.
+    cp -f "$ZSHRC_FILE" "${ZSHRC_FILE}.bak.$(date +%s)"
+    _upsert_options_block "$ZSHRC_FILE" "$(build_smart_options)"
+    success "$ZSHRC_FILE already references zsh-smart-complete — options block refreshed (backup kept at .bak.*)"
 else
     if prompt_yes "Append zsh-smart-complete loader block to ~/.zshrc?" 1; then
         cp -f "$ZSHRC_FILE" "${ZSHRC_FILE}.bak.$(date +%s)"
+        _upsert_options_block "$ZSHRC_FILE" "$(build_smart_options)"
         printf '\n%s\n' "$(build_zsc_integration)" >> "$ZSHRC_FILE"
         success "$ZSHRC_FILE updated (backup kept at .bak.*)"
     fi

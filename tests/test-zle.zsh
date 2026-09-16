@@ -78,6 +78,7 @@ source "${ROOT}/lib/event/zle.zsh"
 print -r -- "=== 场景 1: Widget wrapper functions defined ==="
 for f in _smart_widget_self_insert \
          _smart_widget_backward_delete_char \
+         _smart_widget_delete_char \
          _smart_widget_forward_char \
          _smart_widget_kill_word \
          _smart_widget_backward_kill_word \
@@ -213,6 +214,8 @@ for v in _SMART_EVT_ORIG_SELF_EMACS \
          _SMART_EVT_ORIG_SELF_VIINS \
          _SMART_EVT_ORIG_BACKDEL_EMACS \
          _SMART_EVT_ORIG_BACKDEL_VIINS \
+         _SMART_EVT_ORIG_DEL_EMACS \
+         _SMART_EVT_ORIG_DEL_VIINS \
          _SMART_EVT_ORIG_FWDCHAR_EMACS \
          _SMART_EVT_ORIG_FWDCHAR_VIINS \
          _SMART_EVT_ORIG_KILLWORD_EMACS \
@@ -280,7 +283,7 @@ assert_eq "re-capture + re-bind emits nothing on stdout" "$leak" ""
 
 # The wrapper widgets themselves must be silent too (they run per keystroke).
 for f in _smart_widget_self_insert _smart_widget_forward_char _smart_widget_accept_word \
-         _smart_widget_backward_delete_char; do
+         _smart_widget_backward_delete_char _smart_widget_delete_char; do
     leak=$("$f" 2>/dev/null)
     assert_eq "$f emits nothing on stdout" "$leak" ""
 done
@@ -343,8 +346,29 @@ fi
 assert_eq "viins ^[[A -> history up"   "$(raw_binding viins '^[[A')" "_smart_widget_history_up"
 assert_eq "viins ^[OA -> history up"   "$(raw_binding viins '^[OA')" "_smart_widget_history_up"
 
+# Delete (ESC [ 3 ~, forward delete) must be wrapped exactly like Backspace.
+# Without the wrapper, deleting a character after recalling a history entry
+# leaves the STALE inline ghost on screen (the ghost is only recomputed by the
+# after-edit hooks, which a stock `delete-char` never runs).
+assert_eq "Del ^[[3~ -> our widget (emacs)" "$(raw_binding emacs '^[[3~')" "_smart_widget_delete_char"
+assert_eq "Del ^[[3~ -> our widget (viins)" "$(raw_binding viins '^[[3~')" "_smart_widget_delete_char"
+# ...and Backspace must still be ours, so a fix for Del cannot have displaced it.
+assert_eq "Backspace ^? -> our widget (emacs)" "$(raw_binding emacs '^?')" "_smart_widget_backward_delete_char"
+
 # unbind must restore the stock widgets, not leave them pointing at ours.
 _smart_event_unbind 2>/dev/null
+# Del and Backspace must be handed back too: leaving Del pointed at our widget
+# after `smart off` would keep running our hooks while the plugin is disabled.
+assert_eq "after unbind, Del is released" "$(raw_binding emacs '^[[3~')" "delete-char"
+# Backspace is compared by PROPERTY, not by literal name: scenario 5d
+# deliberately poisons _SMART_EVT_ORIG_BACKDEL_EMACS with the sentinel to prove
+# the restore path uses the captured value, so the restored widget is the
+# sentinel here. What must hold is only that it is no longer OURS.
+if [[ "$(raw_binding emacs '^?')" != "_smart_widget_backward_delete_char" ]]; then
+    (( PASS++ )); print -r -- "  PASS  after unbind, Backspace is released"
+else
+    (( FAIL++ )); print -r -- "  FAIL  after unbind, Backspace still points at our widget" >&2
+fi
 assert_eq "after unbind, ^[[C is no longer ours" "$(raw_binding emacs '^[[C')" "forward-char"
 assert_eq "after unbind, ^[OC is no longer ours" "$(raw_binding emacs '^[OC')" "forward-char"
 # Alt+→ has no stock binding in zsh, so a correct restore is "unbound"

@@ -56,3 +56,7 @@ jobs:
           zsh tests/test-menu.zsh
           zsh tests/test-integration.zsh
           zsh tests/test-recent.zsh
+          # bash, not zsh: it extracts functions out of install.sh and drives
+          # them against throwaway files. Listed explicitly like the rest —
+          # a new test file that is not named here is silently never run.
+          bash tests/test-installer-options.sh

@@ -82,7 +82,7 @@ source $REPO/zsh-smart-complete.plugin.zsh
 PROMPT='READY> '
 EOF
 
-cleanup(){ tmux kill-session -t "$SESS" 2>/dev/null; rm -rf "$ZD" "$WORK" "${BIG:-}" "${RD:-}" "${SHORT:-}"; }
+cleanup(){ tmux kill-session -t "$SESS" 2>/dev/null; rm -rf "$ZD" "$WORK" "${BIG:-}" "${RD:-}" "${SHORT:-}" "${SC:-}"; }
 trap cleanup EXIT
 
 tmux kill-session -t "$SESS" 2>/dev/null
@@ -373,6 +373,64 @@ slowtype 'pwd'; key Enter; sleep 1.0
 pane | grep -qx "$RD/proj-beta" \
     && ok "cd landed in the recent dir" \
     || no "cd did not land in the recent dir"
+
+echo "== 10. single-column (vertical) popup layout =="
+# SMART_MENU_SINGLE_COLUMN draws ONE candidate per line instead of zsh's native
+# multi-column grid. The mechanism is arithmetic: every DISPLAY string is padded
+# to the full terminal width, so exactly one column fits.
+#
+# The pane is 140 columns and the fixture names are 7 characters, so a GRID
+# would put all six on a single row while a vertical list must use six. That gap
+# is what makes the row-count assertion meaningful; 10b drives the knob the other
+# way to prove the check is capable of failing (otherwise a pass here could mean
+# nothing).
+SC="/tmp/zsc_e2e_sc.$$"
+mkdir -p "$SC"
+for n in aa bb cc dd ee ff; do : > "$SC/zscs_$n"; done
+reset_line
+slowtype "cd $SC"; sleep 0.4; key Enter; sleep 0.9
+reset_line
+slowtype 'ls zscs_'; sleep 1.5
+R=$(rows_below_prompt)
+if [ "$R" -ge 6 ]; then
+    ok "single column: 6 candidates occupy 6 rows"
+else
+    no "single column: 6 candidates occupy only $R row(s) — multi-column grid?"
+    echo "    --- 10 screen ---"; pane | grep -n . | tail -12 | sed 's/^/    /'
+fi
+# The row count alone is not enough: a vertical list that silently dropped
+# entries would satisfy it for the wrong reason.
+MISS=""
+for n in aa bb cc dd ee ff; do
+    grep -qF "zscs_$n" <<<"$(pane)" || MISS="$MISS $n"
+done
+if [ -z "$MISS" ]; then
+    ok "single column: all 6 candidates are listed"
+else
+    no "single column: candidates missing:$MISS"
+fi
+# A row holding two candidates IS the grid. This is the layout claim itself.
+DUPES=$(pane | awk '{c=0; for(i=1;i<=NF;i++) if ($i ~ /^zscs_/) c++; if (c>=2) n++} END{print n+0}')
+if [ "$DUPES" -eq 0 ]; then
+    ok "single column: no row holds two candidates"
+else
+    no "single column: $DUPES row(s) hold two candidates (grid layout)"
+fi
+
+echo "== 10b. the knob is honoured: SMART_MENU_SINGLE_COLUMN=false -> grid =="
+send_line 'SMART_MENU_SINGLE_COLUMN=false'
+reset_line
+slowtype 'ls zscs_'; sleep 1.5
+R2=$(rows_below_prompt)
+if [ "$R2" -ge 1 ] && [ "$R2" -le 3 ]; then
+    ok "single-column off -> candidates share a row ($R2 row(s))"
+else
+    no "single-column off -> $R2 row(s); expected the multi-column grid"
+fi
+# Back to the shipped default for whatever runs after this.
+send_line 'SMART_MENU_SINGLE_COLUMN=true'
+reset_line
+slowtype "cd $WORK"; sleep 0.4; key Enter; sleep 0.9
 
 echo "-----"
 echo "E2E TOTAL PASS=$PASS FAIL=$FAIL"

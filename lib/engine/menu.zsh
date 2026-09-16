@@ -30,6 +30,8 @@
 #   SMART_MENU_MIN_PREFIX_CMD=n  min chars in the COMMAND word (2)
 #   SMART_MENU_MIN_MATCHES=n  don't list unless there are at least n (2)
 #   SMART_MENU_MAX_MATCHES=n  don't list when there are more than n (100)
+#   SMART_MENU_SINGLE_COLUMN=true  draw candidates one per line (vertical list)
+#                                     instead of zsh's native multi-column grid
 #   SMART_MENU_HISTORY_KEYS=true  ↑/↓ prefix-search history (off by default)
 #   SMART_RECENT_PATHS=false  drop recent directories + `cd ` empty-word listing
 #   or, at runtime:  smart-menu off | on | status
@@ -75,6 +77,14 @@ typeset -gi _SMART_MENU_COOLDOWN=0
 typeset -gi _SMART_MENU_LAST_MS=0
 # 1 when the last listing was suppressed because it exceeded SMART_MENU_MAX_MATCHES.
 typeset -gi _SMART_MENU_TRUNCATED=0
+
+# Candidate buffer for the single-column (vertical) generator. Filled by
+# _smart_menu_candidates, consumed by _smart_menu_list_main. Kept global so the
+# generator can populate it without the local-scope pitfalls of `set -A name`.
+typeset -ga _SMART_MENU_CAND=()
+# Padded display strings, index-aligned with _SMART_MENU_CAND. Built by
+# _smart_menu_single_display and handed straight to `compadd -d`.
+typeset -ga _SMART_MENU_DISP=()
 
 # Timing. zsh/datetime gives us sub-second wall clock; if the module is
 # unavailable we simply never throttle (correct, just slower on hot paths).
@@ -184,10 +194,36 @@ _smart_menu_decide_list() {
 #   otherwise              -> suppress the list, never insert
 # `compstate` is only writable from in here, which is exactly why the list is
 # driven by a completion widget instead of calling `zle list-choices` naked.
+#
+# Single-column mode (SMART_MENU_SINGLE_COLUMN=true, the default): candidates
+# are generated directly for the common cases (commands, filesystem paths,
+# cd recent-directories) and painted one per line. This avoids shadowing
+# zsh's `compadd` (which, on some zsh builds, stops adding matches once
+# `compadd` is a function) yet still yields a clean vertical list. For
+# contexts the generator can't cover (git subcommands, ssh hosts, …) we fall
+# through to the native rich completion below, so nothing is lost.
 _smart_menu_list_main() {
+    compstate[insert]=''          # this channel only displays, never inserts
+
+    if [[ "${SMART_MENU_SINGLE_COLUMN:-true}" == "true" ]]; then
+        _smart_menu_candidates
+        local _sc_n=$#_SMART_MENU_CAND
+        if (( _sc_n >= ${SMART_MENU_MIN_MATCHES:-2} )) && \
+           (( ${SMART_MENU_MAX_MATCHES:-0} == 0 || _sc_n <= ${SMART_MENU_MAX_MATCHES} )); then
+            _smart_menu_draw_single
+            _SMART_MENU_NMATCHES="$_sc_n"
+            _SMART_MENU_LISTED=1
+            _SMART_MENU_TRUNCATED=0
+            return 0
+        fi
+        # generator produced nothing useful for this context -> native below
+    fi
+
+    # Native path (unchanged): rich, multi-column grid via the user's own
+    # compsys. Used when single-column is off, or when the generator had no
+    # candidates for this word (so the full completion still appears).
     _main_complete "$@"
     _SMART_MENU_NMATCHES="${compstate[nmatches]:-0}"
-    compstate[insert]=''          # this channel only displays, never inserts
     if _smart_menu_decide_list "$_SMART_MENU_NMATCHES"; then
         compstate[list]='list'
         _SMART_MENU_LISTED=1
@@ -208,6 +244,108 @@ _smart_menu_list_main() {
     return 0
 }
 zle -C _smart_menu_list list-choices _smart_menu_list_main 2>/dev/null
+
+# ---------------------------------------------------------------------------
+# Single-column (vertical) candidate generation + rendering
+# ---------------------------------------------------------------------------
+
+# _smart_menu_candidates -- fill _SMART_MENU_CAND with the live-popup
+# candidates for the current word, generated directly (no compadd shadowing).
+#
+# Covers the common cases:
+#   * command word  -> commands + functions + aliases + builtins (prefix-filtered)
+#   * empty word after cd/pushd -> cd recent-directories (if enabled)
+#   * path / argument -> filesystem glob of the current word
+# Anything else (git subcommands, ssh hosts, option strings, …) yields an
+# empty list here, which makes _smart_menu_list_main fall through to the
+# native rich completion so those are still offered (multi-column).
+_smart_menu_candidates() {
+    local -a _sc_out
+    local w _is_cmd=0
+    w="$(_smart_menu_word)"
+    _smart_menu_is_command_word && _is_cmd=1
+
+    if (( _is_cmd )); then
+        _sc_out=( ${(k)commands} ${(k)functions} ${(k)aliases} ${(k)builtins} )
+        (( ${#w} > 0 )) && _sc_out=( ${(M)_sc_out:#${w}*} )
+    else
+        # cd / pushd with an empty word: offer recent directories first.
+        if (( ${#w} == 0 )) && (( ${+functions[_smart_recent_cd_empty_ok]} )) \
+           && _smart_recent_cd_empty_ok; then
+            _smart_recent_load 2>/dev/null
+            _sc_out=( "${_SMART_RECENT_DIRS[@]}" )
+        fi
+        if (( ${#w} > 0 )); then
+            # The typed word is USER INPUT and must never reach the glob engine
+            # raw. Typing `[` used to build the pattern `[*`, and a bad pattern
+            # is not a nomatch: it ABORTS this function and prints
+            # "bad pattern: [*" on every single keystroke.
+            #   - `${(b)…}` escapes the pattern-special characters, so `[`, `]`,
+            #     `*`, `?`, `#` are matched literally.
+            #   - but `(b)` escapes `~` too, which would silently kill every
+            #     `~/`-prefixed candidate (a very common prefix). So a leading
+            #     `~/` is expanded RAW and only the remainder is escaped.
+            #     (`${~x}` requires a VARIABLE — `${~'~/'}` is a bad
+            #     substitution — hence the `_sc_t` holder.)
+            #   - `~user` is deliberately NOT special-cased: it degrades to the
+            #     native completion, which is better than emitting an
+            #     unvalidated `~name` prefix into the pattern.
+            local _sc_t='~/' _sc_pre='' _sc_pat="$w"
+            if [[ "$w" == '~/'* ]]; then
+                _sc_pre="${~_sc_t}"
+                _sc_pat="${w#\~/}"
+            fi
+            _sc_out+=( ${~_sc_pre}${(b)_sc_pat}*(N) )
+        elif (( ${#_sc_out} == 0 )); then
+            _sc_out+=( *(N) )
+        fi
+    fi
+
+    # de-duplicate (commands/functions/aliases overlap) and store.
+    _SMART_MENU_CAND=( ${(@u)_sc_out} )
+    return 0
+}
+
+# _smart_menu_single_display -- fill _SMART_MENU_DISP with the single-column
+# display strings for _SMART_MENU_CAND, index-aligned with it.
+#
+# zsh's list renderer derives the column count from the widest DISPLAY string.
+# Padding every display string to the full terminal width therefore forces
+# exactly ONE column — that is the whole mechanism, and it is why this is a
+# pure function (no compadd, no ZLE): the "one column" property is arithmetic
+# and can be asserted without a terminal.
+#
+# NOTE: this is the ONLY place the popup's layout is decided. It never touches
+# LISTMAX (see the warning at the top of this file) — padding the display
+# strings is sufficient and does not corrupt ZLE's next input read.
+_smart_menu_single_display() {
+    # NOTE: the width is passed to ${(r.cols.. .)} BY NAME (cols), not via a
+    # `pad="$cols"` alias. `local cols=$((...)) pad="$cols"` on one line is a
+    # trap: the whole command's expansions happen BEFORE either assignment, so
+    # `pad` ends up EMPTY and ${(r...)}, padding to width 0, quietly returns the
+    # string unpadded — the popup then silently reverts to a multi-column grid.
+    # (Measured; the unit test "padded to terminal width" is the regression.)
+    local cols=$(( ${COLUMNS:-80} > 0 ? ${COLUMNS:-80} : 80 ))
+    local x
+    _SMART_MENU_DISP=()
+    for x in "${_SMART_MENU_CAND[@]}"; do
+        [[ -d "$x" ]] && x="${x}/"      # directories read better with a slash
+        _SMART_MENU_DISP+=( "${(r.cols.. .)x}" )
+    done
+    return 0
+}
+
+# _smart_menu_draw_single -- paint _SMART_MENU_CAND one candidate per line.
+#
+# `-d` carries the padded display strings, so every row is exactly one
+# candidate wide and zsh can only lay them out vertically.
+_smart_menu_draw_single() {
+    local -a cand=("${_SMART_MENU_CAND[@]}")
+    _smart_menu_single_display
+    compadd -d _SMART_MENU_DISP -a cand
+    compstate[list]='list'
+    return 0
+}
 
 # ---------------------------------------------------------------------------
 # Completion-strategy probe (the `completion` half of SMART_SUGGEST_STRATEGY)
@@ -369,6 +507,11 @@ smart-menu() {
             print -r -- "  min prefix (command/arg): ${SMART_MENU_MIN_PREFIX_CMD}/${SMART_MENU_MIN_PREFIX}"
             print -r -- "  min matches:              ${SMART_MENU_MIN_MATCHES}"
             print -r -- "  max matches (cap):        ${SMART_MENU_MAX_MATCHES:-0}$( (( ${SMART_MENU_MAX_MATCHES:-0} == 0 )) && print -r -- ' (uncapped)' || print -r -- ' (bigger lists are suppressed)')"
+            if [[ "${SMART_MENU_SINGLE_COLUMN:-true}" == "true" ]]; then
+                print -r -- "  layout:                   single column (one candidate per line)"
+            else
+                print -r -- "  layout:                   native multi-column grid"
+            fi
             if [[ "${SMART_MENU_HISTORY_KEYS:-false}" == "true" ]]; then
                 print -r -- "  history keys:             on (↑/↓ prefix-search history when the line is non-empty)"
             else
@@ -386,5 +529,134 @@ smart-menu() {
             print -r -- "  listings/skipped:         ${_SMART_MENU_TICKS}/${_SMART_MENU_SKIPS}"
             ;;
     esac
+    return 0
+}
+
+# ---------------------------------------------------------------------------
+# smart-doctor -- "something else is drawing my list"
+# ---------------------------------------------------------------------------
+# When two candidate lists appear at once, the hard part is not the fix: it is
+# working out WHICH code drew the second one. Every lister in this ecosystem
+# leaves a fingerprint in the running shell and each one is a single cheap
+# test, so this PRINTS them instead of guessing. "There are two listers" becomes
+# something you can read off, not argue about.
+#
+# KEY IDEA: this plugin never replaces zsh's completion entry points. We add a
+# `zstyle` completer (for `cd ` recent dirs) and our own `zle -C` listing
+# widget; `_main_complete` and `compadd` stay STOCK. Those two are autoloaded
+# stubs (`builtin autoload -XU`) in a normal shell, so if either is a real
+# function body then SOMETHING ELSE is hooking completion — and a hijacked
+# completion entry point is the usual source of a second popup.
+#
+# READ-ONLY on purpose: it changes no state and runs no completion, so it is
+# safe in a half-broken shell and its output can be pasted whole into a report.
+smart-doctor() {
+    emulate -L zsh
+    setopt localoptions extended_glob
+    local n_foreign=0 fn body st km w
+    local -a hits
+
+    print -r -- "zsh-smart-complete doctor"
+    print -r -- "  zsh ${ZSH_VERSION}   term ${TERM:-?}   ${COLUMNS:-?}x${LINES:-?}"
+    print -r -- ""
+
+    # --- 1. completion entry points ----------------------------------------
+    print -r -- "1. completion entry points (stock reads as 'builtin autoload')"
+    for fn in _main_complete compadd _complete; do
+        if (( ! ${+functions[$fn]} )); then
+            # `compadd` is a BUILTIN (only callable from inside a completion
+            # widget), so being absent from `functions` is the healthy state.
+            # It appears there only when a plugin has shadowed it with a
+            # function — which is fzf-tab's signature.
+            if [[ "$fn" == compadd ]]; then
+                print -r -- "   ok   ${fn} -- untouched builtin"
+            else
+                print -r -- "   .    ${fn} -- absent (compinit has not run yet)"
+            fi
+            continue
+        fi
+        body="${functions[$fn]}"
+        if [[ "$body" == *autoload* ]]; then
+            print -r -- "   ok   ${fn} -- stock"
+        else
+            print -r -- "   [!]  ${fn} -- REDEFINED: ${${body//$'\n'/ }[1,64]}"
+            n_foreign=$(( n_foreign + 1 ))
+        fi
+    done
+
+    # --- 2. known listers, by function-name fingerprint --------------------
+    print -r -- ""
+    print -r -- "2. other listers loaded in this shell"
+    _doc_prefix() {   # <label> <name-prefix>
+        local -a h=( ${(M)${(k)functions}:#${2}*} )
+        if (( ${#h} )); then
+            print -r -- "   [!]  ${1} -- ${#h} function(s), e.g. ${h[1]}"
+            return 1
+        fi
+        print -r -- "   ok   ${1} -- absent"
+        return 0
+    }
+    _doc_prefix "zsh-autocomplete"        "_autocomplete__"      || n_foreign=$(( n_foreign + 1 ))
+    _doc_prefix "zsh-autosuggestions"     "_zsh_autosuggest_"    || n_foreign=$(( n_foreign + 1 ))
+    _doc_prefix "fzf-tab"                 "_ftb"                 || n_foreign=$(( n_foreign + 1 ))
+    _doc_prefix "syntax-highlighting"     "_zsh_highlight"       || n_foreign=$(( n_foreign + 1 ))
+    # A widget is how the completion UI usually takes over the key.
+    # Only OUR widget and foreign completers are interesting here; zsh's own
+    # `expand-or-complete` lives in every shell and would just be noise.
+    for w in fzf-tab-complete _smart_menu_list _autocomplete__complete; do
+        (( ${+widgets[$w]} )) && print -r -- "   widget registered: ${w}"
+    done
+
+    # --- 3. who owns Tab ---------------------------------------------------
+    print -r -- ""
+    print -r -- "3. Tab (^I) binding per keymap"
+    for km in emacs viins main; do
+        w="$(bindkey -M "$km" '^I' 2>/dev/null)"
+        w="${w##* }"; w="${w//\"/}"
+        print -r -- "   ${km} -> ${w:-(unbound)}"
+    done
+
+    # --- 4. zstyles that can enable a list ---------------------------------
+    print -r -- ""
+    print -r -- "4. zstyles that can put a list on screen"
+    for st in menu completer matcher-list list-colors; do
+        local -a v=()
+        zstyle -a ":completion:*" "$st" v 2>/dev/null
+        if (( ${#v} )); then
+            print -r -- "   ${st} = ${(j:|:)v}"
+        else
+            print -r -- "   ${st} = (unset)"
+        fi
+    done
+
+    # --- 5. our own side ---------------------------------------------------
+    print -r -- ""
+    print -r -- "5. zsh-smart-complete"
+    if (( ${+widgets[_smart_menu_list]} )); then
+        print -r -- "   ok   listing widget registered"
+    else
+        print -r -- "   [!]  listing widget NOT registered (module not loaded?)"
+    fi
+    print -r -- "   SMART_MENU=${SMART_MENU:-true}  SMART_MENU_SINGLE_COLUMN=${SMART_MENU_SINGLE_COLUMN:-true}  SMART_NATIVE_MENU_SELECT=${SMART_NATIVE_MENU_SELECT:-false}"
+    if (( ${+widgets[_smart_menu_list]} )); then
+        print -r -- "   last listing: matches=${_SMART_MENU_NMATCHES} listed=${_SMART_MENU_LISTED} ticks=${_SMART_MENU_TICKS}"
+    fi
+
+    # --- 6. verdict --------------------------------------------------------
+    print -r -- ""
+    if (( n_foreign == 0 )); then
+        print -r -- "VERDICT: only zsh's own completion and this plugin are in play."
+        print -r -- "         If two lists still appear, the second one is NOT coming"
+        print -r -- "         from the completion system (see section 3: another widget"
+        print -r -- "         may own Tab)."
+    else
+        print -r -- "VERDICT: ${n_foreign} foreign completion hook(s) found above."
+        print -r -- "         Each can draw a list of its own. That is the first place"
+        print -r -- "         to look for a second popup: disable one and retype."
+        print -r -- "         ('smart-menu off' isolates this plugin's side.)"
+    fi
+    print -r -- ""
+    print -r -- "Note: this plugin NEVER redefines _main_complete/compadd, so a stock"
+    print -r -- "      entry point above is the expected, healthy result."
     return 0
 }

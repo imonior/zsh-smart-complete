@@ -133,6 +133,19 @@ setopt extended_glob no_warn_create_global
 # re-render cost and the prompt problem come from).
 : ${SMART_MENU_MAX_MATCHES:=100}
 
+# Single-column (vertical) layout for the live type-to-popup. Default ON.
+#
+# When true, candidates are drawn ONE PER LINE (a vertical list below the
+# line) instead of zsh's native multi-column grid. The candidate list is
+# generated directly for the common cases — commands, filesystem paths and
+# `cd` recent-directories — so it does NOT depend on intercepting zsh's
+# `compadd` (which, on several zsh builds, silently stops adding matches the
+# moment `compadd` is shadowed by a function, making reliable capture
+# impossible). Pressing Tab still runs the FULL native completion, so git
+# subcommands / ssh hosts / … remain reachable; set this to false to keep the
+# native multi-column grid for the popup too.
+: ${SMART_MENU_SINGLE_COLUMN:=true}
+
 # Prefix-search history on ↑ / ↓ while the popup is enabled (opt-in).
 #
 # false (default) = ↑ / ↓ keep their native behaviour (plain history

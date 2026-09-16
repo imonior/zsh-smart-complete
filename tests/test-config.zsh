@@ -21,7 +21,8 @@ print -r -- "=== 场景 1: 默认值 ==="
 () {
     local -a vars=(SMART_ENABLED SMART_SUGGEST SMART_COMPLETE SMART_HISTORY_BACKEND
         SMART_INLINE SMART_SUGGEST_MAX SMART_HISTORY_REBUILD_EVERY
-        SMART_SUGGEST_HISTORY_LIMIT SMART_SUGGEST_COLOR SMART_KEYMAP_SCOPE)
+        SMART_SUGGEST_HISTORY_LIMIT SMART_SUGGEST_COLOR SMART_KEYMAP_SCOPE
+        SMART_MENU_SINGLE_COLUMN)
     local v
     for v in "${vars[@]}"; do unset "$v" 2>/dev/null; done
     source "${ROOT}/lib/config.zsh"
@@ -35,6 +36,9 @@ print -r -- "=== 场景 1: 默认值 ==="
     assert_eq "SMART_REBUILD default"       "$SMART_HISTORY_REBUILD_EVERY" "500"
     assert_eq "SMART_SUGGEST_COLOR default" "$SMART_SUGGEST_COLOR"        "fg=8"
     assert_eq "SMART_KEYMAP_SCOPE default"  "$SMART_KEYMAP_SCOPE"         "both"
+    # The live popup draws one candidate per line by default (single column /
+    # vertical), rather than zsh's native multi-column grid.
+    assert_eq "SMART_MENU_SINGLE_COLUMN default" "$SMART_MENU_SINGLE_COLUMN" "true"
 }
 
 print -r -- ""
@@ -42,6 +46,7 @@ print -r -- "=== 场景 2: 用户预设置覆盖 ==="
 () {
     SMART_ENABLED=false; SMART_SUGGEST=false; SMART_HISTORY_BACKEND=atuin
     SMART_INLINE=false; SMART_KEYMAP_SCOPE=emacs; SMART_SUGGEST_COLOR="fg=245,bold"
+    SMART_MENU_SINGLE_COLUMN=false
     source "${ROOT}/lib/config.zsh"
     assert_eq "SMART_ENABLED overridden"    "$SMART_ENABLED"             "false"
     assert_eq "SMART_SUGGEST overridden"    "$SMART_SUGGEST"             "false"
@@ -49,6 +54,9 @@ print -r -- "=== 场景 2: 用户预设置覆盖 ==="
     assert_eq "SMART_INLINE overridden"     "$SMART_INLINE"              "false"
     assert_eq "SMART_KEYMAP_SCOPE emacs"    "$SMART_KEYMAP_SCOPE"        "emacs"
     assert_eq "SMART_SUGGEST_COLOR kept"    "$SMART_SUGGEST_COLOR"       "fg=245,bold"
+    # `:=` means a user's explicit false must survive: opting back into the
+    # native multi-column grid has to be possible.
+    assert_eq "SMART_MENU_SINGLE_COLUMN kept false" "$SMART_MENU_SINGLE_COLUMN" "false"
 }
 
 print -r -- ""

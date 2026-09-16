@@ -44,6 +44,8 @@ typeset -g _SMART_EVT_ORIG_SELF_EMACS=""
 typeset -g _SMART_EVT_ORIG_SELF_VIINS=""
 typeset -g _SMART_EVT_ORIG_BACKDEL_EMACS=""
 typeset -g _SMART_EVT_ORIG_BACKDEL_VIINS=""
+typeset -g _SMART_EVT_ORIG_DEL_EMACS=""
+typeset -g _SMART_EVT_ORIG_DEL_VIINS=""
 typeset -g _SMART_EVT_ORIG_FWDCHAR_EMACS=""
 typeset -g _SMART_EVT_ORIG_FWDCHAR_VIINS=""
 typeset -g _SMART_EVT_ORIG_KILLWORD_EMACS=""
@@ -165,6 +167,10 @@ _smart_event_capture_originals() {
     [[ -z "$_SMART_EVT_ORIG_BACKDEL_EMACS" ]] && _SMART_EVT_ORIG_BACKDEL_EMACS="backward-delete-char"
     _SMART_EVT_ORIG_BACKDEL_VIINS=$(_smart_evt_binding viins "^?")
     [[ -z "$_SMART_EVT_ORIG_BACKDEL_VIINS" ]] && _SMART_EVT_ORIG_BACKDEL_VIINS="backward-delete-char"
+    _SMART_EVT_ORIG_DEL_EMACS=$(_smart_evt_binding emacs "^[[3~")
+    [[ -z "$_SMART_EVT_ORIG_DEL_EMACS" ]] && _SMART_EVT_ORIG_DEL_EMACS="delete-char"
+    _SMART_EVT_ORIG_DEL_VIINS=$(_smart_evt_binding viins "^[[3~")
+    [[ -z "$_SMART_EVT_ORIG_DEL_VIINS" ]] && _SMART_EVT_ORIG_DEL_VIINS="delete-char"
 
     _SMART_EVT_ORIG_FWDCHAR_EMACS=$(_smart_evt_binding emacs "^[[C")
     [[ -z "$_SMART_EVT_ORIG_FWDCHAR_EMACS" ]] && _SMART_EVT_ORIG_FWDCHAR_EMACS="forward-char"
@@ -332,6 +338,16 @@ _smart_widget_backward_delete_char() {
     _smart_evt_after_edit_all
 }
 zle -N _smart_widget_backward_delete_char 2>/dev/null
+_smart_widget_delete_char() {
+    local km="${KEYMAP:-emacs}"
+    case "$km" in
+        viins|main) _smart_evt_dispatch "$_SMART_EVT_ORIG_DEL_VIINS" delete-char ;;
+        *)          _smart_evt_dispatch "$_SMART_EVT_ORIG_DEL_EMACS" delete-char ;;
+    esac
+    (( ${+functions[_smart_native_reset_completion]} )) && _smart_native_reset_completion 2>/dev/null
+    _smart_evt_after_edit_all
+}
+zle -N _smart_widget_delete_char 2>/dev/null
 
 _smart_widget_forward_char() {
     # → key. If:
@@ -622,6 +638,8 @@ _smart_event_bind() {
 
         # Backspace (^? = 127)
         bindkey -M "$km" "^?" _smart_widget_backward_delete_char 2>/dev/null
+        # Delete (^[[3~ = ESC [ 3 ~ = forward delete)
+        bindkey -M "$km" "^[[3~" _smart_widget_delete_char 2>/dev/null
 
         # → (every encoding the terminal may use: CSI and SS3/application
         # cursor keys). Accepts the inline suggestion at end of line.
@@ -730,6 +748,11 @@ _smart_event_unbind() {
             viins)  w="$_SMART_EVT_ORIG_BACKDEL_VIINS" ;;
         esac
         [[ -n "$w" ]] && bindkey -M "$km" "^?" "$w" 2>/dev/null || bindkey -M "$km" "^?" backward-delete-char 2>/dev/null
+        case "$km" in
+            emacs)  w="$_SMART_EVT_ORIG_DEL_EMACS" ;;
+            viins)  w="$_SMART_EVT_ORIG_DEL_VIINS" ;;
+        esac
+        [[ -n "$w" ]] && bindkey -M "$km" "^[[3~" "$w" 2>/dev/null || bindkey -M "$km" "^[[3~" delete-char 2>/dev/null
 
         case "$km" in
             emacs)  w="$_SMART_EVT_ORIG_FWDCHAR_EMACS" ;;

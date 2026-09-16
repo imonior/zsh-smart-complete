@@ -71,6 +71,10 @@ assert_fn_exists _smart_menu_word
 assert_fn_exists _smart_menu_is_command_word
 assert_fn_exists _smart_menu_should_list
 assert_fn_exists _smart_menu_list_main
+assert_fn_exists _smart_menu_candidates
+assert_fn_exists _smart_menu_single_display
+assert_fn_exists _smart_menu_draw_single
+assert_fn_exists smart-doctor
 assert_fn_exists _smart_menu_tick
 assert_fn_exists _smart_menu_clear
 assert_fn_exists _smart_display_accept_word
@@ -101,6 +105,9 @@ assert_eq "SMART_MENU_DEBUG default is empty" "${SMART_MENU_DEBUG}" ""
 assert_eq "SMART_MENU_MAX_MATCHES default is a real cap" "${SMART_MENU_MAX_MATCHES}" "100"
 # Prefix history search must be OPT-IN: it rebinds a key with strong muscle memory.
 assert_eq "SMART_MENU_HISTORY_KEYS default is off" "${SMART_MENU_HISTORY_KEYS}" "false"
+# Single-column (vertical) layout is the DEFAULT: the live popup draws one
+# candidate per line instead of zsh's native multi-column grid.
+assert_eq "SMART_MENU_SINGLE_COLUMN default is true" "${SMART_MENU_SINGLE_COLUMN}" "true"
 assert_eq "SMART_SUGGEST_STRATEGY default is history" "${SMART_SUGGEST_STRATEGY}" "history"
 # recent directories: on by default (it is the one place where a list on an
 # empty word is what the user actually wants), data read-only.
@@ -439,6 +446,202 @@ smart-suggestion-toggle >/dev/null 2>&1
 assert_eq "suggestion-toggle turns the ghost off" "${SMART_INLINE}" "false"
 smart-suggestion-toggle >/dev/null 2>&1
 assert_eq "suggestion-toggle turns it back on"    "${SMART_INLINE}" "true"
+
+
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+print -r -- ""
+print -r -- "=== 场景 13b: smart-doctor（第二列表器诊断）==="
+# When two candidate lists appear at once, the argument about WHICH code drew
+# the second one is settled by evidence, not opinion. smart-doctor prints the
+# fingerprints of every known lister. It must run read-only, never crash, and
+# reach a verdict even in a bare shell.
+_doctor_out="$(smart-doctor 2>&1)"
+assert_eq "smart-doctor exits cleanly"            "$?" "0"
+assert_eq "smart-doctor reports a verdict" \
+    "$([[ "$_doctor_out" == *"VERDICT:"* ]] && print yes || print no)" "yes"
+assert_eq "smart-doctor names the stock entry points" \
+    "$([[ "$_doctor_out" == *"_main_complete"* ]] && print yes || print no)" "yes"
+# It must judge a stock shell as clean: this plugin never redefines
+# _main_complete/compadd, so a bare-ish shell has zero foreign hooks. If this
+# starts failing, either the plugin began hijacking completion (a real
+# regression) or the detector became desensitised.
+assert_eq "bare shell -> no foreign completion hook" \
+    "$([[ "$_doctor_out" == *"only zsh's own completion"* ]] && print yes || print no)" "yes"
+# ...and it must still PRINT the fingerprints when one IS present.
+_main_complete() { return 1 }
+_doctor2="$(smart-doctor 2>&1)"
+assert_eq "redefined _main_complete is detected" \
+    "$([[ "$_doctor2" == *"REDEFINED"* ]] && print yes || print no)" "yes"
+assert_eq "detected hook changes the verdict" \
+    "$([[ "$_doctor2" == *"foreign completion hook"* ]] && print yes || print no)" "yes"
+unfunction _main_complete 2>/dev/null
+
+print -r -- ""
+print -r -- "=== 场景 14: 单列（垂直）候选生成 + 单列不变式 ==="
+# SMART_MENU_SINGLE_COLUMN draws ONE candidate per line. The candidates are
+# GENERATED here (functions/aliases + filesystem paths) instead of captured
+# from compsys, because shadowing `compadd` with a function makes some zsh
+# builds stop adding matches altogether (measured), which would silently empty
+# the popup. These assertions pin the generator's contract.
+
+function zsc_probe_alpha() { return 0 }
+function zsc_probe_beta()  { return 0 }
+alias    zsc_probe_gamma='true'
+
+# --- 14a: command word -> matches the typed prefix, nothing else -------------
+LBUFFER="zsc_probe_"
+_smart_menu_candidates
+local _has_a=0 _has_b=0 _has_g=0 _x _stray=0
+for _x in "${_SMART_MENU_CAND[@]}"; do
+    case "$_x" in
+        zsc_probe_alpha) _has_a=1 ;;
+        zsc_probe_beta)  _has_b=1 ;;
+        zsc_probe_gamma) _has_g=1 ;;
+    esac
+    [[ "$_x" == zsc_probe_* ]] || _stray=1
+done
+assert_eq "command word finds function zsc_probe_alpha" "$_has_a" "1"
+assert_eq "command word finds function zsc_probe_beta"  "$_has_b" "1"
+assert_eq "command word finds alias    zsc_probe_gamma"  "$_has_g" "1"
+assert_eq "command word: no candidate outside the typed prefix" "$_stray" "0"
+
+# --- 14b: narrowing the typed word narrows the candidate list ---------------
+LBUFFER="zsc_probe_alpha"
+_smart_menu_candidates
+assert_eq "narrowed word -> exactly one candidate" "${#_SMART_MENU_CAND}" "1"
+assert_eq "narrowed word -> the right candidate" "${_SMART_MENU_CAND[1]}" "zsc_probe_alpha"
+
+# --- 14c: de-duplication (commands / functions / aliases overlap) -----------
+LBUFFER="zsc_probe_"
+_smart_menu_candidates
+local -a _dd=( ${(@u)_SMART_MENU_CAND} )
+assert_eq "candidates are de-duplicated" "${#_SMART_MENU_CAND}" "${#_dd}"
+
+# --- 14d: argument word -> filesystem paths ---------------------------------
+local _zdir; _zdir="$(mktemp -d "${TMPDIR:-/tmp}/zsc_cand.XXXXXX")"
+mkdir -p "$_zdir/zdir_probe"
+touch "$_zdir/zscf_one" "$_zdir/zscf_two" "$_zdir/zscf_three"
+local _zold="$PWD"
+cd "$_zdir"
+LBUFFER="cat zscf_"
+_smart_menu_candidates
+if (( ${#_SMART_MENU_CAND} == 3 )); then
+    (( PASS++ )); print -r -- "  PASS  argument word -> 3 path candidates"
+else
+    (( FAIL++ )); print -r -- "  FAIL  argument word -> ${#_SMART_MENU_CAND} candidates (want 3): ${(j:,:)_SMART_MENU_CAND}" >&2
+fi
+local _pall=1
+for _x in "${_SMART_MENU_CAND[@]}"; do
+    [[ "$_x" == zscf_* ]] || _pall=0
+done
+assert_eq "path candidates are prefix-filtered too" "$_pall" "1"
+
+# --- 14d-bis: a typed glob character must NOT abort the generator -----------
+# The typed word is user input feeding a glob pattern. `[` used to build `[*`,
+# and a bad pattern is not a nomatch — it aborts the whole function AND prints
+# "bad pattern:" at the user, once per keystroke. This is the regression.
+local _gerr; _gerr="$(mktemp)"
+local _bad _still_ok=1
+for _bad in '[' 'a[b' '[x' ']' 'x[y' '*'; do
+    LBUFFER="cat $_bad"
+    _smart_menu_candidates 2>"$_gerr"
+    # A surviving call proves no abort: the generator must still be callable.
+    [[ -z "$(cat "$_gerr")" ]] || _still_ok=0
+done
+assert_eq "a typed glob char produces no error output" "$(cat "$_gerr")" ""
+assert_eq "a typed glob char does not abort the generator" "$_still_ok" "1"
+# ...and the generator still works immediately afterwards.
+LBUFFER="cat zscf_"
+_smart_menu_candidates
+assert_eq "generator still functional after glob chars" "${#_SMART_MENU_CAND}" "3"
+# A literal glob char must not be treated AS a glob: `cat a[b` may not return
+# the file `aXb` merely because the pattern could match it.
+touch "$_zdir/aXb"
+LBUFFER="cat a[b"
+_smart_menu_candidates
+assert_eq "a glob char is matched literally, not as a pattern" \
+    "${#_SMART_MENU_CAND}" "0"
+rm -f "$_zdir/aXb" "$_gerr"
+
+# --- 14d-ter: a leading `~/` must survive escaping --------------------------
+# `${(b)…}` escapes `~`, which would silently kill every `~/` candidate — a very
+# common prefix. The generator therefore keeps a leading `~/` raw. Guard it,
+# because "the popup quietly became a grid for ~/ paths" is invisible in review.
+local _home_save="$HOME"
+HOME="$_zdir"; export HOME
+mkdir -p "$_zdir/zscf_homedir"
+LBUFFER="cat ~/zscf_home"
+_smart_menu_candidates
+assert_eq "~/ prefix still expands (tilde is not escaped)" \
+    "${#_SMART_MENU_CAND}" "1"
+assert_eq "~/ prefix resolves to the home directory" \
+    "${_SMART_MENU_CAND[1]}" "$_zdir/zscf_homedir"
+HOME="$_home_save"; export HOME
+rmdir "$_zdir/zscf_homedir" 2>/dev/null
+
+# --- 14e: an unmatched word yields NOTHING, so the native list can take over -
+# This is the fall-through contract: when the generator has no candidates the
+# listing widget must run the user's real completion instead (git subcommands,
+# ssh hosts, ...). An empty candidate list is what triggers that path.
+LBUFFER="cat zscf_nonexistent"
+_smart_menu_candidates
+assert_eq "unmatched word -> empty candidate list (-> native fall-through)" \
+    "${#_SMART_MENU_CAND}" "0"
+
+# --- 14f: THE single-column invariant ---------------------------------------
+# zsh's list renderer derives its column count from the widest DISPLAY string.
+# Padding every display string to the full terminal width is therefore what
+# forces exactly ONE column -- it is the whole mechanism behind "单列多行", so
+# assert it arithmetically rather than trusting the popup to look right.
+local _cols_save="${COLUMNS:-}"
+COLUMNS=80
+export COLUMNS
+_SMART_MENU_CAND=( alpha zdir_probe )
+_smart_menu_single_display
+assert_eq "one display string per candidate" "${#_SMART_MENU_DISP}" "${#_SMART_MENU_CAND}"
+assert_eq "flat candidate padded to terminal width" "${#_SMART_MENU_DISP[1]}" "80"
+assert_eq "dir candidate padded to terminal width"  "${#_SMART_MENU_DISP[2]}" "80"
+if [[ "${_SMART_MENU_DISP[2]}" == "${_SMART_MENU_CAND[2]}/"* ]]; then
+    (( PASS++ )); print -r -- "  PASS  directory display keeps a trailing slash"
+else
+    (( FAIL++ )); print -r -- "  FAIL  directory display lost its trailing slash" >&2
+fi
+# zsh's (r.W..) both PADS to W and CLIPS anything longer, so the real invariant
+# is exact: EVERY display string is exactly COLUMNS wide. That is what pins the
+# grid to one column, and clipping (rather than wrapping) is what keeps a very
+# long path on a single line.
+COLUMNS=10; export COLUMNS
+_SMART_MENU_CAND=( zscf_a_very_long_candidate_name )
+_smart_menu_single_display
+assert_eq "an over-long candidate is clipped to one terminal width" \
+    "${#_SMART_MENU_DISP[1]}" "10"
+# Clipping is a DISPLAY concern only: the text actually inserted must survive
+# whole, or completing a long filename would insert a mangled name.
+assert_eq "clipping the display leaves the inserted candidate intact" \
+    "${_SMART_MENU_CAND[1]}" "zscf_a_very_long_candidate_name"
+# Every row is exactly COLUMNS wide, for a mixed list of short/long entries.
+COLUMNS=30; export COLUMNS
+_SMART_MENU_CAND=( ab a_much_longer_candidate_than_thirty_cols cd )
+_smart_menu_single_display
+local _wi _allw=1
+for _wi in "${_SMART_MENU_DISP[@]}"; do
+    (( ${#_wi} == 30 )) || _allw=0
+done
+assert_eq "every display string is exactly COLUMNS wide" "$_allw" "1"
+# Degenerate COLUMNS (unset / 0 / non-numeric) must fall back to 80, not crash.
+COLUMNS=0; export COLUMNS
+_SMART_MENU_CAND=( alpha )
+_smart_menu_single_display
+assert_eq "COLUMNS=0 falls back to 80" "${#_SMART_MENU_DISP[1]}" "80"
+
+# --- restore ----------------------------------------------------------------
+if [[ -n "$_cols_save" ]]; then COLUMNS="$_cols_save"; export COLUMNS; else unset COLUMNS; fi
+_SMART_MENU_CAND=(); _SMART_MENU_DISP=()
+cd "$_zold"
+rm -rf "$_zdir"
+unfunction zsc_probe_alpha zsc_probe_beta 2>/dev/null
+unalias    zsc_probe_gamma 2>/dev/null
 
 print -r -- ""
 print -r -- "=== TOTAL: $PASS passed, $FAIL failed ==="

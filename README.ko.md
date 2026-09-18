@@ -3,7 +3,7 @@
 > Zsh 용 현대적인 스마트 완성 및 제안 레이어.
 > 미래의 독립 셸 프런트엔드로 설계됨.
 >
-> **v2.2.5** — 설치기 충돌 검출의 오탐 2건을 수정: zinit 디렉터리 검색은 이제 `.bak.*` 백업 디렉터리를 건너뜁니다(더 이상 "충돌이 남아 있다"고 오보하지 않으며, 삭제 확인 시 백업을 지우지도 않습니다); 기타 시작 파일에 대한 읽기 전용 검색은 `fzf-tab` 을 충돌로 보지 않습니다——`fzf-tab` 은 지원되는 대체 리스터(`SMART_MENU_LISTER=fzf-tab`)이므로 충돌로 표시하면 출시된 통합과 모순됩니다. 설치기는 `.zprofile` / `.zshenv` / `conf.d` / `.zshrc.d` 도 검색하여, 그곳에 남은 `zsh-autocomplete` / `zsh-autosuggestions` 로드 행을 수동으로 정리하라고 경고합니다(읽기 전용, 이 파일들은 절대 편집하지 않습니다).
+> **v2.2.6** — 인라인 회색 제안은 후보 목록을 그릴 때도 색을 유지하며, zsh-syntax-highlighting / fast-syntax-highlighting 공존에 호환 훅도 필요 없습니다: `region_highlight` 마커를 zsh가 그대로 보존하는 `memo=` 토큰으로 바꾸고, 목록을 다시 그릴 때마다 항목을 다시 써 잘리지 않습니다. 설치기는 파이프로 완전 동작합니다: `curl -fsSL .../install.sh | bash` 는 모든 프롬프트에서 입력을 기다립니다(`/dev/tty` 에서 읽음). 스크립트가 커널의 128 KiB argv 한도를 넘어 "argument list too long" 으로 깨지던 옛 `bash -c` 형식을 대체합니다. 동봉된 starship 템플릿의 파싱 오류도 수정했습니다(`$username › $directory`).
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------ | ------ |
 | 빌드 및 테스트 (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | 릴리스 | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| 버전 | 2.2.5 |
+| 버전 | 2.2.6 |
 
 ## 왜 이 플러그인인가
 
@@ -74,8 +74,9 @@ compinit
 #### 방법 A — 원라인 설치기 (권장)
 
 ```zsh
-bash <(curl -fsSL https://raw.githubusercontent.com/imonior/zsh-smart-complete/main/install.sh)
+curl -fsSL https://raw.githubusercontent.com/imonior/zsh-smart-complete/main/install.sh | bash
 ```
+대화형 프롬프트는 `/dev/tty` 에서 읽으므로 stdin 이 스크립트 자체여도 메뉴가 입력을 기다립니다.
 
 #### 방법 B — Zinit
 
@@ -95,7 +96,7 @@ echo 'source ~/.zsh-smart-complete/zsh-smart-complete.plugin.zsh' >> ~/.zshrc
 설치 프로그램이 외부 IP 소속을 먼저 자동 감지해 알려주며, 소속은 **어떤 후보를 보여줄지**를 결정합니다: 중국 본토 / 감지 실패라면 모든 후보를 표시하고 모든 후보(**direct 포함**)의 속도를 측정합니다(direct 가 실제로 더 빠른지는 지역으로 추측할 것이 아니라 실측해야 하기 때문입니다). **중국 본토 외라면 모든 프리셋 미러를 숨기고** direct 만 남깁니다 — 그 ghproxy / gitclone 경로는 중국 본토 전용이라 이 지역에서는 direct 보다 느린 경우가 많습니다. 다만 중국 본토 외에서도 **direct 는 여전히 속도 측정**하며, 두 가지 수동 입력도 항상 남아 있습니다: **미러 소스**(GitHub URL 재작성)와 **전체 프록시**(`HTTP_PROXY`/`HTTPS_PROXY` 로 내보내 curl/git/wget 의 모든 요청이 통과하도록 함. 예: `http://127.0.0.1:7890`). 사전 정의된 미러는 「중국 본토용」으로 표시됩니다. 아래 명령은 비대화형 설치에서만 필요합니다.
 
 ```zsh
-SMART_INSTALL_GH_MIRROR=https://ghproxy.net/ bash -c "$(curl -fsSL https://ghproxy.net/https://raw.githubusercontent.com/imonior/zsh-smart-complete/main/install.sh)"
+curl -fsSL https://ghproxy.net/https://raw.githubusercontent.com/imonior/zsh-smart-complete/main/install.sh | SMART_INSTALL_GH_MIRROR=https://ghproxy.net/ bash
 ```
 
 ## 설정
@@ -306,12 +307,12 @@ zsh tests/test-recent.zsh
 bash tests/test-installer-options.sh
 ```
 
-**테스트 요약 （v2.2.5）：** 10개 파일, 671개 어설션, 전부 통과, 0 실패.
+**테스트 요약 （v2.2.6）：** 10개 파일, 700개 어설션, 전부 통과, 0 실패.
 설치기는 `~/.zshrc` 정리 후 `.zprofile`, `.zshenv`, `conf.d/*.zsh`, `.zshrc.d/*`, `/etc/zsh/zshrc` 같은 **다른 시작 파일**에 `zsh-autocomplete` / `zsh-autosuggestions` 로더 행이 남아 있는지도 **검사**하고, 있으면 정확한 `파일:행번호` 로 **경고**하여 수동 정리를 안내합니다 — 이 파일은 편집하지 않습니다. 자세한 내용은 CHANGELOG의 `[Unreleased]` 를 보세요.
 
 
 주요 동작은 tmux 페인 안의 실제 `zsh -i`에 대해 엔드투엔드로 검증되며, 렌더링된
-화면을 어설트합니다(41/41 그린). 같은 어설션은 v2.1.6에서는 **20/41** — 당시
+화면을 어설트합니다(47/47 그린). 같은 어설션은 v2.1.6에서는 **23/47** — 당시
 "입력하면 팝업되는 메뉴"는 존재하지 않았고, `SS3` 와 `Alt+→` 인코딩은 죽어 있었으며,
 `Tab` 후 `Enter` 는 삼켜지고, 최근 디렉터리는 나열되지 않았고, 목록 표시기 전환도,
 단일 열 레이아웃도 없었습니다. 그 20개 통과 중 **2개는 헛돌이**입니다 — "목록을 그리지
@@ -320,7 +321,7 @@ bash tests/test-installer-options.sh
 이 하니스는 저장소에 포함됩니다(`tmux` 없으면 자동 스킵):
 
 ```zsh
-./tests/e2e-tmux.sh                              # 41 어설션
+./tests/e2e-tmux.sh                              # 47 어설션
 ./tests/e2e-tmux.sh /tmp/zsc-v216               # 이전 릴리스와 A/B
 ```
 

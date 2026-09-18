@@ -13,7 +13,7 @@ add_newline = false
 # otherwise TOML nests them under the previous table and starship ignores them.
 # The literal newline splits the info line from the input line.
 format = """
-[$user] › $directory
+$username › $directory
 $character"""
 
 # User - icon + name, green (red for root)

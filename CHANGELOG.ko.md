@@ -5,6 +5,14 @@
 형식은 [Keep a Changelog](https://keepachangelog.com/)을 따르며, 이 프로젝트는
 [의미론적 버전](https://semver.org/lang/ko/)을 준수합니다.
 
+## [v2.2.6] - 2026-09-19
+
+### 수정
+- **인라인 회색 제안이 색을 잃고, 키 입력마다 좀비 하이라이트 항목이 쌓였습니다.** 플러그인의 `region_highlight` 처리에 있는 두 가지 결함으로, 모두 색을 인식하는 tmux 프로브로 입증했습니다. 1) 항목을 식별하던 마커가 `#주석` 토큰이었는데 zsh는 다시 그릴 때마다 `region_highlight`에서 주석 텍스트를 버립니다 — 이전 항목을 거르는 필터가 더 이상 일치하지 않아 입력마다 불필요한 항목이 쌓였습니다(실측: 5키 -> 8개, fast-syntax-highlighting 로드 시 -> 171개). 이제 zsh가 그대로 보존하는 `memo=` 토큰을 사용합니다. 2) 후보 목록을 그리면 zsh가 행을 다시 렌더링하면서 POSTDISPLAY에 걸친 하이라이트 항목을 BUFFER 끝으로 잘라냅니다(길이 0 = 무색). 플러그인은 이제 목록을 그린 직후 그 항목을 다시 씁니다 — 추가 재렌더링 없이 목록은 그대로 유지됩니다. zsh-syntax-highlighting 과 fast-syntax-highlighting 모두에서 검증했습니다: 올바르게 공존하며 호환 훅이 필요 없습니다 — 이전의 "F-Sy-H 는 외부 항목을 지운다"는 결론은 틀렸습니다.
+- **`bash -c "$(curl -fsSL .../install.sh)"` 이 `argument list too long: bash` 로 실패.** install.sh 가 Linux 의 인수당 128 KiB 한도(`MAX_ARG_STRLEN`)를 초과했습니다. 모든 문서는 파이프 형식 `curl -fsSL .../install.sh | bash`(미러 형식: `curl -fsSL .../install.sh | SMART_INSTALL_GH_MIRROR=... bash`)로 통일되어 스크립트를 argv 로 전달하지 않습니다.
+- **파이프로 넣으면 설치기 프롬프트가 입력을 기다리지 않음**(`curl ... | bash`): stdin 이 곧 스크립트이므로 일반 `read` 는 즉시 빈 줄을 반환하고 언어 / 프록시 / 미러 메뉴가 말없이 기본값을 택했습니다. 모든 대화형 읽기는 `/dev/tty` 를 다시 여는 `_tty_read` 로 통일했습니다. `BASH_SOURCE[0]` 도 가드했습니다 — stdin 으로 들어오면 설정되지 않습니다(`set -u` 에서는 즉시 중단, 가드가 없으면 `SCRIPT_DIR` 이 조용히 호출자의 현재 디렉터리가 됩니다).
+- **Starship 파싱 오류 `Error parsing "format": --> 1:7`(`[$user] › $directory`).** 두 오류가 겹쳤습니다: starship 최상위 `[텍스트]` 그룹에는 `(스타일)` 접미사가 필수이고, 최상위 변수명은 `$username` 입니다(`$user` 는 `[username]` 모듈 내부에서만 유효). 템플릿은 `$username › $directory` 로 바뀌었고, 두 복사본(예제 템플릿과 Entware 설치기의 인라인 복사본) 모두 실제 `starship` 바이너리로 렌더링하는 회귀 테스트로 고정했습니다.
+
 ## [v2.2.5] - 2026-09-19
 
 ### 추가

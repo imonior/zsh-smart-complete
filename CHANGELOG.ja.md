@@ -5,6 +5,14 @@
 フォーマットは [Keep a Changelog](https://keepachangelog.com/) に基づき、このプロジェクトは
 [セマンティックバージョニング](https://semver.org/lang/ja/) に準拠します。
 
+## [v2.2.6] - 2026-09-19
+
+### 修正
+- **インラインのグレー提案が色を失い、キー入力ごとにゾンビのハイライト項目が残っていました。** プラグインの `region_highlight` 処理にある 2 つの欠陥で、どちらも色を認識できる tmux プローブで実証しました。1) 項目を識別するマーカーが `#コメント` トークンでしたが、zsh は再描画のたびに `region_highlight` からコメント文字を捨てるため、前の項目を取り除くフィルタが一致しなくなり、入力ごとに不要項目が蓄積しました（実測：5 キー -> 8 項目、fast-syntax-highlighting 読み込み時 -> 171 項目）。現在は zsh がそのまま保持する `memo=` トークンを使います。2) 候補リストを描画すると zsh が行を再描画し、POSTDISPLAY に及ぶハイライト項目が BUFFER 末尾に切り詰められます（長さゼロ = 無色）。プラグインはリスト描画の直後にその項目を書き戻します——追加の再描画はなく、リストはそのまま残ります。zsh-syntax-highlighting と fast-syntax-highlighting の両方で検証済み：正しく共存でき、互換フックは不要です——以前の「F-Sy-H は他プラグインの項目を消す」という結論は誤りでした。
+- **`bash -c "$(curl -fsSL .../install.sh)"` が `argument list too long: bash` で失敗。** install.sh が Linux の 1 引数 128 KiB 上限（`MAX_ARG_STRLEN`）を超えました。すべてのドキュメントはパイプ形式 `curl -fsSL .../install.sh | bash`（ミラー形式：`curl -fsSL .../install.sh | SMART_INSTALL_GH_MIRROR=... bash`）に統一され、スクリプトを argv で渡しません。
+- **パイプで渡したときにインストーラーのプロンプトが入力を待たない**（`curl ... | bash`）：stdin はスクリプトそのものなので、普通の `read` は即座に空行を返し、言語 / プロキシ / ミラーのメニューが無言で既定値を採っていました。対話読み取りはすべて `/dev/tty` を開き直す `_tty_read` に統一しました。`BASH_SOURCE[0]` もガード済み——stdin で渡されると未設定になります（`set -u` では即中止、ガードがなければ `SCRIPT_DIR` が黙って呼び出し元のカレントディレクトリになります）。
+- **Starship の解析エラー `Error parsing "format": --> 1:7`（`[$user] › $directory`）。** 2 つの誤りの重複です：starship のトップレベル `[テキスト]` グループには `(スタイル)` 接尾辞が必須、そしてトップレベルの変数名は `$username`（`$user` は `[username]` モジュール内でのみ有効）。テンプレートは `$username › $directory` に変更し、両方のコピー（サンプルテンプレートと Entware インストーラーのインライン版）は実際の `starship` バイナリでレンダリングする回帰テストで固定しました。
+
 ## [v2.2.5] - 2026-09-19
 
 ### 追加

@@ -3,7 +3,7 @@
 > A modern smart completion & suggestion layer for Zsh.
 > Engineered as the frontend of a future independent shell.
 >
-> **v2.2.5** — Fixes false positives in the installer's conflict scanner: the zinit directory scan now skips `.bak.*` backup dirs (no longer misreported as "conflict still present", and no longer deleted when you confirm removal); the read-only scan of other startup files no longer flags `fzf-tab` as a conflict — `fzf-tab` is the supported alternative lister (`SMART_MENU_LISTER=fzf-tab`), so flagging it contradicts the shipped integration. The installer also now scans `.zprofile` / `.zshenv` / `conf.d` / `.zshrc.d` and warns you to clean any leftover `zsh-autocomplete` / `zsh-autosuggestions` loaders there (read-only, it never edits those files).
+> **v2.2.6** — The inline grey suggestion keeps its colour even when a candidate list is drawn, and coexists with zsh-syntax-highlighting / fast-syntax-highlighting with no compatibility hook: the `region_highlight` marker is now a zsh-preserved `memo=` token and the entry is re-asserted after every list redraw instead of being clipped away. The installer is fully usable through a pipe: `curl -fsSL .../install.sh | bash` waits for every prompt (it reads from `/dev/tty`), replacing the old `bash -c` form, which broke with "argument list too long" once the script outgrew the kernel's 128 KiB argv limit. The bundled starship template no longer fails to parse (`$username › $directory`).
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------- | ------ |
 | Build & test (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | Release | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| Version | 2.2.5 |
+| Version | 2.2.6 |
 
 ## Why
 
@@ -74,8 +74,9 @@ compinit
 #### Method A — one-line installer (recommended)
 
 ```zsh
-bash <(curl -fsSL https://raw.githubusercontent.com/imonior/zsh-smart-complete/main/install.sh)
+curl -fsSL https://raw.githubusercontent.com/imonior/zsh-smart-complete/main/install.sh | bash
 ```
+Prompts are read from `/dev/tty`, so the interactive menus still work even though stdin is the script itself.
 
 #### Method B — Zinit
 
@@ -95,7 +96,7 @@ echo 'source ~/.zsh-smart-complete/zsh-smart-complete.plugin.zsh' >> ~/.zshrc
 The installer auto-detects your public-IP region and reports it. The region decides **which candidates are worth showing**: mainland China / not detected show every candidate and speed-test every candidate including direct (whether direct is really faster should be measured, not guessed from geography); **outside mainland China hides every preset mirror** and keeps only direct — those ghproxy / gitclone channels are mainland-only and are often slower than direct out there. Even outside mainland China, though, **direct is still speed-tested**, and both manual entries are always available: a **mirror source** (rewrites GitHub URLs) or a **full proxy** (exported as `HTTP_PROXY`/`HTTPS_PROXY` so curl/git/wget route everything through it, e.g. `http://127.0.0.1:7890`). Preset mirrors are labelled *China mainland only*. The snippets below are only needed for non-interactive installs.
 
 ```zsh
-SMART_INSTALL_GH_MIRROR=https://ghproxy.net/ bash -c "$(curl -fsSL https://ghproxy.net/https://raw.githubusercontent.com/imonior/zsh-smart-complete/main/install.sh)"
+curl -fsSL https://ghproxy.net/https://raw.githubusercontent.com/imonior/zsh-smart-complete/main/install.sh | SMART_INSTALL_GH_MIRROR=https://ghproxy.net/ bash
 ```
 
 ## Configuration
@@ -322,13 +323,13 @@ zsh tests/test-recent.zsh
 bash tests/test-installer-options.sh
 ```
 
-**Test summary (v2.2.5):** 10 test files, 671 assertions, all passing, 0 failures.
+**Test summary (v2.2.6):** 10 test files, 700 assertions, all passing, 0 failures.
 The installer also now **scans other startup files** (`.zprofile`, `.zshenv`, `conf.d/*.zsh`, `.zshrc.d/*`, `/etc/zsh/zshrc`) for left-over loaders of `zsh-autocomplete` / `zsh-autosuggestions` after cleaning `~/.zshrc`, and **warns** (with exact `file:line`) if it finds any — it never edits those files. See CHANGELOG `[Unreleased]`.
 
 
 Key behaviours are additionally verified end-to-end against a real `zsh -i` in a
-tmux pane, asserting on the rendered screen (41/41 green). The same assertions
-score **20/41 on v2.1.6**, where the type-to-popup does not exist, the `SS3` and
+tmux pane, asserting on the rendered screen (47/47 green). The same assertions
+score **23/47 on v2.1.6**, where the type-to-popup does not exist, the `SS3` and
 `Alt+→` encodings are dead, `Tab` followed by `Enter` is swallowed, recent
 directories are not listed, and neither the switch nor the opt-in single-column
 layout exists. Two of those twenty passes are *vacuous* — they assert that no list
@@ -342,7 +343,7 @@ list still "passes" every look-at-the-screen check. The harness ships in the rep
 (auto-skips without `tmux`):
 
 ```zsh
-./tests/e2e-tmux.sh                              # 41 assertions
+./tests/e2e-tmux.sh                              # 47 assertions
 ./tests/e2e-tmux.sh /tmp/zsc-v216               # A/B an older release
 ```
 

@@ -46,6 +46,22 @@ trap 'rm -rf "$TMP"' EXIT
 # ---------------------------------------------------------------------------
 extract_fn(){ sed -n "/^$1() {/,/^}/p" "$INSTALL"; }
 
+# ---------------------------------------------------------------------------
+# Drive the prompts from stdin, not from the terminal.
+#
+# The installer's prompts go through _tty_read, which re-opens /dev/tty as soon
+# as stdin is not a tty — that is what makes the documented `curl … | bash`
+# one-liner interactive, because there stdin IS the script. A test that feeds
+# answers with a heredoc is therefore indistinguishable from that situation, and
+# the real /dev/tty would block waiting for a human who is not there (measured:
+# the suite hung until it was killed).
+#
+# So the tty layer is replaced here and the answers keep coming from stdin. The
+# real behaviour — "with the script arriving on a pipe, a prompt must wait for
+# the terminal and use what was typed" — cannot be asserted without a terminal
+# and is covered on a real screen in tests/e2e-tmux.sh, scenario 14.
+_tty_read() { read "$@" ; }
+
 {
     # The answered-options defaults (everything from ZSC_OPT_MENU=1 up to and
     # including the one-line _zsc_bool helper).
@@ -258,19 +274,18 @@ echo "== 9. the Entware installer carries the same machinery =="
 # managed block must all be present there too.
 ENT="$REPO/install-entware.sh"
 if [ -f "$ENT" ]; then
-    for fn in build_smart_options _upsert_options_block ask_smart_options _zsc_bool; do
+    for fn in build_smart_options _upsert_options_block ask_smart_options _zsc_bool _tty_read; do
         if grep -q "^$fn() {" "$ENT"; then ok "entware defines $fn"; else no "entware is missing $fn"; fi
     done
     assert_has "entware has the options markers" "$ENT" 'OPT_BLOCK_BEGIN="# >>> zsh-smart-complete options (managed) >>>"'
     assert_has "entware writes the options block" "$ENT" '_upsert_options_block "$ZSHRC_FILE" "$(build_smart_options)"'
     assert_has "entware asks about fzf-tab" "$ENT" "opt.fzf_tab"
-    # The questionnaire must not use install.sh's /dev/tty reader: Entware has
-    # no _tty_read helper, so a copied call would break the prompts.
-    if grep -q '_tty_read -r REPLY' "$ENT"; then
-        no "entware questionnaire calls _tty_read (undefined there)"
-    else
-        ok "entware questionnaire uses a plain read"
-    fi
+    # BOTH installers route prompts through _tty_read. This used to assert the
+    # opposite ("entware has no _tty_read, so a copied call would break") — that
+    # assumption died with the piped installer: with `curl … | bash`, stdin IS
+    # the script, so a plain `read` returns an empty line immediately and every
+    # menu silently takes its default.
+    assert_has "entware questionnaire reads through _tty_read" "$ENT" '_tty_read -r REPLY'
     # And its own plugin-clone helper, since _ensure_zinit_plugin is install.sh-only.
     if grep -q '^_entware_ensure_zinit_plugin() {' "$ENT"; then
         ok "entware has its own zinit plugin helper"
@@ -732,6 +747,142 @@ if sed -n '/^_add_mirror "direct"/p' "$ENT" | grep -q '适用于中国大陆'; t
     no "entware: direct must not be annotated"
 else
     ok "entware: direct is not annotated"
+fi
+
+# ---------------------------------------------------------------------------
+echo "== 14. prompts survive the documented piped one-liner (curl | bash) =="
+# WHY THIS SECTION EXISTS
+#   The documented install command pipes the script into bash, which makes stdin
+#   BE the script. Bash reads it in chunks, so stdin is at EOF for whatever the
+#   script itself runs — and every plain `read` then returns an empty line at
+#   once: the language and mirror menus printed their prompt and instantly took
+#   the default (observed on a real Debian host). Reads that matter must go
+#   through _tty_read, which re-opens the controlling terminal.
+#
+#   A blanket "did the user mean to be asked?" check is impossible statically,
+#   so this asserts the two things that are: no interactive read bypasses the
+#   helper, and the helper itself is present in BOTH installers.
+bare_reads() {
+    # Interactive reads that bypass _tty_read. File loops (`while IFS= read`)
+    # and the helper's own body are not prompts.
+    awk '
+      /^[[:space:]]*#/ { next }
+      /^_tty_read\(\) \{/ { in_tty=1; next }
+      in_tty { if ($0 ~ /^\}/) in_tty=0; next }
+      /while IFS= read/ { next }
+      /_tty_read/ { next }
+      /(^|[;&|[:space:]])read[[:space:]]+-[a-zA-Z]/ { print FNR": "$0 }
+    ' "$1"
+}
+for f in "$INSTALL" "$ENT"; do
+    n_bare=$(bare_reads "$f" | wc -l | tr -d ' ')
+    if [ "$n_bare" -eq 0 ]; then
+        ok "$(basename "$f"): no prompt bypasses _tty_read"
+    else
+        no "$(basename "$f"): $n_bare prompt(s) still read stdin directly"
+        bare_reads "$f" | sed 's/^/    /' >&2
+    fi
+done
+# The self-test of that detector: it must actually fire on a plain read.
+printf 'echo -n "x: "; read -r ans\n' > "$TMP/bare-probe.sh"
+[ "$(bare_reads "$TMP/bare-probe.sh" | wc -l | tr -d ' ')" -eq 1 ] \
+    && ok "detector self-test: a plain read is reported" \
+    || no "detector self-test: a plain read went unnoticed (assertion is vacuous)"
+
+# An unguarded $BASH_SOURCE[0] is unset for a piped script, so `set -u` prints
+# "BASH_SOURCE[0]: unbound variable" and SCRIPT_DIR silently becomes the CWD.
+for f in "$INSTALL" "$ENT"; do
+    assert_has "$(basename "$f"): BASH_SOURCE is guarded" "$f" 'if [[ -n "${BASH_SOURCE[0]:-}" ]]; then'
+    if awk '/^SCRIPT_DIR="\$\( cd/' "$f" | grep -q .; then
+        no "$(basename "$f"): unguarded SCRIPT_DIR assignment still present"
+    else
+        ok "$(basename "$f"): SCRIPT_DIR is only assigned behind the guard"
+    fi
+done
+
+# ---------------------------------------------------------------------------
+echo "== 15. the docs quote an install command that actually runs =="
+# `bash -c "$(curl …)"` puts the whole script in argv; install.sh is >128 KB, so
+# it dies with "argument list too long". `bash <(curl …)` works but is bash/zsh
+# only. The docs therefore quote the portable pipe form everywhere — and if one
+# of them is ever copy-pasted back to an older form, this fails.
+for lang in "" ".zh-CN" ".zh-TW" ".ja" ".ko"; do
+    RD="$REPO/README$lang.md"
+    [ -f "$RD" ] || { no "README$lang.md is missing"; continue; }
+    assert_has  "README$lang: quotes the pipe form"   "$RD" 'install.sh | bash'
+    assert_lacks "README$lang: no bash -c \"\$(curl\"" "$RD" 'bash -c "$(curl'
+    assert_lacks "README$lang: no bash <(curl"        "$RD" 'bash <(curl'
+done
+
+# ---------------------------------------------------------------------------
+echo "== 16. the starship prompt template is valid TOML *and* valid starship syntax =="
+# The template ships to every user and is duplicated in two places (the example
+# file and install-entware.sh's heredoc), so a typo here reaches every install.
+# It has already been broken twice, in two different ways, and both are pinned:
+#
+#   1. `[$user]($style) …` — valid TOML, and starship accepts it, but it renders
+#      an EMPTY bracket: `$user` is not a top-level module name (the module is
+#      `username`). The "fix" for that then produced…
+#   2. `[$user] › $directory` — a BARE `[…]` group. Starship's format grammar
+#      (unlike TOML) requires every `[text]` to carry a `(style)` suffix, so this
+#      is a hard parse error: `Error parsing "format": --> 1:7`.
+#
+# So the invariant encoded here is: the top-level line names the MODULE
+# (`$username`) and contains no bare `[…]` group at all.
+STPL="$REPO/templates/starship.toml.example"
+tpl_fmt=""
+if [ -f "$STPL" ]; then
+    tpl_fmt="$(sed -n '/^format = """/,/^[$]character"""/p' "$STPL" | sed -n '2p')"
+    assert_eq "starship.toml.example: exact top-level format line" \
+              "$tpl_fmt" '$username › $directory'
+    case "$tpl_fmt" in
+        *'['*) no "starship.toml.example: format has a bare '[' group (starship needs [text](style))" ;;
+        *)     ok "starship.toml.example: format has no bare '[' group" ;;
+    esac
+    assert_lacks "starship.toml.example: no \$user module" "$STPL" '[$user]'
+else
+    no "templates/starship.toml.example is missing"
+fi
+
+# The entware heredoc is a second, independent copy — it must stay identical.
+if [ -f "$ENT" ] && grep -q "<<'TOML'" "$ENT"; then
+    sed -n "/<<'TOML'$/,/^TOML$/p" "$ENT" | sed '1d;$d' > "$TMP/starship.entware.toml"
+    if [ -s "$TMP/starship.entware.toml" ]; then
+        ent_fmt="$(sed -n '/^format = """/,/^[$]character"""/p' "$TMP/starship.entware.toml" | sed -n '2p')"
+        assert_eq "entware heredoc: same format line as the example" "$ent_fmt" "$tpl_fmt"
+    else
+        no "entware heredoc: could not extract the starship TOML"
+    fi
+else
+    no "install-entware.sh: starship TOML heredoc not found"
+fi
+
+# TOML validity first (the heredoc must actually load), then — where the real
+# binary is present — a real render, because only starship itself can tell a
+# valid-TOML-but-invalid-format string from a good one.
+if command -v python3 >/dev/null 2>&1 && [ -s "$TMP/starship.entware.toml" ]; then
+    if python3 - "$STPL" "$TMP/starship.entware.toml" 2>"$TMP/py.err" <<'PY'
+import sys, tomllib
+for p in sys.argv[1:]:
+    with open(p, "rb") as fh:
+        fmt = tomllib.load(fh)["format"].strip()
+    assert fmt == "$username \u203a $directory\n$character", (p, fmt)
+PY
+    then ok "both starship templates load as TOML with the expected format"
+    else no "a starship template is not valid TOML / has the wrong format: $(head -1 "$TMP/py.err")"
+    fi
+else
+    ok "python3 unavailable - skipped the TOML load check"
+fi
+
+if command -v starship >/dev/null 2>&1 && [ -f "$STPL" ]; then
+    if STARSHIP_CONFIG="$STPL" starship prompt 2>&1 | grep -q 'Error parsing'; then
+        no "starship rejects the shipped template ('Error parsing')"
+    else
+        ok "starship renders the shipped template without a parse error"
+    fi
+else
+    ok "starship unavailable - skipped the render check"
 fi
 
 echo "-----"

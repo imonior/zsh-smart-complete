@@ -217,6 +217,13 @@ _smart_native_complete() {
             _smart_native_call_original emacs
         fi
     fi
+    # Drawing a list makes zsh refresh the line for it, and that refresh rewrites
+    # region_highlight with entries that reach into POSTDISPLAY clipped back to
+    # the end of BUFFER (measured: `5 10` -> `5 5`, i.e. zero-length = no colour).
+    # Put our entry back from the CURRENT POSTDISPLAY so this widget's final
+    # repaint still colours the ghost. NO `zle -R` here — a redraw would erase
+    # the list we just drew.
+    _smart_display_reassert_rh 2>/dev/null
     return $?
 }
 zle -N _smart_native_complete 2>/dev/null
@@ -230,6 +237,13 @@ _smart_native_reverse_complete() {
     else
         _smart_native_call_original emacs
     fi
+    # Drawing a list makes zsh refresh the line for it, and that refresh rewrites
+    # region_highlight with entries that reach into POSTDISPLAY clipped back to
+    # the end of BUFFER (measured: `5 10` -> `5 5`, i.e. zero-length = no colour).
+    # Put our entry back from the CURRENT POSTDISPLAY so this widget's final
+    # repaint still colours the ghost. NO `zle -R` here — a redraw would erase
+    # the list we just drew.
+    _smart_display_reassert_rh 2>/dev/null
     return $?
 }
 zle -N _smart_native_reverse_complete 2>/dev/null

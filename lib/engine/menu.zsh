@@ -520,6 +520,13 @@ _smart_menu_tick() {
     # that corrupts ZLE's next input read and eats one keystroke per listing.
     # The prompt is prevented by SMART_MENU_MAX_MATCHES instead (see above).
     zle _smart_menu_list 2>/dev/null
+    # Drawing a list makes zsh refresh the line for it, and that refresh rewrites
+    # region_highlight with entries that reach into POSTDISPLAY clipped back to
+    # the end of BUFFER (measured: `5 10` -> `5 5`, i.e. zero-length = no colour).
+    # Put our entry back from the CURRENT POSTDISPLAY so this widget's final
+    # repaint still colours the ghost. NO `zle -R` here — a redraw would erase
+    # the list we just drew.
+    _smart_display_reassert_rh 2>/dev/null
     (( _SMART_MENU_LISTED )) || {
         # Nothing was drawn. Report WHICH gate refused: "below the minimum" and
         # "over the cap" look identical on screen but have opposite fixes, and

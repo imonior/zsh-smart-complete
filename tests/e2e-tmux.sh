@@ -79,10 +79,39 @@ SAVEHIST=2000
 autoload -Uz compinit && compinit -u -d $ZD/.zcompdump
 zstyle ':chpwd:' recent-dirs-file $RDB
 source $REPO/zsh-smart-complete.plugin.zsh
+# Probe (scenario 12/13): dump region_highlight verbatim on F12. It must be
+# bound AFTER the plugin so the plugin's ^@-^_ self-insert sweep cannot eat it,
+# and its name must not collide with any plugin widget.
+# NOTE: this heredoc is UNQUOTED, so bash performs parameter expansion AND
+# command substitution on it while writing the file -- comments included. There
+# are two ways that silently ruins the whole run:
+#   1. an unescaped array expansion aborts under set -u ("unbound variable:
+#      region_highlight[@]"), so nothing gets written at all; and
+#   2. a stray backtick pair RUNS that command with the heredoc as its stdin.
+#      Observed: a backtick-wrapped cat swallowed the rest of the body and then
+#      blocked forever, hanging the suite before scenario 0 ever printed.
+# Either way .zshrc is never created, zsh boots with its DEFAULT prompt, the
+# plugin is never sourced, and every "nothing happened" assertion passes
+# vacuously (measured: PASS=10 FAIL=35, all of it this one comment block).
+# So: no backticks anywhere in this heredoc, and the expansion below stays
+# escaped. Do not write the raw form here.
+_dump_rh() { print -rl -- "\${region_highlight[@]}" > "$ZD/rh.txt"; }
+zle -N _dump_rh
+bindkey -M emacs '^[[24~' _dump_rh
 PROMPT='READY> '
 EOF
 
-cleanup(){ tmux kill-session -t "$SESS" 2>/dev/null; rm -rf "$ZD" "$WORK" "${BIG:-}" "${RD:-}" "${SHORT:-}" "${SC:-}"; }
+# Remove only paths we actually created: an unquoted/empty arg would turn the
+# `rm -rf` into a no-target command, and a guard hook then reports the CURRENT
+# DIRECTORY as the target (observed: 1030 entries = the whole repo). Never let
+# a cleanup helper have an empty operand.
+cleanup(){
+    local d
+    tmux kill-session -t "$SESS" 2>/dev/null
+    for d in "$ZD" "$WORK" "${BIG:-}" "${RD:-}" "${SHORT:-}" "${SC:-}"; do
+        [[ -n "$d" && -d "$d" ]] && rm -rf -- "$d"
+    done
+}
 trap cleanup EXIT
 
 tmux kill-session -t "$SESS" 2>/dev/null
@@ -96,7 +125,45 @@ for _ in $(seq 1 40); do
     sleep 0.25
 done
 
+# The harness is only as good as its own two files. A full disk makes the `cat >`
+# above fail silently; zsh then boots with its DEFAULT prompt (%n@%m %1~ %#),
+# never sources the plugin, and every "nothing happened" assertion passes
+# vacuously. Measured 2026-09-19: one run reported PASS=10 FAIL=35 where all 35
+# were the disk, not the plugin -- a 12-minute misdiagnosis. Fail loudly, once.
+for f in "$ZD/.zshrc" "$ZD/.zsh_history"; do
+    [[ -s "$f" ]] || {
+        echo "FAIL: harness file $f was not written - aborting before the run." >&2
+        echo "      (a full disk silently drops it; free space and retry)" >&2
+        df -h "$ZD" >&2
+        exit 1
+    }
+done
+# Non-empty is not enough: an unescaped expansion inside the unquoted heredoc
+# makes bash truncate .zshrc at that line, which still yields a non-empty file.
+# Assert the two markers that prove the file is COMPLETE.
+# The marker must NOT include the closing quote: the heredoc writes
+# PROMPT='READY> ' (space before the quote), so PROMPT='READY>' would never
+# match and the guard would abort a perfectly good run (observed).
+for marker in "source $REPO/zsh-smart-complete.plugin.zsh" "PROMPT='READY>"; do
+    grep -qF -- "$marker" "$ZD/.zshrc" || {
+        echo "FAIL: $ZD/.zshrc is truncated - missing [$marker]." >&2
+        echo "      (unquoted heredoc expanded something undefined under set -u)" >&2
+        echo "      ---- actual file content ----" >&2
+        sed -n l "$ZD/.zshrc" >&2
+        exit 1
+    }
+done
+if ! tmux capture-pane -t "$SESS" -p 2>/dev/null | grep -qF 'READY>'; then
+    echo "FAIL: the harness zsh never rendered its prompt, so the plugin was never" >&2
+    echo "      sourced (the signature of a failed \$ZD/.zshrc write). Aborting." >&2
+    tmux capture-pane -t "$SESS" -p 2>/dev/null | tail -6 >&2
+    exit 1
+fi
+
 pane(){ tmux capture-pane -t "$SESS" -p; }
+# Same, but WITH the terminal escape sequences (SGR attributes). `pane`
+# strips them, so it can never tell a coloured ghost from a plain one.
+pane_e(){ tmux capture-pane -t "$SESS" -p -e; }
 key(){  tmux send-keys -t "$SESS" "$1"; }
 hex(){  tmux send-keys -t "$SESS" -H "$@"; }
 # Human-paced typing. A zero-delay burst models a paste, not a person, and the
@@ -106,8 +173,12 @@ hex(){  tmux send-keys -t "$SESS" -H "$@"; }
 # keystroke, so the echo trails the input; returning as soon as the last byte is
 # sent lets the next key land mid-line, which looks exactly like a lost
 # keystroke but is not one.
-slowtype(){ local s="$1" i k line; for ((i=0;i<${#s};i++)); do
-    tmux send-keys -t "$SESS" -l "${s:$i:1}"; sleep 0.12; done
+# A bare ";" argument is a tmux COMMAND SEPARATOR, not a key: `send-keys -l ;`
+# silently sends nothing (measured: a;b arrived as ab). Send it as hex instead.
+slowtype(){ local s="$1" i k line c; for ((i=0;i<${#s};i++)); do
+    c="${s:$i:1}"
+    if [[ "$c" == ";" ]]; then tmux send-keys -t "$SESS" -H 3b; else tmux send-keys -t "$SESS" -l "$c"; fi
+    sleep 0.12; done
     for ((k=0;k<30;k++)); do
         sleep 0.15
         line="$(pane | grep -o 'READY> .*' | tail -1)"
@@ -516,6 +587,102 @@ reset_line; slowtype 'git st'; sleep 1.2
 R2=$(rows_below_prompt)
 [ "$R2" -ge 1 ] && ok "11c lister=builtin -> popup returns ($R2 rows)" \
                 || no "11c popup did not come back after smart-lister builtin"
+
+echo "== 12. the inline ghost is actually COLOURED (region_highlight survives the popup) =="
+# Regression this guards. The ghost tail is painted by a region_highlight entry
+# spanning POSTDISPLAY, i.e. an offset range BEYOND $#BUFFER. Two things used to
+# destroy it, both measured on the previous release:
+#   1. the entry was marked with a `#comment`, which zsh DROPS when it rewrites
+#      the array on a redraw -- so the "remove my own entries" filter stopped
+#      matching and one stale entry piled up per keystroke;
+#   2. drawing the candidate list made zsh clip that entry back to the end of
+#      BUFFER (`5 10` -> `5 5`, zero-length), i.e. the ghost lost its colour on
+#      exactly the keystrokes that also draw the list.
+# The screen is the only place this is observable: an uncoloured ghost reads as
+# ordinary text, which is why the assertion is on the SGR bytes.
+reset_line; slowtype 'git s'; sleep 1.0
+ESC=$(printf '\033')
+if pane_e | grep -qE "${ESC}\[[0-9;]*mtatus"; then
+    ok "12 ghost tail is rendered with a colour (SGR before 'tatus')"
+else
+    no "12 ghost is uncoloured (no SGR escape before the ghost tail)"
+    echo "    --- 12 escaped pane (prompt line) ---"
+    pane_e | grep -F 'tatus' | tail -2 | cat -v | sed 's/^/    /'
+fi
+# ...and the same keystroke must still show the popup: colour at the cost of the
+# list would be a regression of the other half.
+R=$(rows_below_prompt)
+[ "$R" -ge 1 ] && ok "12 popup still drawn with the coloured ghost ($R rows)" \
+               || no "12 popup disappeared (rows=$R)"
+
+echo "== 13. region_highlight holds exactly ONE entry of ours, spanning POSTDISPLAY =="
+# The unbounded growth (1 entry per redraw) is invisible on screen, which is
+# exactly why it survived: it only shows up as stale ranges and a longer array
+# on every keystroke. Count our memo, and require end > start for it.
+key F12; sleep 0.6
+RHF="$ZD/rh.txt"
+if [ -f "$RHF" ]; then
+    N=$(grep -cF 'memo=zsh-smart-complete:suggestion' "$RHF")
+    [ "$N" -eq 1 ] && ok "13 exactly one entry of ours ($N)" \
+                   || no "13 our entries accumulated: $N (want 1)"
+    OUR=$(grep -F 'memo=zsh-smart-complete:suggestion' "$RHF" | tail -1)
+    S=$(echo "$OUR" | awk '{print $1}'); E=$(echo "$OUR" | awk '{print $2}')
+    if [ -n "$S" ] && [ -n "$E" ] && [ "$E" -gt "$S" ]; then
+        ok "13 our entry spans the ghost ($S $E, not zero-length)"
+    else
+        no "13 our entry is zero-length or missing: [$OUR]"
+    fi
+else
+    no "13 no region_highlight dump (probe widget did not run)"
+fi
+
+echo "== 14. prompts still work when the script arrives on stdin (curl | bash) =="
+# The documented one-liner pipes the installer into bash, which makes stdin BE
+# the script. Every plain `read` then returns an empty line at once and each
+# menu silently takes its default -- measured on the old installer, where the
+# language and mirror prompts never waited. _tty_read must fall back to /dev/tty.
+TTYH="$ZD/tty-harness.sh"
+{ echo 'set -u'; echo "IFS=\$'\\n\\t'"
+  sed -n '/^_tty_read() {/,/^}/p' "$REPO/install.sh"
+  echo 'echo -n "pick [default=1]: "'
+  echo 'ans=""; _tty_read -r ans || ans=""'
+  echo 'echo "ANSWER=[$ans]"'
+} > "$TTYH"
+sentinel="TTYPROBE$$"
+reset_line
+# slowtype + echo-poll, never a fixed sleep: the plugin redraws a popup on most
+# keystrokes, so the queue needs time to drain -- and `tmux send-keys` without
+# -l mangles long strings (observed: the command arrived truncated). slowtype
+# is character-by-character AND waits until every character is echoed.
+slowtype "$(printf 'cat %s | bash; echo %s' "$TTYH" "$sentinel")"
+key Enter
+# It must now be WAITING (the old code had already printed its default). Poll.
+# NB: the sentinel is a bad "already consumed" proof -- the TYPED COMMAND LINE
+# contains it (it is echoed on screen before Enter), so a sentinel grep matches
+# immediately and the wait check always fails. The observable proof that the
+# prompt was consumed is the ANSWER line, so grep for that instead.
+waiting=""
+for _ in $(seq 1 24); do
+    sleep 0.25
+    if grep -qF 'pick [default=1]:' <<<"$(pane)" && ! grep -qF 'ANSWER=[' <<<"$(pane)"; then
+        waiting=1; break
+    fi
+done
+if [[ -n "$waiting" ]]; then
+    ok "14 prompt blocked for input with stdin on a pipe"
+    key 2; key Enter
+    answered=""
+    for _ in $(seq 1 16); do
+        sleep 0.25
+        grep -qF 'ANSWER=[2]' <<<"$(pane)" && { answered=1; break; }
+    done
+    [[ -n "$answered" ]] \
+        && ok "14 answer came from the terminal, not the default" \
+        || no "14 typed answer ignored (menu took its default)"
+else
+    no "14 prompt did not wait (stdin was consumed as if it were input)"
+    echo "    --- 14 screen ---"; pane | grep -n . | tail -6 | sed 's/^/    /'
+fi
 
 echo "-----"
 echo "E2E TOTAL PASS=$PASS FAIL=$FAIL"

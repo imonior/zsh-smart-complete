@@ -5,6 +5,14 @@
 格式基於 [Keep a Changelog](https://keepachangelog.com/)，並遵循
 [語意化版本](https://semver.org/lang/zh-TW/)。
 
+## [v2.2.6] - 2026-09-19
+
+### 修復
+- **行內灰字建議失去顏色，且每敲一個鍵就殘留一條殭屍高亮條目。** 外掛 `region_highlight` 處理上的兩個缺陷，都靠能識別顏色的 tmux 探針證實。1) 標記我們條目的記號原本是 `#註釋` 文字——而 zsh 每次重繪都會把 `region_highlight` 裡的註釋文字丟掉——於是過濾舊條目的匹配從此失效，殭屍條目隨每次按鍵累積（實測：5 個鍵 -> 8 條；載入 fast-syntax-highlighting 後 -> 171 條）。現在改用 `memo=` 記號，zsh 會原樣保留。2) 繪製候選清單會讓 zsh 重刷整行，並把任何伸進 POSTDISPLAY 的高亮條目裁回 BUFFER 末尾（零長度 = 不上色）。外掛現在在每次畫完清單後立即重寫該條目——不額外重繪，清單保持原樣。已對 zsh-syntax-highlighting 與 fast-syntax-highlighting 雙雙驗證：都能正確共存，無需任何相容鉤子——此前「F-Sy-H 會清掉外來條目」的結論是錯的。
+- **`bash -c "$(curl -fsSL .../install.sh)"` 報 `argument list too long: bash`。** install.sh 已經超過 Linux 單一參數 128 KiB 上限（`MAX_ARG_STRLEN`）。所有文件統一改為管線寫法 `curl -fsSL .../install.sh | bash`（鏡像形式：`curl -fsSL .../install.sh | SMART_INSTALL_GH_MIRROR=... bash`），完全不經過 argv 傳腳本。
+- **管線安裝時提示不等輸入**（`curl ... | bash`）：stdin 就是腳本本身，普通 `read` 立刻返回空，語言 / 代理 / 鏡像選單全部靜默取預設值。所有互動讀取現在統一走 `_tty_read`（重新開啟 `/dev/tty`）。`BASH_SOURCE[0]` 也加了守衛——腳本從 stdin 進來時它未設定（`set -u` 下腳本直接中止；不中止時 `SCRIPT_DIR` 會靜默變成呼叫者的目前目錄）。
+- **Starship 解析錯誤 `Error parsing "format": --> 1:7`（`[$user] › $directory`）。** 兩個錯誤疊加：starship 頂層的 `[文字]` 分組必須帶 `(樣式)` 後綴；且頂層變數名是 `$username`（`$user` 只在 `[username]` 模組內部有效）。範本改為 `$username › $directory`；兩份副本（範例範本與 Entware 安裝器內聯的那份）都由迴歸測試釘死——測試會用真實的 `starship` 二進位渲染設定。
+
 ## [v2.2.5] - 2026-09-19
 
 ### 新增

@@ -935,7 +935,7 @@ select_language() {
     printf "  %d) %s\n" 4 "$(msg lang.option_ja)"
     printf "  %d) %s\n" 5 "$(msg lang.option_ko)"
     echo -n "$(msg lang.prompt)"
-    read -r REPLY || REPLY=""
+    _tty_read -r REPLY || REPLY=""
     case "$REPLY" in
         2) LANG_CODE="zh-CN" ;;
         3) LANG_CODE="zh-TW" ;;
@@ -951,7 +951,15 @@ select_language() {
 # ------------------------------------------------------------------
 # If this script is running from inside a local clone of the repo, use
 # local templates. Otherwise, download everything from the canonical URL.
-SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &>/dev/null && pwd )"
+# $BASH_SOURCE[0] is UNSET when the script arrives on stdin — i.e. for the
+# documented `curl -fsSL … | bash` — so guard it. Without the guard, `set -u`
+# prints "BASH_SOURCE[0]: unbound variable" and SCRIPT_DIR silently becomes the
+# caller's CWD, which a run from a directory that happens to hold templates/
+# would then mistake for a local clone.
+SCRIPT_DIR=""
+if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
+    SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &>/dev/null && pwd )"
+fi
 LOCAL_TEMPLATES_DIR="${SCRIPT_DIR}/templates"
 HAS_LOCAL_TEMPLATES=0
 if [[ -d "$LOCAL_TEMPLATES_DIR" ]]; then
@@ -1147,7 +1155,7 @@ _apply_full_proxy() {
 _manual_proxy_flow() {
     local p="" a=""
     while true; do
-        echo -n "  $(msg proxy.prompt)"; read -r p
+        echo -n "  $(msg proxy.prompt)"; _tty_read -r p || p=""
         if [[ -z "$p" ]]; then
             warn "$(msg proxy.empty)"; return 1
         fi
@@ -1158,7 +1166,7 @@ _manual_proxy_flow() {
             return 0
         fi
         warn "$(msg proxy.test_failed "$p")"
-        echo -n "  $(msg proxy.keep_ask)"; a=""; read -r a
+        echo -n "  $(msg proxy.keep_ask)"; a=""; _tty_read -r a || a=""
         case "$a" in
             y|Y|yes|YES)
                 _apply_full_proxy "$p"
@@ -1345,14 +1353,14 @@ select_mirror() {
     done
     echo -n "$(msg mirror.prompt "$default_d")"
     while true; do
-        read -r REPLY
+        _tty_read -r REPLY || REPLY=""
         if [[ -z "$REPLY" ]]; then
             choice=$fastest_idx; break
         elif [[ "$REPLY" =~ ^[0-9]+$ ]]; then
             if (( REPLY >= 1 && REPLY <= n )); then
                 choice=${MIRROR_ACTIVE[$((REPLY-1))]}; break
             elif (( REPLY == custom_d )); then
-                echo -n "  $(msg mirror.custom_prompt)"; read -r GH_MIRROR
+                echo -n "  $(msg mirror.custom_prompt)"; _tty_read -r GH_MIRROR || GH_MIRROR=""
                 GH_MIRROR_TYPE="$(_guess_mirror_type "$GH_MIRROR")"
                 if [[ "$GH_MIRROR_TYPE" == "prefix" && "$GH_MIRROR" != */ ]]; then
                     GH_MIRROR="${GH_MIRROR}/"
@@ -2019,7 +2027,7 @@ _cleanup_old_baks() {
         printf "  %2d) %-50s%s\n" "$i" "${item_labels[$((i-1))]}" "$tag"
     done
     echo -n "$(msg prompt.bak_select)"
-    local choice_input=""; read -r choice_input || true
+    local choice_input=""; _tty_read -r choice_input || true
     local -a want=()
     if [[ -n "$choice_input" ]]; then
         for c in $choice_input; do
@@ -2398,7 +2406,7 @@ resolve_omz_p10k() {
     fi
     echo -n "$(msg combo.prompt)"
     local REPLY
-    read -r REPLY || true
+    _tty_read -r REPLY || true
     case "$REPLY" in
         2) _apply_combo "keep-omz" ;;
         3) _apply_combo "zinit-p10k" ;;

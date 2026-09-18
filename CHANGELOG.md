@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [v2.2.6] - 2026-09-19
+
+### Fixed
+- **The inline grey suggestion lost its colour, and every keystroke left a zombie highlight entry behind.** Two defects in the plugin's `region_highlight` handling, both proven with a colour-aware tmux probe. 1) The marker identifying our entry was a `#comment` token — and zsh drops comment text from `region_highlight` on every redraw — so the filter that removes our previous entry stopped matching and stale entries piled up with each keystroke (measured: 5 keystrokes -> 8 entries; 171 with fast-syntax-highlighting loaded). The marker is now a `memo=` token, which zsh preserves verbatim. 2) Drawing a candidate list makes zsh re-render the line and clip any highlight entry reaching into POSTDISPLAY back to the end of BUFFER (zero length = no colour). The plugin now re-asserts the entry right after every list draw — no extra redraw, the list stays on screen. Verified against both zsh-syntax-highlighting and fast-syntax-highlighting: they coexist correctly and no compatibility hook is needed — the earlier "F-Sy-H clears foreign entries" conclusion was wrong.
+- **`bash -c "$(curl -fsSL .../install.sh)"` failed with `argument list too long: bash`.** install.sh has outgrown Linux's 128 KiB per-argument limit (`MAX_ARG_STRLEN`). All documents now use the pipe form `curl -fsSL .../install.sh | bash` (mirror form: `curl -fsSL .../install.sh | SMART_INSTALL_GH_MIRROR=... bash`), which never passes the script through argv.
+- **Installer prompts did not wait for input when the script was piped** (`curl ... | bash`): stdin *is* the script, so every plain `read` returned empty immediately and the language / proxy / mirror menus silently took their defaults. All interactive reads now go through a `_tty_read` helper that re-opens `/dev/tty`. `BASH_SOURCE[0]` is guarded too — it is unset when the script arrives on stdin (under `set -u` the script aborted; otherwise `SCRIPT_DIR` silently became the caller's cwd).
+- **Starship parse error `Error parsing "format": --> 1:7` on `[$user] › $directory`.** Two mistakes compounded: a top-level `[text]` group in starship requires a `(style)` suffix, and the top-level variable is `$username` (`$user` only exists inside the `[username]` module). The template now reads `$username › $directory`, and both copies (the example template and the Entware installer's inline one) are pinned by a regression test that renders the config with a real `starship` binary.
+
 ## [v2.2.5] - 2026-09-19
 
 ### Added

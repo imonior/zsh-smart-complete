@@ -47,6 +47,35 @@ success() { echo -e "${GREEN}[OK]${NC}    $*"; }
 warn()    { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 error()   { echo -e "${RED}[FAIL]${NC}  $*" >&2; exit 1; }
 
+# Read from /dev/tty when available. Needed because the documented one-liner
+# pipes the script into bash (`curl -fsSL … | bash`), and then stdin IS the
+# script: every plain `read` returns an empty line at once and each prompt
+# silently takes its default (measured: the language and mirror menus never
+# waited for input). Falls back to stdin when /dev/tty is unavailable, which
+# keeps NONINTERACTIVE / CI runs working.
+_tty_read() {
+    # Read using the caller's exact options/variable, passed through verbatim via
+    # "$@". Do NOT join args into a string and re-split (e.g. `read $_args`):
+    # this script sets `IFS=$'\n\t'` at the top (no space), so an unquoted
+    # expansion would NOT word-split and `read` would receive one bogus
+    # "-r -n 1 REPLY" option and abort with `read: -: invalid option`.
+    # Prefer stdin when it is a tty; otherwise fall back to /dev/tty.
+    if [[ -t 0 ]]; then
+        read "$@" && return 0
+        REPLY=""; return 1
+    fi
+    # Otherwise stdin is a pipe/file; try the controlling terminal /dev/tty.
+    # No timeout — block until the user answers.
+    if [[ -c /dev/tty ]] && read "$@" </dev/tty 2>/dev/null; then
+        return 0
+    fi
+    # Last resort: stdin (may be EOF in non-interactive contexts → default).
+    if read "$@" 2>/dev/null; then
+        return 0
+    fi
+    REPLY=""; return 1
+}
+
 # Prompts: respect NONINTERACTIVE=1 (assume "yes for safe, no for destructive")
 prompt_yes() {
     local msg="$1" default_yes="${2:-0}"
@@ -61,7 +90,7 @@ prompt_yes() {
     fi
     echo -n "  $msg $prompt "
     local REPLY
-    read -r -n 1 REPLY || REPLY=""; echo
+    _tty_read -r -n 1 REPLY || REPLY=""; echo
     case "$REPLY" in
         y|Y) return 0 ;;
         n|N) return 1 ;;
@@ -587,7 +616,7 @@ select_language() {
     printf "  %d) %s\n" 4 "日本語"
     printf "  %d) %s\n" 5 "한국어"
     echo -n "$(msg lang.prompt)"
-    read -r REPLY || REPLY=""
+    _tty_read -r REPLY || REPLY=""
     case "$REPLY" in
         2) LANG_CODE="zh-CN" ;;
         3) LANG_CODE="zh-TW" ;;
@@ -601,7 +630,15 @@ select_language() {
 # ------------------------------------------------------------------
 # Script identity / helpers
 # ------------------------------------------------------------------
-SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &>/dev/null && pwd )"
+# $BASH_SOURCE[0] is UNSET when the script arrives on stdin — i.e. for the
+# documented `curl -fsSL … | bash` — so guard it. Without the guard, `set -u`
+# prints "BASH_SOURCE[0]: unbound variable" and SCRIPT_DIR silently becomes the
+# caller's CWD, which a run from a directory that happens to hold templates/
+# would then mistake for a local clone.
+SCRIPT_DIR=""
+if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
+    SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &>/dev/null && pwd )"
+fi
 
 # ==================================================================
 # GitHub 镜像 / 加速子系统
@@ -772,7 +809,7 @@ _apply_full_proxy() {
 _manual_proxy_flow() {
     local p="" a=""
     while true; do
-        echo -n "  $(msg proxy.prompt)"; read -r p
+        echo -n "  $(msg proxy.prompt)"; _tty_read -r p || p=""
         if [[ -z "$p" ]]; then
             warn "$(msg proxy.empty)"; return 1
         fi
@@ -783,7 +820,7 @@ _manual_proxy_flow() {
             return 0
         fi
         warn "$(msg proxy.test_failed "$p")"
-        echo -n "  $(msg proxy.keep_ask)"; a=""; read -r a
+        echo -n "  $(msg proxy.keep_ask)"; a=""; _tty_read -r a || a=""
         case "$a" in
             y|Y|yes|YES)
                 _apply_full_proxy "$p"
@@ -970,7 +1007,7 @@ select_mirror() {
     done
     echo -n "$(msg mirror.prompt "$default_d")"
     while true; do
-        read -r REPLY
+        _tty_read -r REPLY || REPLY=""
         if [[ -z "$REPLY" ]]; then
             choice=$fastest_idx; break
         elif [[ "$REPLY" =~ ^[0-9]+$ ]]; then
@@ -978,7 +1015,7 @@ select_mirror() {
                 choice=${MIRROR_ACTIVE[$((REPLY-1))]}; break
             elif (( REPLY == custom_d )); then
                 echo -n "  请输入镜像前缀 URL（如 https://ghproxy.net/ ）或域名替换主机: "
-                read -r GH_MIRROR
+                _tty_read -r GH_MIRROR || GH_MIRROR=""
                 GH_MIRROR_TYPE="$(_guess_mirror_type "$GH_MIRROR")"
                 if [[ "$GH_MIRROR_TYPE" == "prefix" && "$GH_MIRROR" != */ ]]; then
                     GH_MIRROR="${GH_MIRROR}/"
@@ -1240,7 +1277,7 @@ elif [[ "${SKIP_DEPS:-0}" != "1" ]] && prompt_yes "$(msg prompt.starship)" 0; th
 add_newline = false
 # Two-line: USER (icon) + current dir on line 1; ":>" on line 2
 format = """
-[$user] › $directory
+$username › $directory
 $character"""
 [username]
 show_always = true
@@ -1584,7 +1621,7 @@ resolve_omz_p10k() {
     fi
     echo -n "输入序号 [默认=1]: "
     local REPLY
-    read -r REPLY || true
+    _tty_read -r REPLY || true
     case "$REPLY" in
         2) _apply_combo "keep-omz" ;;
         3) _apply_combo "zinit-p10k" ;;
@@ -1707,7 +1744,7 @@ ask_smart_options() {
         printf "    2) %s\n" "$(msg opt.strategy_completion)"
         printf "    3) %s\n" "$(msg opt.strategy_both)"
         echo -n "  > "
-        read -r REPLY || REPLY=""
+        _tty_read -r REPLY || REPLY=""
         case "$REPLY" in
             2) ZSC_OPT_STRATEGY="completion" ;;
             3) ZSC_OPT_STRATEGY="history,completion" ;;

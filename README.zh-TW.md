@@ -3,7 +3,7 @@
 > 一個現代化的智慧補全與建議層，專為 Zsh 設計。
 > 作為未來獨立 shell 的前端引擎。
 >
-> **v2.2.5** — 修正安裝器衝突偵測的兩處誤報：zinit 目錄掃描現在跳過 `.bak.*` 備份目錄（不再把上一輪的備份誤報為「仍有衝突殘留」，確認移除時也不再誤刪備份）；唯讀的其它啟動檔掃描不再把 `fzf-tab` 當衝突——`fzf-tab` 是受支援的替代清單器（`SMART_MENU_LISTER=fzf-tab`），報它衝突與已發布的整合自相矛盾。安裝器現在也會掃描 `.zprofile` / `.zshenv` / `conf.d` / `.zshrc.d`，並警告你手動清理其中殘留的 `zsh-autocomplete` / `zsh-autosuggestions` 載入行（唯讀，絕不改寫這些檔案）。
+> **v2.2.6** — 行內灰字建議在繪製候選清單時不再丟色，與 zsh-syntax-highlighting / fast-syntax-highlighting 並存也無需相容鉤子：`region_highlight` 標記改用 zsh 原樣保留的 `memo=` 記號，且每次清單重繪後立即重寫條目，不再被裁掉。安裝器完整支援管線安裝：`curl -fsSL .../install.sh | bash` 的每個提示都會等待輸入（改從 `/dev/tty` 讀取），取代了在腳本超過核心 128 KiB argv 上限後報「argument list too long」的舊 `bash -c` 寫法。內建 starship 範本不再解析失敗（`$username › $directory`）。
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------ | ------ |
 | 建置與測試 (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | 釋出 | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| 版本 | 2.2.5 |
+| 版本 | 2.2.6 |
 
 ## 為什麼選擇我們
 
@@ -74,8 +74,9 @@ compinit
 #### 方式 A — 一鍵安裝器（推薦）
 
 ```zsh
-bash <(curl -fsSL https://raw.githubusercontent.com/imonior/zsh-smart-complete/main/install.sh)
+curl -fsSL https://raw.githubusercontent.com/imonior/zsh-smart-complete/main/install.sh | bash
 ```
+互動提示從 `/dev/tty` 讀取，所以即使 stdin 就是腳本本身，選單也照常等待你的輸入。
 
 #### 方式 B — Zinit（手動）
 
@@ -95,7 +96,7 @@ echo 'source ~/.zsh-smart-complete/zsh-smart-complete.plugin.zsh' >> ~/.zshrc
 安裝器會先自動偵測外網 IP 歸屬地並告訴你，歸屬地用來決定**哪些候選值得出現**：中國大陸 / 沒偵測出來顯示全部候選並全部測速（**含 direct**，因為直連是否真的更快應該測出來而不是靠地區猜）；**非中國大陸則隱藏全部預置鏡像**，只留 direct——那些 ghproxy / gitclone 通道是大陸專用，在這個地區往往比直連更慢。但即使在非中國大陸，**direct 仍然照常測速**，而且兩種手動輸入始終都在：**鏡像源**（改寫 GitHub URL）或**全量代理**（匯出為 `HTTP_PROXY`/`HTTPS_PROXY`，讓 curl/git/wget 的所有請求都走它，如 `http://127.0.0.1:7890`）。預置鏡像源都標註了「適用於中國大陸」。下面這段只在非互動安裝時才需要。
 
 ```zsh
-SMART_INSTALL_GH_MIRROR=https://ghproxy.net/ bash -c "$(curl -fsSL https://ghproxy.net/https://raw.githubusercontent.com/imonior/zsh-smart-complete/main/install.sh)"
+curl -fsSL https://ghproxy.net/https://raw.githubusercontent.com/imonior/zsh-smart-complete/main/install.sh | SMART_INSTALL_GH_MIRROR=https://ghproxy.net/ bash
 ```
 
 ## 設定
@@ -293,15 +294,15 @@ zsh tests/test-recent.zsh
 bash tests/test-installer-options.sh
 ```
 
-**測試彙總 （v2.2.5）：** 10 個測試檔案共 671 項全部通過，0 失敗。
+**測試彙總 （v2.2.6）：** 10 個測試檔案共 700 項全部通過，0 失敗。
 安裝器在清理 `~/.zshrc` 之後，現在還會**掃描其它啟動檔**（`.zprofile`、`.zshenv`、`conf.d/*.zsh`、`.zshrc.d/*`、`/etc/zsh/zshrc`）中是否仍有 `zsh-autocomplete` / `zsh-autosuggestions` 的載入行，並用精確的 `檔案:行號` **警告**使用者手動清理——它從不修改這些檔案。詳見 CHANGELOG 的 `[Unreleased]`。
 
 
 端到端（真實 ZLE 鍵位）驗證用 tmux `capture-pane` 讀**真實螢幕**完成，
-41 項斷言全綠，涵蓋「打字即彈清單」「候選收窄時清單仍在」「單候選讓位給灰字」
+47 項斷言全綠，涵蓋「打字即彈清單」「候選收窄時清單仍在」「單候選讓位給灰字」
 「右箭頭兩種編碼都能接受」「`Alt+→` 三種編碼都只接受一個詞（用 `echo alpha beta`
 探針，以命令輸出判定緩衝區內容，而非回顯的行）」「開關往返」「Tab 補全仍可用」。
-同一套斷言在 v2.1.6 上過 20/41——當時「打字即彈選單」確實不存在，`SS3` 與 `Alt+→` 的編碼
+同一套斷言在 v2.1.6 上過 23/47——當時「打字即彈選單」確實不存在，`SS3` 與 `Alt+→` 的編碼
 是死的，`Tab` 後按 `Enter` 會被吞掉，最近目錄不會列出，清單器開關與單列版面也都還沒有。這 20
 條通過裡有 **2 條是空過**——它們斷言「沒有畫任何清單」，而 v2.1.6 根本不會畫清單。基線必須
 實跑、而不能按舊數字按比例換算，原因就在這裡。

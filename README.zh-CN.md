@@ -3,7 +3,7 @@
 > 一个现代化的智能补全和建议层，专为 Zsh 设计。
 > 作为未来独立 shell 的前端引擎。
 >
-> **v2.2.4** — 最新发布：新增 **`SMART_MENU_LISTER`，决定由谁来画列表**（`builtin`，或选 `fzf-tab` 让本插件停止绘制、把列表交给外部浮动选择器）——这正是解决「同时出现两个候选列表」的那个开关；v2.2.3 曾默认开启的单列布局改回**可选**（默认：zsh 原生网格）；`smart-doctor` 现在会报告列表归属，若你把列表交给了并未加载的东西，它会警告。
+> **v2.2.5** — 修复安装器冲突探测的两处误报：zinit 目录扫描现在跳过 `.bak.*` 备份目录（不再把上一轮的备份误报为「仍有冲突残留」，确认移除时也不再误删备份）；只读的其它启动文件扫描不再把 `fzf-tab` 当冲突——`fzf-tab` 是受支持的替代列表器（`SMART_MENU_LISTER=fzf-tab`），报它冲突与已发布的集成自相矛盾。安装器现在也会扫描 `.zprofile` / `.zshenv` / `conf.d` / `.zshrc.d`，并警告你手动清理其中残留的 `zsh-autocomplete` / `zsh-autosuggestions` 加载行（只读，绝不改写这些文件）。
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------ | ------ |
 | 构建与测试 (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | 发布 | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| 版本 | 2.2.4 |
+| 版本 | 2.2.5 |
 
 ## 为什么选择我们
 
@@ -91,6 +91,8 @@ echo 'source ~/.zsh-smart-complete/zsh-smart-complete.plugin.zsh' >> ~/.zshrc
 ```
 
 #### 国内代理加速
+
+安装器会先自动检测外网 IP 归属地并告诉你，归属地用来决定**哪些候选值得出现**：中国大陆 / 没检测出来显示全部候选并全部测速（**含 direct**，因为直连是否真的更快应该测出来而不是靠地区猜）；**非中国大陆则隐藏全部预置镜像**，只留 direct——那些 ghproxy / gitclone 通道是大陆专用，在这个地区往往比直连更慢。但即使在非中国大陆，**direct 仍然照常测速**，而且两种手动输入始终都在：**镜像源**（改写 GitHub URL）或**全量代理**（导出为 `HTTP_PROXY`/`HTTPS_PROXY`，让 curl/git/wget 的所有请求都走它，如 `http://127.0.0.1:7890`）。预置镜像源都标注了「适用于中国大陆」。下面这段只在非交互安装时才需要。
 
 ```zsh
 SMART_INSTALL_GH_MIRROR=https://ghproxy.net/ bash -c "$(curl -fsSL https://ghproxy.net/https://raw.githubusercontent.com/imonior/zsh-smart-complete/main/install.sh)"
@@ -291,7 +293,9 @@ zsh tests/test-recent.zsh
 bash tests/test-installer-options.sh
 ```
 
-**测试汇总 (v2.2.4)：** 10 个测试文件共 590 项全部通过，0 失败。
+**测试汇总 （v2.2.5）：** 10 个测试文件共 671 项全部通过，0 失败。
+安装器在清理 `~/.zshrc` 之后，现在还会**扫描其它启动文件**（`.zprofile`、`.zshenv`、`conf.d/*.zsh`、`.zshrc.d/*`、`/etc/zsh/zshrc`）中是否仍有 `zsh-autocomplete` / `zsh-autosuggestions` 的加载行，并用精确的 `文件:行号` **警告**用户手动清理——它从不修改这些文件。详见 CHANGELOG 的 `[Unreleased]`。
+
 
 端到端（真实 ZLE 键位）验证用 tmux `capture-pane` 读**真实屏幕**完成，
 41 项断言全绿，覆盖"打字即弹列表""候选收窄时列表仍在""单候选让位给灰字"

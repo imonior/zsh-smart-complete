@@ -3,7 +3,7 @@
 > Zsh 向けのモダンなスマート補完・候補提示レイヤー。
 > 将来の独立シェルのフロントエンドとして設計。
 >
-> **v2.2.4** — 最新リリース：**`SMART_MENU_LISTER` が一覧の所有者を決めます**（`builtin`、または `fzf-tab` で描画をやめ外部のフローティング選択器に引き渡す）— 「一覧が 2 つ同時に出る」を解決するスイッチです。v2.2.3 が既定で有効にしていた単一列レイアウトは再び**オプトイン**（既定: zsh 標準グリッド）。`smart-doctor` はリストの所有者を報告し、読み込まれていないものへ引き渡している場合は警告します。
+> **v2.2.5** — インストーラの競合検出の誤検出を 2 件修正：zinit ディレクトリ走査は `.bak.*` バックアップディレクトリをスキップするようになりました（「競合が残っている」と誤報せず、削除確認時にもバックアップを消さない）；その他の起動ファイルの読み取り専用走査は `fzf-tab` を競合とみなさなくなりました——`fzf-tab` はサポート対象の代替リスター（`SMART_MENU_LISTER=fzf-tab`）であり、競合扱いは公開済み統合と矛盾します。インストーラは `.zprofile` / `.zshenv` / `conf.d` / `.zshrc.d` も走査し、そこに残る `zsh-autocomplete` / `zsh-autosuggestions` の読み込み行を手動で片付けるよう警告します（読み取り専用、これらのファイルは絶対に編集しません）。
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------ | ------ |
 | ビルドとテスト (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | リリース | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| バージョン | 2.2.4 |
+| バージョン | 2.2.5 |
 
 ## なぜこれを選ぶか
 
@@ -91,6 +91,8 @@ echo 'source ~/.zsh-smart-complete/zsh-smart-complete.plugin.zsh' >> ~/.zshrc
 ```
 
 #### 中国国内向けミラー
+
+インストーラは外部 IP の帰属を自動検出して表示します。帰属が決めるのは**どの候補を出すか**です: 中国大陸 / 検出失敗なら全候補を表示して全候補（**direct を含む**）を速度測定します（direct が本当に速いかは地域から推測せず実測すべきだからです）。**中国大陸以外ではプリセットミラーをすべて隠し** direct だけを残します——それらの ghproxy / gitclone 経路は中国大陸専用で、この地域では直連より遅くなりがちです。ただし中国大陸以外でも **direct は従来どおり速度測定**し、2 つの手動入力も常に残ります:**ミラー源**（GitHub の URL を書き換える）と**フルプロキシ**（`HTTP_PROXY`/`HTTPS_PROXY` としてエクスポートし、curl/git/wget の全リクエストを通す。例: `http://127.0.0.1:7890`）です。プリセットのミラーは「中国大陸向け」と明記されています。以下のコマンドは非対話インストール時のみ必要です。
 
 ```zsh
 SMART_INSTALL_GH_MIRROR=https://ghproxy.net/ bash -c "$(curl -fsSL https://ghproxy.net/https://raw.githubusercontent.com/imonior/zsh-smart-complete/main/install.sh)"
@@ -310,7 +312,9 @@ zsh tests/test-recent.zsh
 bash tests/test-installer-options.sh
 ```
 
-**テスト集計 (v2.2.4)：** 10 ファイル、590 アサーション、すべて合格、0 失敗。
+**テスト集計 （v2.2.5）：** 10 ファイル、671 アサーション、すべて合格、0 失敗。
+インストーラーは `~/.zshrc` の清理後に、`.zprofile`、`.zshenv`、`conf.d/*.zsh`、`.zshrc.d/*`、`/etc/zsh/zshrc` の**其它の起動ファイル**に `zsh-autocomplete` / `zsh-autosuggestions` のローダー行が残っていないかも**走査**し、見つかった場合は正確な `ファイル:行番号` で**警告**して手動清理を促します——これらのファイルは編集しません。詳細は CHANGELOG の `[Unreleased]` を参照。
+
 
 主要な挙動は、tmux ペイン内の実際の `zsh -i` に対してエンドツーエンドで検証され、
 描画された画面をアサートします（41/41 グリーン）。同じアサーションは v2.1.6 では

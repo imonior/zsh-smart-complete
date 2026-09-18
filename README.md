@@ -3,7 +3,7 @@
 > A modern smart completion & suggestion layer for Zsh.
 > Engineered as the frontend of a future independent shell.
 >
-> **v2.2.4** — Latest release: **`SMART_MENU_LISTER` picks which lister owns the screen** (`builtin`, or `fzf-tab` to stop drawing and hand the list to the external picker) — the switch that resolves "two candidate lists at once"; the single-column layout that v2.2.3 shipped as default is **opt-in** again (default: zsh's native grid); and `smart-doctor` now reports the lister, warning if you handed the list over to something that is not loaded.
+> **v2.2.5** — Fixes false positives in the installer's conflict scanner: the zinit directory scan now skips `.bak.*` backup dirs (no longer misreported as "conflict still present", and no longer deleted when you confirm removal); the read-only scan of other startup files no longer flags `fzf-tab` as a conflict — `fzf-tab` is the supported alternative lister (`SMART_MENU_LISTER=fzf-tab`), so flagging it contradicts the shipped integration. The installer also now scans `.zprofile` / `.zshenv` / `conf.d` / `.zshrc.d` and warns you to clean any leftover `zsh-autocomplete` / `zsh-autosuggestions` loaders there (read-only, it never edits those files).
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------- | ------ |
 | Build & test (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | Release | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| Version | 2.2.4 |
+| Version | 2.2.5 |
 
 ## Why
 
@@ -91,6 +91,8 @@ echo 'source ~/.zsh-smart-complete/zsh-smart-complete.plugin.zsh' >> ~/.zshrc
 ```
 
 #### Mainland-China mirror
+
+The installer auto-detects your public-IP region and reports it. The region decides **which candidates are worth showing**: mainland China / not detected show every candidate and speed-test every candidate including direct (whether direct is really faster should be measured, not guessed from geography); **outside mainland China hides every preset mirror** and keeps only direct — those ghproxy / gitclone channels are mainland-only and are often slower than direct out there. Even outside mainland China, though, **direct is still speed-tested**, and both manual entries are always available: a **mirror source** (rewrites GitHub URLs) or a **full proxy** (exported as `HTTP_PROXY`/`HTTPS_PROXY` so curl/git/wget route everything through it, e.g. `http://127.0.0.1:7890`). Preset mirrors are labelled *China mainland only*. The snippets below are only needed for non-interactive installs.
 
 ```zsh
 SMART_INSTALL_GH_MIRROR=https://ghproxy.net/ bash -c "$(curl -fsSL https://ghproxy.net/https://raw.githubusercontent.com/imonior/zsh-smart-complete/main/install.sh)"
@@ -320,7 +322,9 @@ zsh tests/test-recent.zsh
 bash tests/test-installer-options.sh
 ```
 
-**Test summary (v2.2.4):** 10 test files, 590 assertions, all passing, 0 failures.
+**Test summary (v2.2.5):** 10 test files, 671 assertions, all passing, 0 failures.
+The installer also now **scans other startup files** (`.zprofile`, `.zshenv`, `conf.d/*.zsh`, `.zshrc.d/*`, `/etc/zsh/zshrc`) for left-over loaders of `zsh-autocomplete` / `zsh-autosuggestions` after cleaning `~/.zshrc`, and **warns** (with exact `file:line`) if it finds any — it never edits those files. See CHANGELOG `[Unreleased]`.
+
 
 Key behaviours are additionally verified end-to-end against a real `zsh -i` in a
 tmux pane, asserting on the rendered screen (41/41 green). The same assertions

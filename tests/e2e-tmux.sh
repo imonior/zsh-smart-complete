@@ -88,7 +88,13 @@ trap cleanup EXIT
 tmux kill-session -t "$SESS" 2>/dev/null
 tmux new-session -d -s "$SESS" -x 140 -y 40 -c "$WORK" \
     "env ZDOTDIR=$ZD TERM=xterm-256color zsh -i"
-sleep 1.3
+# Poll for the prompt instead of a fixed sleep: zsh cold-boot + sourcing the
+# plugin can exceed any single hard-coded delay on a loaded machine, which made
+# the "prompt rendered" assertion flaky. Wait up to ~10s.
+for _ in $(seq 1 40); do
+    tmux capture-pane -t "$SESS" -p 2>/dev/null | grep -qF 'READY>' && break
+    sleep 0.25
+done
 
 pane(){ tmux capture-pane -t "$SESS" -p; }
 key(){  tmux send-keys -t "$SESS" "$1"; }

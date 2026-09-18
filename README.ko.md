@@ -3,7 +3,7 @@
 > Zsh 용 현대적인 스마트 완성 및 제안 레이어.
 > 미래의 독립 셸 프런트엔드로 설계됨.
 >
-> **v2.2.4** — 최신 릴리스: **`SMART_MENU_LISTER` 가 목록의 주인을 정합니다**(`builtin`, 또는 `fzf-tab` 으로 그리기를 멈추고 외부 부동 선택기에 넘김) — "목록이 두 개 동시에 뜬다"를 해결하는 스위치입니다. v2.2.3 이 기본으로 켰던 단일 열 레이아웃은 다시 **옵트인**(기본: zsh 기본 그리드)입니다. `smart-doctor` 는 목록 주인을 보고하고, 로드되지 않은 대상에 넘겼다면 경고합니다.
+> **v2.2.5** — 설치기 충돌 검출의 오탐 2건을 수정: zinit 디렉터리 검색은 이제 `.bak.*` 백업 디렉터리를 건너뜁니다(더 이상 "충돌이 남아 있다"고 오보하지 않으며, 삭제 확인 시 백업을 지우지도 않습니다); 기타 시작 파일에 대한 읽기 전용 검색은 `fzf-tab` 을 충돌로 보지 않습니다——`fzf-tab` 은 지원되는 대체 리스터(`SMART_MENU_LISTER=fzf-tab`)이므로 충돌로 표시하면 출시된 통합과 모순됩니다. 설치기는 `.zprofile` / `.zshenv` / `conf.d` / `.zshrc.d` 도 검색하여, 그곳에 남은 `zsh-autocomplete` / `zsh-autosuggestions` 로드 행을 수동으로 정리하라고 경고합니다(읽기 전용, 이 파일들은 절대 편집하지 않습니다).
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------ | ------ |
 | 빌드 및 테스트 (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | 릴리스 | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| 버전 | 2.2.4 |
+| 버전 | 2.2.5 |
 
 ## 왜 이 플러그인인가
 
@@ -91,6 +91,8 @@ echo 'source ~/.zsh-smart-complete/zsh-smart-complete.plugin.zsh' >> ~/.zshrc
 ```
 
 #### 중국 본토 미러
+
+설치 프로그램이 외부 IP 소속을 먼저 자동 감지해 알려주며, 소속은 **어떤 후보를 보여줄지**를 결정합니다: 중국 본토 / 감지 실패라면 모든 후보를 표시하고 모든 후보(**direct 포함**)의 속도를 측정합니다(direct 가 실제로 더 빠른지는 지역으로 추측할 것이 아니라 실측해야 하기 때문입니다). **중국 본토 외라면 모든 프리셋 미러를 숨기고** direct 만 남깁니다 — 그 ghproxy / gitclone 경로는 중국 본토 전용이라 이 지역에서는 direct 보다 느린 경우가 많습니다. 다만 중국 본토 외에서도 **direct 는 여전히 속도 측정**하며, 두 가지 수동 입력도 항상 남아 있습니다: **미러 소스**(GitHub URL 재작성)와 **전체 프록시**(`HTTP_PROXY`/`HTTPS_PROXY` 로 내보내 curl/git/wget 의 모든 요청이 통과하도록 함. 예: `http://127.0.0.1:7890`). 사전 정의된 미러는 「중국 본토용」으로 표시됩니다. 아래 명령은 비대화형 설치에서만 필요합니다.
 
 ```zsh
 SMART_INSTALL_GH_MIRROR=https://ghproxy.net/ bash -c "$(curl -fsSL https://ghproxy.net/https://raw.githubusercontent.com/imonior/zsh-smart-complete/main/install.sh)"
@@ -304,7 +306,9 @@ zsh tests/test-recent.zsh
 bash tests/test-installer-options.sh
 ```
 
-**테스트 요약 (v2.2.4):** 10개 파일, 590개 어설션, 전부 통과, 0 실패.
+**테스트 요약 （v2.2.5）：** 10개 파일, 671개 어설션, 전부 통과, 0 실패.
+설치기는 `~/.zshrc` 정리 후 `.zprofile`, `.zshenv`, `conf.d/*.zsh`, `.zshrc.d/*`, `/etc/zsh/zshrc` 같은 **다른 시작 파일**에 `zsh-autocomplete` / `zsh-autosuggestions` 로더 행이 남아 있는지도 **검사**하고, 있으면 정확한 `파일:행번호` 로 **경고**하여 수동 정리를 안내합니다 — 이 파일은 편집하지 않습니다. 자세한 내용은 CHANGELOG의 `[Unreleased]` 를 보세요.
+
 
 주요 동작은 tmux 페인 안의 실제 `zsh -i`에 대해 엔드투엔드로 검증되며, 렌더링된
 화면을 어설트합니다(41/41 그린). 같은 어설션은 v2.1.6에서는 **20/41** — 당시

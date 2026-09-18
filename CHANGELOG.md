@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [v2.2.5] - 2026-09-19
+
+### Added
+- **Conflict-loader advisory scan in other startup files (read-only).** The installer's conflict cleanup only edits `~/.zshrc` — by design, so it never touches config the user manages elsewhere. But `zsh-autocomplete` / `zsh-autosuggestions` loaders are sometimes placed in `.zprofile`, `.zshenv`, `conf.d/*.zsh`, `.zshrc.d/*` or `/etc/zsh/zshrc`. A loader that survives there keeps the plugin loading on every `exec zsh` and re-triggers the duplicate-suggestion / Tab-conflict symptom. After cleanup, the installer now **scans** those files and **warns** the user with the exact `file:line` so they can clean it manually. It never edits those files.
+
+- **Region detection now decides which candidates are visible: outside mainland China the presets are hidden, but direct is still measured.** The public-IP geo-lookup has three results: **mainland China**, **outside mainland China**, and **not detected**. Mainland China / not detected: every candidate is shown and every candidate is speed-tested — **including direct**, because whether direct is actually faster should be measured rather than guessed from geography — and both manual entries stay available; an unknown region hides nothing either, so the choice stays with the user. **Outside mainland China: every preset mirror is hidden** (the ghproxy family and gitclone.com are mainland-only channels — there they can only mislead or be slower), leaving just direct — yet direct is **still speed-tested**, and both manual entries (mirror source, full proxy) remain. Menu numbers are compacted over the visible candidates, so there is no dead option that looks like "nothing happened". This also **removed `kgithub.com`**, a domain-swap mirror that cannot serve reliably long-term.
+- **Two kinds of manual input: a mirror source, or a full proxy.** These are genuinely different mechanisms, so both are now offered. A **mirror source** rewrites GitHub URLs (prefix or domain swap). A **full proxy** — the kind you can set as a system proxy, e.g. `http://127.0.0.1:7890` or `socks5://127.0.0.1:1080` — is exported as `HTTP_PROXY`/`HTTPS_PROXY` so curl, git and wget route *every* request through it (URLs are left untouched). The proxy is reachability-tested before it is accepted, and can be set non-interactively with `SMART_INSTALL_PROXY`.
+- **Preset mirrors are annotated "China mainland only".** ghproxy.net / ghproxy.com / mirror.ghproxy.com / gitclone.com exist to serve mainland-China networks, so they are labelled as such — otherwise a user outside mainland China can easily pick a channel that is slower for them than a direct connection.
+
+### Fixed
+- **Conflict detection no longer re-reports stale backups.** The zinit directory scan matches by substring, so a `zsh-autocomplete.bak.<timestamp>` backup left by a previous run was reported again as a "conflict plugin dir" even when no active plugin remained — and accepting the prompt then deleted that backup. Backup directories are now skipped (they are not active plugins), so only real plugin directories are reported.
+- **The advisory scan no longer flags `fzf-tab`.** `fzf-tab` is a supported alternative list-drawer (`SMART_MENU_LISTER=fzf-tab`), so calling it a conflict contradicted the documented integration. Only `zsh-autocomplete` / `zsh-autosuggestions` — pure duplicates of what zsh-smart-complete already provides — are reported now.
+
 ## [v2.2.4] - 2026-09-16
 
 ### Added

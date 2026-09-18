@@ -407,6 +407,333 @@ else
     no "entware clean_conflict_plugin still re-reports .bak.* backups"
 fi
 
+# ---------------------------------------------------------------------------
+echo "== 12. region detection: China -> proxy/mirror, non-China -> direct =="
+# The installer must NOT blanket-run the mirror speed test any more: GitHub is
+# reachable directly from outside China, so only a China-region IP needs the
+# proxy/mirror path. Extract the REAL mirror subsystem + region helpers.
+{
+    sed -n '/^MIRROR_IDS=()/,/^_add_mirror "gitclone.com"/p' "$INSTALL"
+    grep -E '^(GH_MIRROR|GH_MIRROR_TYPE|MIRROR_TEST_URL|MIRROR_TEST_URL_CLONE|MIRROR_TIMES)=' "$INSTALL"
+    extract_fn _mirror_label
+    extract_fn _guess_mirror_type
+    extract_fn _rewrite_with
+    extract_fn mirror_rewrite
+    extract_fn mirror_speed_test
+    extract_fn mirror_ordered_indices
+    extract_fn _build_mirror_pool
+    extract_fn detect_public_ip_region
+    extract_fn _region_display
+    extract_fn _show_proxy_env
+    extract_fn _test_proxy_url
+    extract_fn _apply_full_proxy
+    extract_fn _manual_proxy_flow
+    extract_fn select_mirror
+} > "$TMP/region.sh"
+# shellcheck disable=SC1090
+source "$TMP/region.sh"
+for fn in detect_public_ip_region select_mirror mirror_speed_test; do
+    if grep -q "^$fn() {" "$TMP/region.sh"; then ok "extracted $fn"; else no "could not extract $fn"; fi
+done
+
+# --- kgithub.com must be gone from the candidate list (unstable mirror domain).
+if [[ " ${MIRROR_IDS[*]} " == *" kgithub.com "* ]]; then
+    no "kgithub.com still present in MIRROR_IDS"
+else
+    ok "kgithub.com removed from MIRROR_IDS"
+fi
+assert_eq "candidate count is 5 (direct+3 ghproxy+gitclone)" "${#MIRROR_IDS[@]}" "5"
+
+# --- replace the network: record URLs, feed canned responses.
+# NOTE: curl runs inside `$(...)` (a subshell), so a shell-variable log would be
+# lost. Record requested URLs to a FILE, which survives the subshell.
+CURL_LOG_FILE="$TMP/curl_urls.log"; : > "$CURL_LOG_FILE"
+MOCK_IPIP=""; MOCK_IPAPI=""; MOCK_IFCONFIG=""; MOCK_CODE="200"
+curl(){
+    local url="" out="" wfmt=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -o) out="$2"; shift 2 ;;
+            -w) wfmt="$2"; shift 2 ;;
+            -x) shift 2 ;;
+            --connect-timeout|--max-time) shift 2 ;;
+            -*) shift ;;
+            *) url="$1"; shift ;;
+        esac
+    done
+    printf '%s\n' "$url" >> "$CURL_LOG_FILE" 2>/dev/null || true
+    case "$url" in
+        *myip.ipip.net*)   [ -n "$MOCK_IPIP" ]     && printf '%s' "$MOCK_IPIP" ;;
+        *ipapi.co*)        [ -n "$MOCK_IPAPI" ]    && printf '%s' "$MOCK_IPAPI" ;;
+        *ifconfig.me*)     [ -n "$MOCK_IFCONFIG" ] && printf '%s' "$MOCK_IFCONFIG" ;;
+        *raw.githubusercontent.com/*VERSION*|*github.com/imonior/zsh-smart-complete*)
+                           [ -n "$out" ] && printf '2.2.5' > "$out"
+                           [ -n "$wfmt" ] && printf "${MOCK_CODE:-200} 0.05" ;;
+        *)                 [ -n "$out" ] && : > "$out"
+                           [ -n "$wfmt" ] && printf '000 0.0' ;;
+    esac
+    return 0
+}
+info(){ :; }
+warn(){ :; }
+msg(){ local k="$1"; shift || true; printf '%s' "$k"; }
+
+# --- 12a: a Chinese IP (ipip.net returns Chinese text) -> CN.
+MOCK_IPIP="当前 IP：1.2.3.4  来自于：中国 广东 深圳 电信"
+detect_public_ip_region
+assert_eq "detect: country=CN"   "$_PUB_IP_COUNTRY" "CN"
+assert_eq "detect: IP extracted" "$_PUB_IP"         "1.2.3.4"
+
+# --- 12b: a non-Chinese IP -> OTHER.
+MOCK_IPIP="Current IP: 5.6.7.8  from: Japan"
+detect_public_ip_region
+assert_eq "detect: country=OTHER" "$_PUB_IP_COUNTRY" "OTHER"
+
+# --- 12c: ipip.net down, ipapi.co returns CN -> fallback still detects CN.
+MOCK_IPIP=""; MOCK_IPAPI='{"ip":"9.9.9.9","country":"CN"}'
+detect_public_ip_region
+assert_eq "detect fallback: CN via ipapi" "$_PUB_IP_COUNTRY" "CN"
+
+# --- 12d: all services down -> UNKNOWN, non-zero return.
+MOCK_IPIP=""; MOCK_IPAPI=""; MOCK_IFCONFIG=""
+if detect_public_ip_region; then
+    no "detect returns success when all services fail"
+else
+    ok "detect returns failure when all services fail"
+fi
+assert_eq "detect: country=UNKNOWN on failure" "$_PUB_IP_COUNTRY" "UNKNOWN"
+
+# --- 12e: NON-China -> 不再短路到直连：照样测速（direct 也在其中）。
+# 直连是否更快应该测出来，而不是靠地区猜；手动输入也必须保留。
+MOCK_IPIP="Current IP: 5.6.7.8  from: Japan"; MOCK_IPAPI=""; MOCK_IFCONFIG=""
+GH_MIRROR=""; GH_MIRROR_TYPE="direct"; MIRROR_TIMES=(); : > "$CURL_LOG_FILE"
+NONINTERACTIVE=1; SMART_INSTALL_GH_MIRROR=""; SMART_INSTALL_PROXY=""; SKIP_DEPS=0
+select_mirror
+if grep -q 'VERSION' "$CURL_LOG_FILE" 2>/dev/null; then
+    ok "non-CN: still ran the mirror speed test (direct included)"
+else
+    no "non-CN: skipped the mirror speed test (region must not short-circuit)"
+fi
+# “仍测速”不等于“仍显示全部”：非中国区必须把预置镜像从候选池剔除，
+# 既不显示、也不对它们发任何探测请求（留出它们只会误导用户选到更慢的通道）。
+assert_eq "non-CN: visible pool collapses to direct only" "${#MIRROR_ACTIVE[@]}" "1"
+assert_eq "non-CN: the single visible candidate is direct (index 0)" "${MIRROR_ACTIVE[0]}" "0"
+if grep -qE 'ghproxy|gitclone' "$CURL_LOG_FILE" 2>/dev/null; then
+    no "non-CN: probed preset China mirrors (they must be hidden)"
+else
+    ok "non-CN: preset China mirrors are hidden and never probed"
+fi
+
+# --- 12f: China -> select_mirror runs the speed test (proxy/mirror probe).
+MOCK_IPIP="当前 IP：1.2.3.4  来自于：中国 广东 深圳 电信"; MOCK_IPAPI=""; MOCK_IFCONFIG=""
+GH_MIRROR=""; GH_MIRROR_TYPE="direct"; MIRROR_TIMES=(); : > "$CURL_LOG_FILE"
+NONINTERACTIVE=1; SMART_INSTALL_PROXY=""
+select_mirror
+if grep -q 'VERSION' "$CURL_LOG_FILE" 2>/dev/null; then
+    ok "CN: ran the mirror speed test"
+else
+    no "CN: did not run the mirror speed test"
+fi
+assert_eq "CN: all candidates stay visible" "${#MIRROR_ACTIVE[@]}" "${#MIRROR_IDS[@]}"
+if grep -qE 'ghproxy|gitclone' "$CURL_LOG_FILE" 2>/dev/null; then
+    ok "CN: preset mirrors were probed"
+else
+    no "CN: preset mirrors were never probed"
+fi
+
+# --- entware carries the identical region logic.
+if sed -n "/^detect_public_ip_region() {/,/^}/p" "$ENT" | grep -q 'myip.ipip.net'; then
+    ok "entware defines detect_public_ip_region (matches install.sh)"
+else
+    no "entware is missing detect_public_ip_region"
+fi
+if sed -n "/^select_mirror() {/,/^}/p" "$ENT" | grep -q 'detect_public_ip_region'; then
+    ok "entware select_mirror is region-aware"
+else
+    no "entware select_mirror is not region-aware"
+fi
+if grep -q 'kgithub' "$ENT"; then
+    no "entware still references kgithub"
+else
+    ok "entware no longer references kgithub"
+fi
+# 两份安装器必须同步“隐藏预置镜像”这套机制，否则行为会悄悄分叉。
+for f in "$INSTALL" "$ENT"; do
+    b="$(basename "$f")"
+    if sed -n "/^_build_mirror_pool() {/,/^}/p" "$f" | grep -q 'OTHER'; then
+        ok "$b: visible pool is filtered by region"
+    else
+        no "$b: visible pool is NOT filtered by region (presets stay outside China)"
+    fi
+    if sed -n "/^select_mirror() {/,/^}/p" "$f" | grep -q '_build_mirror_pool'; then
+        ok "$b: select_mirror rebuilds the visible pool"
+    else
+        no "$b: select_mirror never rebuilds the visible pool"
+    fi
+    if sed -n "/^mirror_speed_test() {/,/^}/p" "$f" | grep -q 'MIRROR_ACTIVE'; then
+        ok "$b: speed test walks MIRROR_ACTIVE only"
+    else
+        no "$b: speed test still walks the full MIRROR_IDS"
+    fi
+    if sed -n "/^select_mirror() {/,/^}/p" "$f" | grep -q 'choice=\${MIRROR_ACTIVE'; then
+        ok "$b: menu choice maps through MIRROR_ACTIVE"
+    else
+        no "$b: menu choice still indexes MIRROR_IDS directly"
+    fi
+done
+
+# --- 12g: 第三种结果“没检测出来” -> 与 CN 一样全部显示、全部测速。
+MOCK_IPIP=""; MOCK_IPAPI=""; MOCK_IFCONFIG=""
+GH_MIRROR=""; GH_MIRROR_TYPE="direct"; MIRROR_TIMES=(); : > "$CURL_LOG_FILE"
+NONINTERACTIVE=1; SMART_INSTALL_PROXY=""
+select_mirror
+if grep -q 'VERSION' "$CURL_LOG_FILE" 2>/dev/null; then
+    ok "UNKNOWN: ran the mirror speed test (same as CN)"
+else
+    no "UNKNOWN: did not run the mirror speed test"
+fi
+assert_eq "UNKNOWN: all candidates stay visible" "${#MIRROR_ACTIVE[@]}" "${#MIRROR_IDS[@]}"
+if grep -qE 'ghproxy|gitclone' "$CURL_LOG_FILE" 2>/dev/null; then
+    ok "UNKNOWN: preset mirrors were probed (nothing hidden)"
+else
+    no "UNKNOWN: preset mirrors were never probed"
+fi
+
+# --- 12h: 交互菜单必须按“可见候选”压紧编号。
+# 非中国区只剩 1 个候选，所以 2 = 手动输入镜像源、3 = 手动输入全量代理；
+# 若忘了压紧编号，选 2 会落到某个已被隐藏的预置镜像上（选了像没反应）。
+MOCK_CODE="200"; NONINTERACTIVE=0
+MOCK_IPIP="Current IP: 5.6.7.8  from: Japan"; MOCK_IPAPI=""; MOCK_IFCONFIG=""
+GH_MIRROR=""; GH_MIRROR_TYPE="direct"; MIRROR_TIMES=()
+printf '2\nhttps://my.example/\n' > "$TMP/in_custom"
+select_mirror < "$TMP/in_custom" > /dev/null 2>&1
+assert_eq "non-CN: menu option 2 is the manual mirror entry" "$GH_MIRROR" "https://my.example/"
+assert_eq "non-CN: manual mirror inferred as prefix" "$GH_MIRROR_TYPE" "prefix"
+
+GH_MIRROR=""; GH_MIRROR_TYPE="direct"; MIRROR_TIMES=()
+unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy
+printf '3\nhttp://127.0.0.1:7890\n' > "$TMP/in_proxy"
+select_mirror < "$TMP/in_proxy" > /dev/null 2>&1
+assert_eq "non-CN: menu option 3 is the full-proxy entry" "$GH_MIRROR_TYPE" "proxy"
+assert_eq "non-CN: full proxy exported" "${HTTPS_PROXY:-}" "http://127.0.0.1:7890"
+assert_eq "non-CN: proxy does not rewrite the URL" \
+    "$(_rewrite_with "$GH_MIRROR_TYPE" "$GH_MIRROR" "https://raw.githubusercontent.com/o/r/main/VERSION")" \
+    "https://raw.githubusercontent.com/o/r/main/VERSION"
+
+# --- 12i: 反向验证——CN 下预置镜像仍在，编号不压紧（2 = 第一个预置镜像）。
+MOCK_IPIP="当前 IP：1.2.3.4  来自于：中国 广东 深圳 电信"
+GH_MIRROR=""; GH_MIRROR_TYPE="direct"; MIRROR_TIMES=()
+printf '2\n' > "$TMP/in_cn"
+select_mirror < "$TMP/in_cn" > /dev/null 2>&1
+assert_eq "CN: menu option 2 is still the first preset mirror" "$GH_MIRROR" "https://ghproxy.net/"
+NONINTERACTIVE=1; MOCK_IPIP=""
+
+# ---------------------------------------------------------------------------
+echo "== 13. full proxy (system proxy): a second, different mechanism =="
+# 镜像 = 改写 URL；全量代理 = 导出 HTTP_PROXY/HTTPS_PROXY 让 curl/git/wget 透明使用。
+# 两者必须并存为菜单里的两个手动输入项。
+
+# 先钉住“显式分支”：只验证“URL 没被改写”是不够的——就算把 proxy 分支整个删掉，
+# 默认的 `*) echo "$url"` 也会让上面三条照样通过。必须确认分支真的存在，
+# 否则别人日后误把 proxy 写成 prefix 式改写时，测试不会报警。
+for f in "$INSTALL" "$ENT"; do
+    if sed -n "/^_rewrite_with() {/,/^}/p" "$f" | grep -q '^        proxy)'; then
+        ok "$(basename "$f"): _rewrite_with has an explicit proxy case"
+    else
+        no "$(basename "$f"): _rewrite_with is missing the explicit proxy case"
+    fi
+done
+
+# --- 13a: proxy 类型绝不改写 URL（任何形态都保持原样）
+assert_eq "proxy: raw URL unchanged" \
+    "$(_rewrite_with proxy "http://127.0.0.1:7890" "https://raw.githubusercontent.com/o/r/main/VERSION")" \
+    "https://raw.githubusercontent.com/o/r/main/VERSION"
+assert_eq "proxy: releases URL unchanged" \
+    "$(_rewrite_with proxy "http://127.0.0.1:7890" "https://github.com/o/r/releases/download/v1/x.tar.gz")" \
+    "https://github.com/o/r/releases/download/v1/x.tar.gz"
+assert_eq "proxy: git URL unchanged" \
+    "$(_rewrite_with proxy "socks5://127.0.0.1:1080" "https://github.com/o/r")" \
+    "https://github.com/o/r"
+
+# --- 13b: _apply_full_proxy 导出大小写两套环境变量，并置 GH_MIRROR_TYPE=proxy
+( unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy
+  _apply_full_proxy "http://127.0.0.1:7890"
+  printf '%s|%s|%s|%s|%s|%s|%s|%s\n' "$HTTP_PROXY" "$HTTPS_PROXY" "$http_proxy" "$https_proxy" \
+      "$ALL_PROXY" "$all_proxy" "$GH_MIRROR" "$GH_MIRROR_TYPE" ) > "$TMP/proxyenv"
+assert_eq "proxy: exports both cases + sets type" "$(cat "$TMP/proxyenv")" \
+    "http://127.0.0.1:7890|http://127.0.0.1:7890|http://127.0.0.1:7890|http://127.0.0.1:7890|http://127.0.0.1:7890|http://127.0.0.1:7890|http://127.0.0.1:7890|proxy"
+
+# --- 13c: 代理可用性检测：200 才算通过
+MOCK_CODE="200"
+if _test_proxy_url "http://127.0.0.1:7890"; then
+    ok "proxy test: reachable proxy passes"
+else
+    no "proxy test: reachable proxy should pass"
+fi
+MOCK_CODE="000"
+if _test_proxy_url "http://127.0.0.1:9"; then
+    no "proxy test: dead proxy should fail"
+else
+    ok "proxy test: dead proxy fails"
+fi
+MOCK_CODE="200"
+
+# --- 13d: 菜单必须提供两个手动输入项（镜像源 / 全量代理）
+# 必须查“真正调用了 _manual_proxy_flow”，而不是查 custom_proxy_d 这个变量名：
+# 变量名在菜单声明处仍然存在，所以只 grep 变量名的话，把 elif 分支删掉也照样通过。
+if sed -n "/^select_mirror() {/,/^}/p" "$INSTALL" | grep -q '_manual_proxy_flow'; then
+    ok "menu offers a second manual entry (full proxy)"
+else
+    no "menu is missing the full-proxy manual entry"
+fi
+if sed -n "/^select_mirror() {/,/^}/p" "$ENT" | grep -q '_manual_proxy_flow'; then
+    ok "entware menu offers a second manual entry"
+else
+    no "entware menu is missing the full-proxy manual entry"
+fi
+for f in "$INSTALL" "$ENT"; do
+    if grep -q 'mirror.manual_proxy' "$f"; then
+        ok "$(basename "$f") defines mirror.manual_proxy"
+    else
+        no "$(basename "$f") lacks mirror.manual_proxy"
+    fi
+done
+
+# --- 13e: 预置镜像必须标注“适用于中国大陆”，direct 不得标注。
+# 用真实 i18n（_msg）验证，而不是靠 mock 出来的键名。
+{
+    sed -n '/^MIRROR_IDS=()/,/^_add_mirror "gitclone.com"/p' "$INSTALL"
+    extract_fn _mirror_label
+    sed -n '/^_msg() {/,/^}/p' "$INSTALL"
+    printf '%s\n' 'msg() { local key="$1"; shift || true; local t; t="$(_msg "$key")"; [[ -z "$t" ]] && t="$key"; printf "$t\n" "$@"; }'
+} > "$TMP/labels.sh"
+# shellcheck disable=SC1090
+source "$TMP/labels.sh"
+# 注意：assert_has / assert_lacks 的第二个参数是“文件路径”，不是字符串，
+# 所以标签必须先落盘再断言。
+LANG_CODE=zh-CN
+_mirror_label 0 > "$TMP/lbl_direct"
+_mirror_label 1 > "$TMP/lbl_ghproxy"
+_mirror_label 4 > "$TMP/lbl_gitclone"
+assert_lacks "direct label is NOT annotated" "$TMP/lbl_direct"  "适用于中国大陆"
+assert_has   "ghproxy.net label annotated"   "$TMP/lbl_ghproxy" "适用于中国大陆"
+assert_has   "gitclone.com label annotated"  "$TMP/lbl_gitclone" "适用于中国大陆"
+LANG_CODE=en
+_mirror_label 1 > "$TMP/lbl_en"
+_mirror_label 0 > "$TMP/lbl_en_direct"
+assert_has   "en label annotated"            "$TMP/lbl_en"        "China mainland only"
+assert_lacks "en direct label NOT annotated" "$TMP/lbl_en_direct" "China mainland only"
+LANG_CODE=zh-CN
+
+# entware 的标签是硬编码中文：4 个预置镜像都要标注，direct 不得标注。
+n_anno=$(grep -c '_add_mirror.*适用于中国大陆' "$ENT" || true)
+assert_eq "entware: 4 preset mirrors annotated" "$n_anno" "4"
+if sed -n '/^_add_mirror "direct"/p' "$ENT" | grep -q '适用于中国大陆'; then
+    no "entware: direct must not be annotated"
+else
+    ok "entware: direct is not annotated"
+fi
+
 echo "-----"
 echo "INSTALLER-OPTIONS TOTAL PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

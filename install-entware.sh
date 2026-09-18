@@ -115,18 +115,26 @@ _msg() {
             esac ;;
         mirror.select)
             case "$lang" in
-                zh-CN) s="请选择 GitHub 加速镜像（已列出全部候选的测速结果）：" ;;
-                zh-TW) s="請選擇 GitHub 加速鏡像（已列出全部候選的測速結果）：" ;;
-                ja)    s="GitHub ミラーを選択してください（全候補の実測値を表示）：" ;;
-                ko)    s="GitHub 미러를 선택하세요 (모든 후보의 측정 결과 표시):" ;;
-                *)     s="Select a GitHub mirror (all candidates with measured latency):" ;;
+                zh-CN) s="请选择 GitHub 加速镜像（已列出当前可用候选的测速结果）：" ;;
+                zh-TW) s="請選擇 GitHub 加速鏡像（已列出目前可用候選的測速結果）：" ;;
+                ja)    s="GitHub ミラーを選択してください（利用可能な候補の実測値を表示）：" ;;
+                ko)    s="GitHub 미러를 선택하세요 (현재 사용 가능한 후보의 측정 결과 표시):" ;;
+                *)     s="Select a GitHub mirror (available candidates with measured latency):" ;;
             esac ;;
         mirror.manual)
             case "$lang" in
-                zh-CN) s="手动输入自定义镜像前缀 URL" ;; zh-TW) s="手動輸入自訂鏡像前綴 URL" ;;
-                ja)    s="カスタムミラープレフィックス URL を手動入力" ;;
-                ko)    s="사용자 지정 미러 접두사 URL 직접 입력" ;;
-                *)     s="Enter a custom mirror prefix URL" ;;
+                zh-CN) s="手动输入镜像源（URL 前缀 / 域名替换主机）" ;; zh-TW) s="手動輸入鏡像源（URL 前綴 / 網域替換主機）" ;;
+                ja)    s="ミラー源を手動入力（URL プレフィックス / ドメイン置換ホスト）" ;;
+                ko)    s="미러 소스 직접 입력 (URL 접두사 / 도메인 교체 호스트)" ;;
+                *)     s="Enter a mirror source manually (URL prefix / domain swap host)" ;;
+            esac ;;
+        mirror.manual_proxy)
+            case "$lang" in
+                zh-CN) s="手动输入全量代理服务器（系统代理，如 http://127.0.0.1:7890）" ;;
+                zh-TW) s="手動輸入全量代理伺服器（系統代理，如 http://127.0.0.1:7890）" ;;
+                ja)    s="フルプロキシを手動入力（システムプロキシ、例: http://127.0.0.1:7890）" ;;
+                ko)    s="전체 프록시 서버 직접 입력 (시스템 프록시, 예: http://127.0.0.1:7890)" ;;
+                *)     s="Enter a full proxy server manually (system proxy, e.g. http://127.0.0.1:7890)" ;;
             esac ;;
         mirror.prompt)
             case "$lang" in
@@ -140,6 +148,105 @@ _msg() {
                 zh-CN) s="已选择：%s (%ss) [%s]" ;; zh-TW) s="已選擇：%s (%ss) [%s]" ;;
                 ja)    s="選択: %s (%ss) [%s]" ;; ko)    s="선택: %s (%ss) [%s]" ;;
                 *)     s="Selected: %s (%ss) [%s]" ;;
+            esac ;;
+        proxy.prompt)
+            case "$lang" in
+                zh-CN) s="请输入全量代理地址（如 http://127.0.0.1:7890、socks5://127.0.0.1:1080）: " ;;
+                zh-TW) s="請輸入全量代理位址（如 http://127.0.0.1:7890、socks5://127.0.0.1:1080）: " ;;
+                ja)    s="フルプロキシのアドレスを入力（例: http://127.0.0.1:7890、socks5://127.0.0.1:1080）: " ;;
+                ko)    s="전체 프록시 주소 입력 (예: http://127.0.0.1:7890, socks5://127.0.0.1:1080): " ;;
+                *)     s="Enter full proxy address (e.g. http://127.0.0.1:7890, socks5://127.0.0.1:1080): " ;;
+            esac ;;
+        proxy.testing)
+            case "$lang" in
+                zh-CN) s="正在检测该代理是否可用 ..." ;; zh-TW) s="正在檢測該代理是否可用 ..." ;;
+                ja)    s="このプロキシが利用可能か検出中 ..." ;;
+                ko)    s="프록시 사용 가능 여부 감지 중 ..." ;;
+                *)     s="Testing whether the proxy works ..." ;;
+            esac ;;
+        proxy.chosen)
+            case "$lang" in
+                zh-CN) s="已启用全量代理：%s（已导出 HTTP_PROXY/HTTPS_PROXY，curl/git/wget 均会走它）" ;;
+                zh-TW) s="已啟用全量代理：%s（已匯出 HTTP_PROXY/HTTPS_PROXY，curl/git/wget 均會走它）" ;;
+                ja)    s="フルプロキシを有効化: %s（HTTP_PROXY/HTTPS_PROXY をエクスポート済み。curl/git/wget が使用）" ;;
+                ko)    s="전체 프록시 활성화: %s (HTTP_PROXY/HTTPS_PROXY 내보냄. curl/git/wget 적용)" ;;
+                *)     s="Full proxy enabled: %s (exported HTTP_PROXY/HTTPS_PROXY; used by curl/git/wget)" ;;
+            esac ;;
+        proxy.test_failed)
+            case "$lang" in
+                zh-CN) s="该代理未通过可用性检测：%s" ;; zh-TW) s="該代理未通過可用性檢測：%s" ;;
+                ja)    s="このプロキシは可用性チェックに失敗しました: %s" ;;
+                ko)    s="이 프록시는 가용성 검사를 통과하지 못했습니다: %s" ;;
+                *)     s="The proxy failed the reachability test: %s" ;;
+            esac ;;
+        proxy.keep_ask)
+            case "$lang" in
+                zh-CN) s="仍要使用它吗？[y/N]: " ;; zh-TW) s="仍要使用它嗎？[y/N]: " ;;
+                ja)    s="それでも使用しますか？[y/N]: " ;;
+                ko)    s="그래도 사용하시겠습니까? [y/N]: " ;;
+                *)     s="Still use it? [y/N]: " ;;
+            esac ;;
+        proxy.empty)
+            case "$lang" in
+                zh-CN) s="输入为空，已取消使用全量代理。" ;; zh-TW) s="輸入為空，已取消使用全量代理。" ;;
+                ja)    s="入力が空のため、フルプロキシの使用を取り消しました。" ;;
+                ko)    s="입력이 비어 있어 전체 프록시 사용을 취소했습니다." ;;
+                *)     s="Empty input; cancelled using a full proxy." ;;
+            esac ;;
+        region.test)
+            case "$lang" in
+                zh-CN) s="正在检测外网 IP 归属地 ..." ;; zh-TW) s="正在檢測外網 IP 歸屬地 ..." ;;
+                ja)    s="外部 IP の帰属を検出中 ..." ;;
+                ko)    s="외부 IP 소속 감지 중 ..." ;;
+                *)     s="Detecting public IP geo-location ..." ;;
+            esac ;;
+        region.cn)
+            case "$lang" in
+                zh-CN) s="当前网络属于中国区，建议走代理/镜像加速。外网 IP：%s" ;;
+                zh-TW) s="當前網路屬於中國區，建議走代理/鏡像加速。外網 IP：%s" ;;
+                ja)    s="現在のネットワークは中国圏です。プロキシ/ミラー高速化を推奨します。外部 IP: %s" ;;
+                ko)    s="현재 네트워크는 중국 지역입니다. 프록시/미러 가속 권장. 외부 IP: %s" ;;
+                *)     s="Network appears to be in China region; a proxy/mirror is recommended. Public IP: %s" ;;
+            esac ;;
+        region.foreign)
+            case "$lang" in
+                zh-CN) s="当前网络非中国区，direct 直连可用。外网 IP：%s" ;;
+                zh-TW) s="當前網路非中國區，direct 直連可用。外網 IP：%s" ;;
+                ja)    s="中国圏外のネットワークです。direct 接続が利用可能です。外部 IP: %s" ;;
+                ko)    s="중국 외 지역 네트워크입니다. direct 직접 연결 사용 가능. 외부 IP: %s" ;;
+                *)     s="Network is outside China region; direct connection works. Public IP: %s" ;;
+            esac ;;
+        region.direct_ok)
+            case "$lang" in
+                zh-CN) s="非中国大陆网络：已隐藏适用于中国大陆的预置镜像（仅保留直连），仍会对直连测速，并保留两项手动输入。" ;;
+                zh-TW) s="非中國大陸網路：已隱藏適用於中國大陸的預置鏡像（僅保留直連），仍會對直連測速，並保留兩項手動輸入。" ;;
+                ja)    s="中国大陸以外のネットワーク: 中国大陸向けプリセットミラーは非表示（直接続のみ）。direct も速度測定し、手動入力2項目も維持します。" ;;
+                ko)    s="중국 본토 외 네트워크: 중국 본토용 프리셋 미러는 숨김(직접 연결만 유지). direct도 속도 측정하고 수동 입력 2개도 유지합니다." ;;
+                *)     s="Outside mainland China: preset China-only mirrors are hidden (direct kept); direct is still speed-tested and both manual entries stay available." ;;
+            esac ;;
+        region.unknown)
+            case "$lang" in
+                zh-CN) s="无法检测外网 IP 归属地，保守走镜像测速流程。" ;;
+                zh-TW) s="無法檢測外網 IP 歸屬地，保守走鏡像測速流程。" ;;
+                ja)    s="外部 IP の帰属を検出できません。安全のためミラー速度測定を行います。" ;;
+                ko)    s="외부 IP 소속을 감지할 수 없습니다. 안전을 위해 미러 속도 측정 진행." ;;
+                *)     s="Could not detect public IP geo-location; conservatively running mirror speed test." ;;
+            esac ;;
+        region.proxy)
+            case "$lang" in
+                zh-CN) s="检测到代理环境变量（透明作用于 git/curl）：HTTP_PROXY=%s HTTPS_PROXY=%s" ;;
+                zh-TW) s="偵測到代理環境變數（透明作用於 git/curl）：HTTP_PROXY=%s HTTPS_PROXY=%s" ;;
+                ja)    s="プロキシ環境変数を検出（git/curl に透過適用）：HTTP_PROXY=%s HTTPS_PROXY=%s" ;;
+                ko)    s="프록시 환경변수 감지 (git/curl에 투명 적용): HTTP_PROXY=%s HTTPS_PROXY=%s" ;;
+                *)     s="Detected proxy env vars (transparently applied to git/curl): HTTP_PROXY=%s HTTPS_PROXY=%s" ;;
+            esac ;;
+        region.proxy_none)
+            case "$lang" in
+                zh-CN) s="未检测到代理环境变量。如需使用自有代理，请先 export HTTP_PROXY/HTTPS_PROXY。" ;;
+                zh-TW) s="未偵測到代理環境變數。如需使用自有代理，請先 export HTTP_PROXY/HTTPS_PROXY。" ;;
+                ja)    s="プロキシ環境変数は検出されませんでした。独自プロキシを使う場合は export HTTP_PROXY/HTTPS_PROXY を先に。" ;;
+                ko)    s="프록시 환경변수 미감지. 자체 프록시 사용 시 먼저 export HTTP_PROXY/HTTPS_PROXY 하세요." ;;
+                *)     s="No proxy env vars detected. To use your own proxy, export HTTP_PROXY/HTTPS_PROXY first." ;;
             esac ;;
         phase1)
             case "$lang" in
@@ -516,13 +623,22 @@ REAL_WGET="$(command -v wget || true)"
 #            否则会把二进制下载地址拼成 404 —— 这正是 starship/atuin 安装报
 #            "curl exit code 22" 的根因（gitclone.com 不是前缀代理）
 MIRROR_IDS=(); MIRROR_LABELS=(); MIRROR_PREFIXES=(); MIRROR_TYPES=()
-_add_mirror() { MIRROR_IDS+=("$1"); MIRROR_LABELS+=("$2"); MIRROR_PREFIXES+=("$3"); MIRROR_TYPES+=("${4:-prefix}"); }
-_add_mirror "direct"             "直连（不使用加速）"              ""                            "direct"
-_add_mirror "ghproxy.net"        "ghproxy.net (URL 前缀代理)"      "https://ghproxy.net/"        "prefix"
-_add_mirror "ghproxy.com"        "ghproxy.com (URL 前缀代理)"      "https://ghproxy.com/"        "prefix"
-_add_mirror "mirror.ghproxy.com" "mirror.ghproxy.com"              "https://mirror.ghproxy.com/" "prefix"
-_add_mirror "kgithub.com"        "kgithub.com (域名替换)"          "kgithub.com"                 "domain"
-_add_mirror "gitclone.com"       "gitclone.com (仅 Git Clone 加速)" "https://gitclone.com/"       "clone"
+# MIRROR_ACTIVE：本轮真正参与「测速 + 菜单」的候选索引。默认是全部候选；
+# 非中国大陆时 _build_mirror_pool 会把预置镜像从这里剔除。
+# 测速、排序、菜单编号必须共用这一份「可见列表」，否则编号会错位留出空选项。
+MIRROR_ACTIVE=()
+_add_mirror() {
+    local idx=${#MIRROR_IDS[@]}
+    MIRROR_IDS+=("$1"); MIRROR_LABELS+=("$2"); MIRROR_PREFIXES+=("$3"); MIRROR_TYPES+=("${4:-prefix}")
+    MIRROR_ACTIVE+=("$idx")
+}
+# 预置加速镜像都是面向中国大陆网络的通道，标签统一标注“适用于中国大陆”，
+# 避免非中国区用户误选一个对自己反而更慢的通道。direct 不标注——它对任何地区都适用。
+_add_mirror "direct"             "直连（不使用加速）"                              ""                            "direct"
+_add_mirror "ghproxy.net"        "ghproxy.net (URL 前缀代理，适用于中国大陆)"       "https://ghproxy.net/"        "prefix"
+_add_mirror "ghproxy.com"        "ghproxy.com (URL 前缀代理，适用于中国大陆)"       "https://ghproxy.com/"        "prefix"
+_add_mirror "mirror.ghproxy.com" "mirror.ghproxy.com（适用于中国大陆）"             "https://mirror.ghproxy.com/" "prefix"
+_add_mirror "gitclone.com"       "gitclone.com (仅 Git Clone 加速，适用于中国大陆)" "https://gitclone.com/"       "clone"
 
 GH_MIRROR_TYPE="direct"   # 与 GH_MIRROR 配套：当前所选镜像的类型
 
@@ -574,6 +690,11 @@ _rewrite_with() {
                     fi ;;
                 *) echo "$url" ;;
             esac ;;
+        proxy)
+            # 全量代理：URL 一律不改写。代理是通过导出 HTTP_PROXY/HTTPS_PROXY
+            # 让 curl/git/wget 透明使用的（见 _apply_full_proxy），
+            # 因此 releases / raw / archive / git 任何 URL 形态都成立。
+            echo "$url" ;;
         *) echo "$url" ;;
     esac
 }
@@ -587,7 +708,8 @@ mirror_rewrite() { _rewrite_with "${GH_MIRROR_TYPE:-direct}" "$GH_MIRROR" "$1"; 
 mirror_speed_test() {
     local i prefix type u out code t
     local body; body="$(mktemp)"
-    for (( i=0; i<${#MIRROR_IDS[@]}; i++ )); do
+    # 只测 MIRROR_ACTIVE（可见候选）：非中国大陆时预置镜像已被剔除，不再白跑测速
+    for i in "${MIRROR_ACTIVE[@]}"; do
         prefix="${MIRROR_PREFIXES[$i]}"
         type="${MIRROR_TYPES[$i]}"
         if [[ "$type" == "clone" ]]; then
@@ -608,12 +730,148 @@ mirror_speed_test() {
     rm -f "$body"
 }
 
-# 返回按测速升序排列的索引列表（空格分隔）
+# 返回按测速升序排列的索引列表（空格分隔）。只排可见候选 MIRROR_ACTIVE。
 mirror_ordered_indices() {
     local i
-    for (( i=0; i<${#MIRROR_IDS[@]}; i++ )); do
+    for i in "${MIRROR_ACTIVE[@]}"; do
         echo "${MIRROR_TIMES[$i]} $i"
     done | sort -n -k1 | awk '{print $2}'
+}
+
+# ------------------------------------------------------------------
+# 全量代理（系统代理）：proxy 类型
+# ------------------------------------------------------------------
+# 与“镜像加速”是两种完全不同的机制，别混为一谈：
+#   镜像     = 改写 URL 的前缀/域名，只有 GitHub 系地址受益，其余下载照旧直连
+#   全量代理 = 导出 HTTP_PROXY/HTTPS_PROXY，curl/git/wget 透明使用，
+#              所有外网请求都走它 —— 也就是能设成“系统代理”的那种代理
+# 所以 proxy 类型下 mirror_rewrite 必须保持 URL 原样（见 _rewrite_with）。
+
+# 检测该代理能否真正打通目标：必须 HTTP 200 才算可用。
+# 只判断“有没有连上”是不够的——一个返回快速错误页的代理会被误判为可用。
+_test_proxy_url() {
+    local proxy="$1" body out code
+    body="$(mktemp)"
+    out="$(curl -sL -x "$proxy" -o "$body" -w '%{http_code}' \
+            --connect-timeout 5 --max-time 12 "$MIRROR_TEST_URL" 2>/dev/null || true)"
+    code="${out%% *}"
+    rm -f "$body"
+    [[ "$code" == "200" ]]
+}
+
+# 启用全量代理：导出大小写两套环境变量（不同工具读的写法不同）。
+_apply_full_proxy() {
+    local proxy="$1"
+    GH_MIRROR="$proxy"; GH_MIRROR_TYPE="proxy"
+    export HTTP_PROXY="$proxy" HTTPS_PROXY="$proxy"
+    export http_proxy="$proxy" https_proxy="$proxy"
+    export ALL_PROXY="$proxy"  all_proxy="$proxy"
+}
+
+# 手动输入全量代理：输入 -> 检测可用性 -> 失败则询问是否仍然使用 -> 导出环境变量
+_manual_proxy_flow() {
+    local p="" a=""
+    while true; do
+        echo -n "  $(msg proxy.prompt)"; read -r p
+        if [[ -z "$p" ]]; then
+            warn "$(msg proxy.empty)"; return 1
+        fi
+        info "$(msg proxy.testing)"
+        if _test_proxy_url "$p"; then
+            _apply_full_proxy "$p"
+            info "$(msg proxy.chosen "$p")"
+            return 0
+        fi
+        warn "$(msg proxy.test_failed "$p")"
+        echo -n "  $(msg proxy.keep_ask)"; a=""; read -r a
+        case "$a" in
+            y|Y|yes|YES)
+                _apply_full_proxy "$p"
+                info "$(msg proxy.chosen "$p")"
+                return 0 ;;
+            *) continue ;;
+        esac
+    done
+}
+
+# ------------------------------------------------------------------
+# 外网 IP 归属地检测
+# ------------------------------------------------------------------
+# 归属地只有三种结果：中国大陆 / 非中国大陆 / 没检测出来，各自“可见候选”不同：
+#   CN      全部候选（direct + 预置镜像），全部测速，保留两项手动输入
+#   没检测出来  同上 —— 地区不明时保守处理，把选择权留给用户，不做隐藏
+#   OTHER   剔除预置镜像，只留 direct；direct 仍然测速，两项手动输入仍然保留
+# 预置镜像全是面向中国大陆网络的通道，在非中国区既不会更快、还可能更慢，
+# 留着只会误导；但“直连是否真的通”是要测出来的，不能靠地区猜，
+# 所以 OTHER 分支不短路到直连，而是照常对 direct 测速。
+# 归属地查询优先用国内服务（中国区可稳定访问），失败再退回国际服务。
+_PUB_IP=""; _PUB_IP_COUNTRY=""; _PUB_IP_DESC=""
+
+# 按当前地区结果重建可见候选池 MIRROR_ACTIVE。
+# direct（type=direct）在任何地区都保留；其余预置镜像在非中国大陆时剔除。
+_build_mirror_pool() {
+    local i
+    MIRROR_ACTIVE=()
+    for (( i=0; i<${#MIRROR_IDS[@]}; i++ )); do
+        if [[ "${_PUB_IP_COUNTRY:-UNKNOWN}" == "OTHER" && "${MIRROR_TYPES[$i]}" != "direct" ]]; then
+            continue
+        fi
+        MIRROR_ACTIVE+=("$i")
+    done
+    # 兜底：direct 恒在其中，池子不可能为空；万一为空也不至于让菜单失去默认项
+    (( ${#MIRROR_ACTIVE[@]} > 0 )) || MIRROR_ACTIVE=(0)
+}
+
+detect_public_ip_region() {
+    _PUB_IP=""; _PUB_IP_COUNTRY=""; _PUB_IP_DESC=""
+    local s ip country
+
+    # 1) 国内服务（返回中文，含“中国”字样），中国区访问稳定
+    s="$(curl -fsSL --connect-timeout 5 --max-time 8 https://myip.ipip.net 2>/dev/null)"
+    if [[ -n "$s" ]]; then
+        ip="$(printf '%s' "$s" | grep -oE '[0-9]{1,3}(\.[0-9]{1,3}){3}' | head -1)"
+        _PUB_IP="${ip:-unknown}"
+        _PUB_IP_DESC="$s"
+        if [[ "$s" == *"中国"* ]]; then _PUB_IP_COUNTRY="CN"; else _PUB_IP_COUNTRY="OTHER"; fi
+        return 0
+    fi
+
+    # 2) 国际服务（JSON，含国家代码），非中国区访问稳定
+    s="$(curl -fsSL --connect-timeout 5 --max-time 8 https://ipapi.co/json/ 2>/dev/null)"
+    if [[ -n "$s" ]]; then
+        ip="$(printf '%s' "$s" | grep -oE '"ip"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)".*/\1/')"
+        country="$(printf '%s' "$s" | grep -oE '"country"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)".*/\1/')"
+        _PUB_IP="${ip:-unknown}"
+        _PUB_IP_DESC="${country:-unknown}"
+        _PUB_IP_COUNTRY="${country:-OTHER}"
+        return 0
+    fi
+
+    # 3) 退而求其次：只拿到 IP，无归属地
+    s="$(curl -fsSL --connect-timeout 5 --max-time 8 https://ifconfig.me/ip 2>/dev/null)"
+    if [[ -n "$s" ]]; then
+        _PUB_IP="$s"; _PUB_IP_DESC="$s"; _PUB_IP_COUNTRY="UNKNOWN"
+        return 0
+    fi
+
+    _PUB_IP_COUNTRY="UNKNOWN"
+    return 1
+}
+
+# 归属地的可读文本，用于提示
+_region_display() {
+    if [[ -n "$_PUB_IP_DESC" ]]; then printf '%s' "$_PUB_IP_DESC"
+    else printf '%s' "${_PUB_IP:-unknown}"; fi
+}
+
+# 打印当前 proxy 环境变量（git/curl 会透明使用它们）
+_show_proxy_env() {
+    local hp="${HTTP_PROXY:-${http_proxy:-}}" hs="${HTTPS_PROXY:-${https_proxy:-}}"
+    if [[ -n "$hp" || -n "$hs" ]]; then
+        info "$(msg region.proxy "${hp:-（none）}" "${hs:-（none）}")"
+    else
+        info "$(msg region.proxy_none)"
+    fi
 }
 
 select_mirror() {
@@ -633,6 +891,34 @@ select_mirror() {
     if [[ "${SKIP_DEPS:-0}" == "1" ]]; then
         GH_MIRROR=""; GH_MIRROR_TYPE="direct"; info "SKIP_DEPS=1：跳过镜像测速，使用直连。"; return 0
     fi
+    # 环境变量覆盖：全量代理（系统代理），如 http://127.0.0.1:7890 / socks5://...
+    if [[ -n "${SMART_INSTALL_PROXY:-}" ]]; then
+        case "${SMART_INSTALL_PROXY}" in
+            none|direct|off) : ;;
+            *) _apply_full_proxy "${SMART_INSTALL_PROXY}"
+               info "$(msg proxy.chosen "${SMART_INSTALL_PROXY}")"
+               return 0 ;;
+        esac
+    fi
+
+    # 外网 IP 归属地检测。三种结果（中国大陆 / 非中国大陆 / 没检测出来）
+    # 走同一套流程（测速 -> 推荐 -> 菜单），差别只在“可见候选集合”：
+    # 非中国大陆剔除预置镜像（留 direct），另两种保留全部候选。
+    info "$(msg region.test)"
+    detect_public_ip_region || true
+    case "${_PUB_IP_COUNTRY:-UNKNOWN}" in
+        CN)
+            info "$(msg region.cn "$(_region_display)")" ;;
+        OTHER)
+            info "$(msg region.foreign "$(_region_display)")"
+            info "$(msg region.direct_ok)" ;;
+        *)
+            warn "$(msg region.unknown)" ;;
+    esac
+    # 必须在 case 之后调用：地区结果决定谁留在候选池里。
+    _build_mirror_pool
+    # 当前代理环境变量在三种结果下都打印：用户是否已有代理，与他在哪个地区无关。
+    _show_proxy_env
 
     info "$(msg mirror.test)"
     mirror_speed_test
@@ -657,21 +943,31 @@ select_mirror() {
 
     echo
     info "$(msg mirror.select)"
-    local n=${#MIRROR_IDS[@]} i d=1
+    # 菜单按 MIRROR_ACTIVE（可见候选）连续编号 —— 非中国大陆时预置镜像缺席，
+    # 编号必须压紧，否则会留下“选了没反应”的空位。
+    local n=${#MIRROR_ACTIVE[@]} ii i d=1
     local fastest_idx=""
     for i in $(mirror_ordered_indices); do
         [[ "${MIRROR_TIMES[$i]}" != "999" ]] && { fastest_idx="$i"; break; }
     done
     [[ -z "$fastest_idx" ]] && fastest_idx=0   # 全部不可用时默认直连
-    for (( i=0; i<n; i++ )); do
+    for (( ii=0; ii<n; ii++ )); do
         local mark=""
+        i="${MIRROR_ACTIVE[$ii]}"
         [[ "$i" == "$fastest_idx" ]] && mark=" (推荐)"
         printf "  %2d) %s%s  [%ss]\n" "$d" "${MIRROR_LABELS[$i]}" "$mark" "${MIRROR_TIMES[$i]}"
         d=$((d+1))
     done
     printf "  %2d) %s\n" "$d" "$(msg mirror.manual)"
-    local custom_d=$d
-    local choice="" REPLY="" default_d=$((fastest_idx+1))
+    local custom_d=$d; d=$((d+1))
+    printf "  %2d) %s\n" "$d" "$(msg mirror.manual_proxy)"
+    local custom_proxy_d=$d
+    local choice="" REPLY=""
+    # 默认项要按“菜单序号”给，不是按候选索引 —— 两者在隐藏了预置镜像后不再相等。
+    local default_d=1 p
+    for (( p=0; p<n; p++ )); do
+        [[ "${MIRROR_ACTIVE[$p]}" == "$fastest_idx" ]] && { default_d=$((p+1)); break; }
+    done
     echo -n "$(msg mirror.prompt "$default_d")"
     while true; do
         read -r REPLY
@@ -679,9 +975,9 @@ select_mirror() {
             choice=$fastest_idx; break
         elif [[ "$REPLY" =~ ^[0-9]+$ ]]; then
             if (( REPLY >= 1 && REPLY <= n )); then
-                choice=$((REPLY-1)); break
+                choice=${MIRROR_ACTIVE[$((REPLY-1))]}; break
             elif (( REPLY == custom_d )); then
-                echo -n "  请输入镜像前缀 URL（如 https://ghproxy.net/ ）或域名替换主机（如 kgithub.com）: "
+                echo -n "  请输入镜像前缀 URL（如 https://ghproxy.net/ ）或域名替换主机: "
                 read -r GH_MIRROR
                 GH_MIRROR_TYPE="$(_guess_mirror_type "$GH_MIRROR")"
                 if [[ "$GH_MIRROR_TYPE" == "prefix" && "$GH_MIRROR" != */ ]]; then
@@ -689,6 +985,10 @@ select_mirror() {
                 fi
                 info "使用自定义镜像：$GH_MIRROR [${GH_MIRROR_TYPE}]"
                 return 0
+            elif (( REPLY == custom_proxy_d )); then
+                if _manual_proxy_flow; then return 0; fi
+                # 用户取消：回到菜单重新选择
+                echo -n "$(msg mirror.prompt "$default_d")"; continue
             else
                 echo -n "  无效序号，请重新输入 [默认=${default_d}]: "; continue
             fi
@@ -779,6 +1079,20 @@ run_with_mirror_dl() {
     if [[ -z "$GH_MIRROR" || "${GH_MIRROR_TYPE:-direct}" == "direct" ]]; then
         eval "$cmd" || return $?
         return 0
+    fi
+    # 全量代理：URL 无需改写，代理已由 HTTP_PROXY/HTTPS_PROXY 导出，
+    # curl/git/wget 会透明使用。失败时临时撤掉代理再直连重试一次。
+    if [[ "${GH_MIRROR_TYPE}" == "proxy" ]]; then
+        local prc=0
+        eval "$cmd" || prc=$?
+        if (( prc != 0 )); then
+            warn "全量代理下载失败（exit $prc），撤掉代理直连重试 ..."
+            prc=0
+            ( unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy
+              eval "$cmd" ) || prc=$?
+            if (( prc == 0 )); then success "直连重试成功"; fi
+        fi
+        return $prc
     fi
     local shimdir; shimdir="$(mktemp -d)"
     _mk_dl_shim "$shimdir" "$GH_MIRROR" "$GH_MIRROR_TYPE"

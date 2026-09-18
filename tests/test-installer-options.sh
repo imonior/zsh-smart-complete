@@ -281,6 +281,132 @@ else
     no "install-entware.sh is missing"
 fi
 
+# ---------------------------------------------------------------------------
+echo "== 10. _scan_other_rcs: read-only advisory scan of OTHER rc files =="
+# Extract the REAL function (never a copy) so the test cannot drift from what
+# actually ships. It must report conflicting loaders in non-.zshrc startup
+# files and NEVER edit anything.
+extract_fn _scan_other_rcs > "$TMP/scan.sh"
+# Stub the deps: capture what it would print, never touch a file.
+_scan_caps=()
+warn()    { _scan_caps+=("W:$*"); }
+success() { _scan_caps+=("O:$*"); }
+msg() {
+    local k="$1"; shift || true
+    case "$k" in
+        cleanup.scan_other_rcs_line) printf '  > %s:%s' "$1" "$2" ;;
+        *) printf '%s' "$k" ;;
+    esac
+}
+# shellcheck disable=SC1090
+source "$TMP/scan.sh"
+
+# Fake home with conflicting loaders in NON-.zshrc startup files.
+SH="$TMP/scanhome"; mkdir -p "$SH/conf.d" "$SH/.zshrc.d"
+printf 'zinit light marlonrichert/zsh-autocomplete\n'                 > "$SH/.zprofile"
+printf '# keep disabled\nzinit light zsh-users/zsh-autosuggestions\n' > "$SH/.zshenv"
+# A genuine conflict loader AND a supported fzf-tab loader in the SAME file:
+# only the former may be reported (fzf-tab is a supported list-drawer, not a conflict).
+printf 'zinit light marlonrichert/zsh-autocomplete\nsource %s/fzf-tab.zsh\n' "$SH" > "$SH/conf.d/plugins.zsh"
+printf 'echo hi\n'                                                   > "$SH/.zshrc.d/clean.zsh"
+# .zshrc is owned by clean_conflict_plugin — must be ignored here (unique token).
+printf 'zinit light marlonrichert/zsh-autocomplete #ZSHRCONLY\n'      > "$SH/.zshrc"
+# A file with ONLY a commented loader must NOT be reported.
+printf '# zinit light zsh-autocomplete\n'                              > "$SH/.zlogin"
+ZDOTDIR="$SH"
+_scan_caps=()
+_scan_other_rcs
+printf '%s\n' "${_scan_caps[@]}" > "$TMP/scan_caps"
+assert_has "reports .zprofile loader"        "$TMP/scan_caps" ".zprofile"
+assert_has "reports .zshenv loader"          "$TMP/scan_caps" ".zshenv"
+assert_has "reports conf.d loader"           "$TMP/scan_caps" "conf.d"
+assert_has "finds zsh-autocomplete"          "$TMP/scan_caps" "zsh-autocomplete"
+assert_has "finds zsh-autosuggestions"       "$TMP/scan_caps" "zsh-autosuggestions"
+# fzf-tab is a SUPPORTED alternative list-drawer (SMART_MENU_LISTER=fzf-tab), so
+# it must NOT be reported as a conflict even though it is present in conf.d.
+assert_lacks "does NOT flag fzf-tab (supported lister)"  "$TMP/scan_caps" "fzf-tab"
+assert_lacks "skips the .zshrc it does not own" "$TMP/scan_caps" "ZSHRCONLY"
+assert_lacks "skips file with only a commented loader" "$TMP/scan_caps" ".zlogin"
+assert_lacks "skips clean .zshrc.d file"     "$TMP/scan_caps" "clean.zsh"
+# Read-only: the conflicting loaders must STILL be present (not commented out).
+assert_has ".zprofile left untouched"        "$SH/.zprofile" "zsh-autocomplete"
+assert_has ".zshenv left untouched"          "$SH/.zshenv"    "zsh-autosuggestions"
+assert_has "conf.d left untouched"           "$SH/conf.d/plugins.zsh" "fzf-tab"
+
+# Clean case: no conflicting loaders anywhere -> success, zero warnings.
+CH="$TMP/cleanhome"; mkdir -p "$CH" "$CH/conf.d"
+printf 'export EDITOR=vim\n' > "$CH/.zprofile"
+printf 'echo hi\n'           > "$CH/conf.d/x.zsh"
+ZDOTDIR="$CH"
+_scan_caps=()
+_scan_other_rcs
+printf '%s\n' "${_scan_caps[@]}" > "$TMP/scan_caps"
+assert_lacks "clean run emits no warning"    "$TMP/scan_caps" "W:"
+assert_has "clean run reports all-clear"     "$TMP/scan_caps" "O:cleanup.scan_other_rcs_clean"
+# The entware installer carries the same read-only function.
+if [ -f "$ENT" ] && grep -q '^_scan_other_rcs() {' "$ENT"; then
+    ok "entware defines _scan_other_rcs (matches install.sh)"
+else
+    no "entware is missing _scan_other_rcs"
+fi
+if sed -n "/^_scan_other_rcs() {/,/^}/p" "$ENT" | grep -q 'pat=.*fzf-tab'; then
+    no "entware _scan_other_rcs still flags fzf-tab"
+else
+    ok "entware _scan_other_rcs no longer flags fzf-tab"
+fi
+
+# ---------------------------------------------------------------------------
+echo "== 11. clean_conflict_plugin: must NOT re-report .bak.* backups =="
+# Regression: the zinit scan globs *plugin_name*, which also matched the
+# `zsh-autocomplete.bak.<ts>` backup a previous run kept. Result: the installer
+# claimed a conflict was still present (and offered to DELETE the user's backup)
+# even when no active plugin remained. Backups are not active plugins.
+extract_fn clean_conflict_plugin > "$TMP/ccp.sh"
+_cc_caps=()
+warn()      { _cc_caps+=("W:$*"); }
+success()   { _cc_caps+=("O:$*"); }
+msg()       { printf '%s' "$1"; }
+prompt_yes(){ _cc_caps+=("P:$*"); return 0; }   # answer "yes" so removal path runs
+comment_out_zshrc(){ _cc_caps+=("C:$*"); }
+# shellcheck disable=SC1090
+source "$TMP/ccp.sh"
+
+# Isolate from the real $HOME so an actual OMZ install cannot skew the result.
+_OLD_HOME="$HOME"
+HOME="$TMP/cc_home"; mkdir -p "$HOME"
+
+# --- 11a: ONLY a backup remains -> no conflict, no prompt, backup untouched.
+ZP="$TMP/zp_a"; mkdir -p "$ZP/zsh-autocomplete.bak.1700000000"
+ZINIT_PLUGINS_DIR="$ZP"; ZDOTDIR="$TMP/norc_a"; mkdir -p "$ZDOTDIR"
+_cc_caps=()
+clean_conflict_plugin "zsh-autocomplete"
+printf '%s\n' "${_cc_caps[@]}" > "$TMP/cc_caps"
+assert_lacks "backup alone is not reported as a conflict dir" "$TMP/cc_caps" "Found conflict plugin dir"
+assert_has   "backup alone reports no conflict"               "$TMP/cc_caps" "No zsh-autocomplete conflict detected"
+assert_lacks "backup alone does not prompt for removal"       "$TMP/cc_caps" "P:"
+if [ -d "$ZP/zsh-autocomplete.bak.1700000000" ]; then ok "kept backup dir untouched"; else no "backup dir was removed"; fi
+
+# --- 11b: real plugin dir + backup -> only the real one is reported/removed.
+ZP="$TMP/zp_b"; mkdir -p "$ZP/zsh-autocomplete" "$ZP/zsh-autocomplete.bak.1700000000"
+ZINIT_PLUGINS_DIR="$ZP"; ZDOTDIR="$TMP/norc_b"; mkdir -p "$ZDOTDIR"
+_cc_caps=()
+clean_conflict_plugin "zsh-autocomplete"
+printf '%s\n' "${_cc_caps[@]}" > "$TMP/cc_caps"
+assert_has "reports the real plugin dir" "$TMP/cc_caps" "Found conflict plugin dir"
+if grep -q 'Found conflict plugin dir.*\.bak\.' "$TMP/cc_caps"; then
+    no "must not report the .bak.* backup dir"
+else
+    ok "does not report the .bak.* backup dir"
+fi
+if [ -d "$ZP/zsh-autocomplete.bak.1700000000" ]; then ok "existing backup survives the run"; else no "existing backup was deleted"; fi
+
+HOME="$_OLD_HOME"
+if sed -n "/^clean_conflict_plugin() {/,/^}/p" "$ENT" | grep -q '== \*\.bak\.\*'; then
+    ok "entware clean_conflict_plugin also skips .bak.* backups"
+else
+    no "entware clean_conflict_plugin still re-reports .bak.* backups"
+fi
+
 echo "-----"
 echo "INSTALLER-OPTIONS TOTAL PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

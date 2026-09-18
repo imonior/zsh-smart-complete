@@ -423,6 +423,34 @@ _msg() {
                 ko)    s="%s 감지됨 (zsh-smart-complete 와 충돌). 제거할까요?" ;;
                 *)     s="Detected %s (conflicts with zsh-smart-complete). Remove it?" ;;
             esac ;;
+        cleanup.scan_other_rcs_head)
+            case "$lang" in
+                zh-CN) s="在其它启动文件（非 ~/.zshrc）中发现冲突插件的加载行。安装器未修改这些文件——请注释或删除下列行，否则每次 exec zsh 仍会加载它们，可能再次触发重复建议或 Tab 冲突：" ;;
+                zh-TW) s="在其它啟動檔（非 ~/.zshrc）中發現衝突套件的載入行。安裝器未修改這些檔案——請註解或刪除下列行，否則每次 exec zsh 仍會載入它們，可能再次觸發重複建議或 Tab 衝突：" ;;
+                ja)    s="其它の起動ファイル（~/.zshrc 以外）に競合プラグインのロード行があります。インストーラーはこれらを編集しません——下の行をコメントアウト／削除してください。さもなくば毎回 exec zsh で読み込まれ、重複提案や Tab 競合が再発する恐れがあります：" ;;
+                ko)    s="다른 시작 파일(~/.zshrc 제외)에서 충돌 플러그인 로드 행을 찾았습니다. 설치기는 이 파일을 수정하지 않습니다——아래 행을 주석 처리/삭제하세요. 그렇지 않으면 매 exec zsh 마다 로드되어 중복 제안이나 Tab 충돌이 재발할 수 있습니다:" ;;
+                *)     s="Found loader lines for conflicting plugins in OTHER startup files (not ~/.zshrc). The installer did NOT edit these — please comment out / remove the lines below, or they will keep loading on every 'exec zsh' and may re-trigger duplicate suggestions or Tab conflicts:" ;;
+            esac ;;
+        cleanup.scan_other_rcs_line)
+            case "$lang" in
+                *) s="  > %s:%s" ;;
+            esac ;;
+        cleanup.scan_other_rcs_hint)
+            case "$lang" in
+                zh-CN) s="请编辑上述每个文件，注释或删除匹配的行，然后运行 exec zsh 确认重复框已消失。" ;;
+                zh-TW) s="請編輯上述每個檔案，註解或刪除符合的行，然後執行 exec zsh 確認重複框已消失。" ;;
+                ja)    s="上記の各ファイルを編集し、該当行をコメントアウト／削除してから exec zsh で重複ボックスが消えたことを確認してください。" ;;
+                ko)    s="위 각 파일을 편집해 해당 행을 주석 처리/삭제한 뒤 exec zsh 로 중복 박스가 사라졌는지 확인하세요." ;;
+                *)     s="Edit each file above, comment out or delete the matching line, then run 'exec zsh' to confirm the duplicate box is gone." ;;
+            esac ;;
+        cleanup.scan_other_rcs_clean)
+            case "$lang" in
+                zh-CN) s="其它启动文件（.zprofile/.zshenv/conf.d/.zshrc.d/etc/zsh/zshrc）中未发现冲突加载行。" ;;
+                zh-TW) s="其它啟動檔（.zprofile/.zshenv/conf.d/.zshrc.d/etc/zsh/zshrc）中未發現衝突載入行。" ;;
+                ja)    s="其它の起動ファイル（.zprofile/.zshenv/conf.d/.zshrc.d/etc/zsh/zshrc）に競合ロード行はありません。" ;;
+                ko)    s="다른 시작 파일(.zprofile/.zshenv/conf.d/.zshrc.d/etc/zsh/zshrc)에서 충돌 로드 행을 찾지 못했습니다." ;;
+                *)     s="No conflicting loaders found in other startup files (.zprofile/.zshenv/conf.d/.zshrc.d/etc/zsh/zshrc)." ;;
+            esac ;;
         prompt.omz)
             case "$lang" in
                 zh-CN) s="现在安装 Oh My Zsh？" ;; zh-TW) s="現在安裝 Oh My Zsh？" ;;
@@ -1782,6 +1810,10 @@ clean_conflict_plugin() {
     if [[ -d "$ZINIT_PLUGINS_DIR" ]]; then
         for pdir in "$ZINIT_PLUGINS_DIR"/*"$plugin_name"*; do
             [[ -d "$pdir" ]] || continue
+            # Skip backups a previous run kept (e.g. zsh-autocomplete.bak.<ts>):
+            # they are not active plugins, so must NOT be re-reported as conflicts
+            # (doing so also lets the removal path delete a backup the user kept).
+            [[ "$(basename "$pdir")" == *.bak.* ]] && continue
             remove_dirs+=("$pdir")
         done
     fi
@@ -1818,6 +1850,49 @@ clean_conflict_plugin() {
 
 # Config combo: zinit-starship (recommended) | keep-omz | zinit-p10k
 CONFIG_COMBO="zinit-starship"
+
+# Read-only advisory scan for conflicting plugin loaders living in STARTUP
+# FILES OTHER THAN ~/.zshrc.
+#
+# Why this exists: zsh-smart-complete's conflict cleanup only edits ~/.zshrc
+# (per the documented cleanup scope — we deliberately do NOT expand the
+# automatic edit to other files, to avoid touching config the user manages
+# elsewhere). But zsh-autocomplete / zsh-autosuggestions loaders are sometimes
+# placed in .zprofile, .zshenv, conf.d/*.zsh, .zshrc.d/* or /etc/zsh/zshrc. If a
+# loader survives there, the plugin keeps loading on every `exec zsh` and
+# re-triggers the duplicate-suggestion / Tab-conflict symptom.
+#
+# NOTE: fzf-tab is intentionally NOT flagged here. As of v2.2.4 it is a SUPPORTED
+# alternative list-drawer (SMART_MENU_LISTER=fzf-tab), so its presence is
+# expected/intended, not a conflict. Only the two autocomplete-style plugins are
+# pure duplicates of what zsh-smart-complete already provides.
+#
+# This function scans those files and WARNS the user with the exact file:line,
+# so they can clean it manually. It NEVER modifies any file.
+_scan_other_rcs() {
+    local zdir="${ZDOTDIR:-$HOME}"
+    local pat='zsh-autocomplete|zsh-autosuggestions'
+    local -a files=()
+    local f ml hit=0
+    files+=("$zdir/.zprofile" "$zdir/.zshenv" "$zdir/.zlogin")
+    files+=("$zdir/conf.d"/*.zsh "$zdir/.zshrc.d"/*.zsh)
+    files+=("/etc/zsh/zshrc")
+    for f in "${files[@]}"; do
+        [[ -f "$f" ]] || continue
+        # .zshrc is owned by clean_conflict_plugin; never double-report it.
+        [[ "$f" == "$zdir/.zshrc" ]] && continue
+        while IFS= read -r ml; do
+            (( hit )) || warn "$(msg cleanup.scan_other_rcs_head)"
+            hit=1
+            warn "$(msg cleanup.scan_other_rcs_line "$f" "$ml")"
+        done < <(grep -nE "$pat" "$f" 2>/dev/null | grep -vE '^[[:space:]]*[0-9]+:[[:space:]]*#')
+    done
+    if (( hit )); then
+        warn "$(msg cleanup.scan_other_rcs_hint)"
+    else
+        success "$(msg cleanup.scan_other_rcs_clean)"
+    fi
+}
 
 detect_env() {
     HAS_OMZ=0; HAS_P10K=0
@@ -2026,6 +2101,9 @@ clean_conflict_plugin "zsh-autosuggestions"
 # Non-interactive residue cleanup: state/cache dirs, dangling completions, and
 # any remaining conflict-plugin dirs (skips .bak.* backups made just above).
 _cleanup_conflict_residues
+# Read-only advisory: warn (do NOT edit) about loaders in OTHER startup files
+# that clean_conflict_plugin does not reach, so the user can clean them manually.
+_scan_other_rcs
 # Then resolve OMZ / p10k combo.
 resolve_omz_p10k
 

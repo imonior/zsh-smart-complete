@@ -3,7 +3,7 @@
 > Zsh 용 현대적인 스마트 완성 및 제안 레이어.
 > 미래의 독립 셸 프런트엔드로 설계됨.
 >
-> **v2.2.6** — 인라인 회색 제안은 후보 목록을 그릴 때도 색을 유지하며, zsh-syntax-highlighting / fast-syntax-highlighting 공존에 호환 훅도 필요 없습니다: `region_highlight` 마커를 zsh가 그대로 보존하는 `memo=` 토큰으로 바꾸고, 목록을 다시 그릴 때마다 항목을 다시 써 잘리지 않습니다. 설치기는 파이프로 완전 동작합니다: `curl -fsSL .../install.sh | bash` 는 모든 프롬프트에서 입력을 기다립니다(`/dev/tty` 에서 읽음). 스크립트가 커널의 128 KiB argv 한도를 넘어 "argument list too long" 으로 깨지던 옛 `bash -c` 형식을 대체합니다. 동봉된 starship 템플릿의 파싱 오류도 수정했습니다(`$username › $directory`).
+> **v2.2.7** — 화면에는 UI 가 하나만. 권장 설정이 더 이상 `atuin init` 이 키를 바인딩하지 않게 했습니다(Ctrl-R, 최신 버전은 `?` 도): 기존 무조건 바인딩 방식에서는 설치기를 모두 기본값으로 사용해도 atuin 자체의 플로팅 검색 TUI 가 플러그인 팝업 옆에 나타났습니다 — '동적 힌트 2 개' 보고의 정체입니다. 이제 `ATUIN_NOBIND="true"` 를 기록합니다: atuin 기록은 유지(플러그인이 SQLite DB 를 직접 읽음), ↑ / Ctrl-R / ? 는 기본 동작. atuin TUI 바인딩 여부는 설치기의 명시적 질문(기본값 아니오)이 되었고, 모든 shell 콤보에서 atuin 기록이 동작하며, 관리 블록 밖의 외부 `atuin init` 행을 경고하는 읽기 전용 스캔도 추가했습니다.
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------ | ------ |
 | 빌드 및 테스트 (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | 릴리스 | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| 버전 | 2.2.6 |
+| 버전 | 2.2.7 |
 
 ## 왜 이 플러그인인가
 
@@ -307,7 +307,7 @@ zsh tests/test-recent.zsh
 bash tests/test-installer-options.sh
 ```
 
-**테스트 요약 （v2.2.6）：** 10개 파일, 700개 어설션, 전부 통과, 0 실패.
+**테스트 요약 （v2.2.7）：** 10개 파일, 711개 어설션, 전부 통과, 0 실패.
 설치기는 `~/.zshrc` 정리 후 `.zprofile`, `.zshenv`, `conf.d/*.zsh`, `.zshrc.d/*`, `/etc/zsh/zshrc` 같은 **다른 시작 파일**에 `zsh-autocomplete` / `zsh-autosuggestions` 로더 행이 남아 있는지도 **검사**하고, 있으면 정확한 `파일:행번호` 로 **경고**하여 수동 정리를 안내합니다 — 이 파일은 편집하지 않습니다. 자세한 내용은 CHANGELOG의 `[Unreleased]` 를 보세요.
 
 

@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [v2.2.7] - 2026-09-19
+
+### Fixed
+- **Two dynamic hints on screen at once, even with every installer answer at its default: the plugin's popup plus atuin's own floating search TUI.** The recommended config used to run `eval "$(atuin init zsh --disable-up-arrow)"` unconditionally whenever the `atuin` binary existed. That only unbinds the Up arrow: atuin still binds **Ctrl-R** and, in current releases, **`?`** (Atuin AI) — and its TUI is a second full-screen UI (floating list of every matching history entry, duplicates included, Enter accepts) right next to the plugin's popup. Since the plugin reads atuin's SQLite history database directly for the grey suggestion, the bindings bought nothing. The generated config now writes `ATUIN_NOBIND="true" eval "$(atuin init zsh)"`: history recording and the plugin's atuin backend are untouched, but ↑ / Ctrl-R / ? stay native and the screen keeps a single UI. Binding atuin's TUI is now an explicit installer question (default: no, asked in all five languages), and the atuin init line moved out of the combo snippet into the integration block, so atuin recording now works in every combo (previously the Oh-My-Zsh / p10k combos silently had none). The shipped `templates/zshrc.example` follows the same rule. New read-only advisory `_scan_foreign_atuin` reports `atuin init` lines found OUTSIDE the plugin's managed block (e.g. a line from an earlier manual setup), which would otherwise silently resurrect the second UI.
+
 ## [v2.2.6] - 2026-09-19
 
 ### Fixed

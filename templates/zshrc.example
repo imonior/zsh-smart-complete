@@ -71,10 +71,14 @@ if command -v zoxide >/dev/null 2>&1; then
 fi
 
 # Atuin (cross-device shell history)
-# IMPORTANT: --disable-up-arrow so ↑ stays on zsh-smart-complete's
-#            native history channel (3-key model frozen spec).
+# The plugin reads atuin's SQLite history database directly for the grey
+# suggestion, so history recording stays on - but NO keys are bound.
+# ATUIN_NOBIND only skips atuin's key bindings (Ctrl-R / Up / ?); its
+# preexec/precmd history hooks are untouched. atuin's floating search TUI is
+# a SECOND full-screen UI next to the plugin's popup - opt in if wanted:
+#     bindkey '^r' _atuin_search_widget
 if command -v atuin >/dev/null 2>&1; then
-    eval "$(atuin init zsh --disable-up-arrow)"
+    ATUIN_NOBIND="true" eval "$(atuin init zsh)"
 fi
 
 # ------------------------------------------------------------

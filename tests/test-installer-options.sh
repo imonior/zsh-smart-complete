@@ -885,6 +885,68 @@ else
     ok "starship unavailable - skipped the render check"
 fi
 
+# ---------------------------------------------------------------------------
+echo "== 17. atuin: NOBIND by default - the floating TUI is a second UI =="
+# User report against v2.2.6: with everything at its default, TWO dynamic
+# hints appeared - the plugin's popup AND atuin's floating search TUI
+# (Ctrl-R / ? bound by the template's unconditional atuin init). The plugin
+# reads atuin's SQLite history DB directly, so the bindings are pure loss;
+# they are now an installer question (default no) and the generated config
+# uses ATUIN_NOBIND, which keeps history recording but binds nothing.
+{
+    sed -n '/^ZSC_OPT_MENU=1/,/^_zsc_bool() {/p' "$INSTALL"
+    grep -E '^(ZSC|OPT)_BLOCK_(BEGIN|END)=' "$INSTALL"
+    extract_fn build_zsc_integration
+    extract_fn _scan_foreign_atuin
+} > "$TMP/lib17.sh"
+# shellcheck disable=SC1090
+source "$TMP/lib17.sh"
+
+ZSC_VIMODE_SNIPPET=""
+PROMPT_INIT_SNIPPET='command -v starship >/dev/null 2>&1 && eval "$(starship init zsh)"
+command -v zoxide   >/dev/null 2>&1 && eval "$(zoxide init zsh)"'
+
+ZSC_OPT_ATUIN_BIND=0; ZSC_OPT_VIMODE=0
+D17a="$TMP/atuin-default.zshrc"; build_zsc_integration > "$D17a"
+assert_has  "17 default: NOBIND init written"        "$D17a" 'ATUIN_NOBIND="true" eval "$(atuin init zsh)"'
+assert_lacks "17 default: no TUI binding (--disable-up-arrow)" "$D17a" '--disable-up-arrow'
+if grep -qE '^[[:space:]]*bindkey ' "$D17a"; then no "17 default: a live bindkey line exists"; else ok "17 default: no key bound by us (comments only)"; fi
+
+ZSC_OPT_ATUIN_BIND=1
+D17b="$TMP/atuin-optin.zshrc"; build_zsc_integration > "$D17b"
+assert_has  "17 opt-in: TUI init written"            "$D17b" 'eval "$(atuin init zsh --disable-up-arrow)"'
+assert_lacks "17 opt-in: NOBIND not used"            "$D17b" 'ATUIN_NOBIND'
+ZSC_OPT_ATUIN_BIND=0
+
+# the question exists: one case label in _msg + one call site. The five
+# language variants live INSIDE the case body and are covered by the render
+# check further down in this suite's language sweep.
+n_lang=$(grep -cF 'opt.atuin_bind)' "$INSTALL")
+assert_eq "17 question defined + asked" "$n_lang" "2"
+n_call=$(grep -cF 'msg opt.atuin_bind' "$INSTALL")
+assert_eq "17 question is asked exactly once" "$n_call" "1"
+# and no unconditional binding may remain anywhere in the shipped config
+assert_lacks "17 combo snippet: no unconditional atuin init" "$INSTALL" 'command -v atuin    >/dev/null 2>&1 && eval'
+assert_has  "17 template: NOBIND form"        "$TPL" 'ATUIN_NOBIND="true" eval "$(atuin init zsh)"'
+assert_lacks "17 template: no TUI binding"    "$TPL" '--disable-up-arrow'
+
+# functional: a FOREIGN atuin init line (outside the managed block) is
+# reported read-only; the line inside the managed block is not.
+warn(){ printf 'WARN:%s\n' "$*"; }
+msg(){ printf '%s' "$1"; }
+FB="$TMP/fakehome"; mkdir -p "$FB"
+cat > "$FB/.zshrc" <<'FZ'
+# a user's own older line, outside our block:
+eval "$(atuin init zsh)"
+# >>> zsh-smart-complete integration (managed) >>>
+command -v atuin >/dev/null 2>&1 && ATUIN_NOBIND="true" eval "$(atuin init zsh)"
+# <<< zsh-smart-complete integration <<<
+FZ
+n_warn=$(HOME="$FB" ZDOTDIR="$FB" _scan_foreign_atuin 2>&1 | grep -c '^WARN:')
+# head + line + hint = 3 warns for exactly one foreign line; the managed
+# block's own NOBIND line must contribute none.
+assert_eq "17 foreign scan: head+line+hint, managed block excluded" "$n_warn" "3"
+
 echo "-----"
 echo "INSTALLER-OPTIONS TOTAL PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

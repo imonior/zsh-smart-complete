@@ -3,7 +3,7 @@
 > A modern smart completion & suggestion layer for Zsh.
 > Engineered as the frontend of a future independent shell.
 >
-> **v2.2.6** — The inline grey suggestion keeps its colour even when a candidate list is drawn, and coexists with zsh-syntax-highlighting / fast-syntax-highlighting with no compatibility hook: the `region_highlight` marker is now a zsh-preserved `memo=` token and the entry is re-asserted after every list redraw instead of being clipped away. The installer is fully usable through a pipe: `curl -fsSL .../install.sh | bash` waits for every prompt (it reads from `/dev/tty`), replacing the old `bash -c` form, which broke with "argument list too long" once the script outgrew the kernel's 128 KiB argv limit. The bundled starship template no longer fails to parse (`$username › $directory`).
+> **v2.2.7** — One UI on screen, guaranteed. The recommended config no longer lets `atuin init` bind its keys (Ctrl-R and, in current releases, `?`): with the old unconditional line, atuin's own floating search TUI appeared next to the plugin's popup even with every installer answer at its default — the classic "two dynamic hints" report. `ATUIN_NOBIND="true"` keeps atuin's history recording (the plugin reads its SQLite database directly for the grey suggestion) while ↑ / Ctrl-R / ? stay native; binding atuin's TUI is now an explicit installer question (default: no), atuin recording works in every shell combo, and a new read-only scan warns about foreign `atuin init` lines outside the managed block.
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------- | ------ |
 | Build & test (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | Release | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| Version | 2.2.6 |
+| Version | 2.2.7 |
 
 ## Why
 
@@ -323,7 +323,7 @@ zsh tests/test-recent.zsh
 bash tests/test-installer-options.sh
 ```
 
-**Test summary (v2.2.6):** 10 test files, 700 assertions, all passing, 0 failures.
+**Test summary (v2.2.7):** 10 test files, 711 assertions, all passing, 0 failures.
 The installer also now **scans other startup files** (`.zprofile`, `.zshenv`, `conf.d/*.zsh`, `.zshrc.d/*`, `/etc/zsh/zshrc`) for left-over loaders of `zsh-autocomplete` / `zsh-autosuggestions` after cleaning `~/.zshrc`, and **warns** (with exact `file:line`) if it finds any — it never edits those files. See CHANGELOG `[Unreleased]`.
 
 

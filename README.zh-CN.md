@@ -3,7 +3,7 @@
 > 一个现代化的智能补全和建议层，专为 Zsh 设计。
 > 作为未来独立 shell 的前端引擎。
 >
-> **v2.2.6** — 行内灰字建议在绘制候选列表时不再丢色，与 zsh-syntax-highlighting / fast-syntax-highlighting 并存也无需兼容钩子：`region_highlight` 标记改用 zsh 原样保留的 `memo=` 记号，且每次列表重绘后立即重写条目，不再被裁掉。安装器完整支持管道安装：`curl -fsSL .../install.sh | bash` 的每个提示都会等待输入（改从 `/dev/tty` 读取），取代了在脚本超过内核 128 KiB argv 上限后报「argument list too long」的旧 `bash -c` 写法。内置 starship 模板不再解析失败（`$username › $directory`）。
+> **v2.2.7** — 保证屏幕上只有一个界面。推荐配置不再让 `atuin init` 绑定它的按键（Ctrl-R，当前版本还有 `?`）：旧的无条件写法下，即使安装器全部用默认回答，atuin 自己的浮动搜索界面也会出现在插件弹窗旁边——正是「出现两个动态提示」的根源。现在写入 `ATUIN_NOBIND="true"`：atuin 的历史记录照常（插件直接读它的 SQLite 数据库生成灰色建议），↑ / Ctrl-R / ? 保持原生；是否绑定 atuin 的 TUI 改为安装器中的显式提问（默认否）；atuin 记录对所有 shell 组合生效；新增只读扫描，对托管块之外的外来 `atuin init` 行发出警告。
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------ | ------ |
 | 构建与测试 (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | 发布 | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| 版本 | 2.2.6 |
+| 版本 | 2.2.7 |
 
 ## 为什么选择我们
 
@@ -294,7 +294,7 @@ zsh tests/test-recent.zsh
 bash tests/test-installer-options.sh
 ```
 
-**测试汇总 （v2.2.6）：** 10 个测试文件共 700 项全部通过，0 失败。
+**测试汇总 （v2.2.7）：** 10 个测试文件共 711 项全部通过，0 失败。
 安装器在清理 `~/.zshrc` 之后，现在还会**扫描其它启动文件**（`.zprofile`、`.zshenv`、`conf.d/*.zsh`、`.zshrc.d/*`、`/etc/zsh/zshrc`）中是否仍有 `zsh-autocomplete` / `zsh-autosuggestions` 的加载行，并用精确的 `文件:行号` **警告**用户手动清理——它从不修改这些文件。详见 CHANGELOG 的 `[Unreleased]`。
 
 

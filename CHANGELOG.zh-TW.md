@@ -5,6 +5,11 @@
 格式基於 [Keep a Changelog](https://keepachangelog.com/)，並遵循
 [語意化版本](https://semver.org/lang/zh-TW/)。
 
+## [v2.2.7] - 2026-09-19
+
+### 修復
+- **安裝器全部用預設設定，螢幕上仍然同時出現兩個動態提示：外掛的彈窗之外，還多出 atuin 自己的浮動搜尋介面。** 推薦設定過去只要偵測到 `atuin` 二進位就無條件執行 `eval "$(atuin init zsh --disable-up-arrow)"`。該參數只解綁上箭頭：atuin 仍會綁定 **Ctrl-R**，且目前版本還會綁定 **`?`**（Atuin AI）——它的 TUI 是第二個全螢幕介面（浮動列出所有符合的歷史記錄、含重複項、Enter 即執行），就出現在外掛彈窗旁邊。而外掛本來就直接讀取 atuin 的 SQLite 歷史資料庫來產生灰色建議，這些按鍵綁定毫無收益。現在產生的設定改為 `ATUIN_NOBIND="true" eval "$(atuin init zsh)"`：歷史記錄與外掛的 atuin 後端不受影響，但 ↑ / Ctrl-R / ? 保持原生，螢幕上始終只有一個介面。是否綁定 atuin 的 TUI 改為安裝器中的明確提問（預設否，五種語言都有），且 atuin init 行從組合片段移入整合區塊——atuin 記錄現在對所有組合生效（此前 Oh-My-Zsh / p10k 組合被靜默漏掉）。隨附的 `templates/zshrc.example` 同步該規則。新增唯讀提示 `_scan_foreign_atuin`：發現在外掛託管區塊**之外**的 `atuin init` 行（例如早期手動設定留下的）會明確警告，否則它們會悄悄把第二個介面帶回來。
+
 ## [v2.2.6] - 2026-09-19
 
 ### 修復

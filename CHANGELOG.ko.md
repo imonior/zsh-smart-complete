@@ -5,6 +5,11 @@
 형식은 [Keep a Changelog](https://keepachangelog.com/)을 따르며, 이 프로젝트는
 [의미론적 버전](https://semver.org/lang/ko/)을 준수합니다.
 
+## [v2.2.7] - 2026-09-19
+
+### 수정
+- **설치기를 모두 기본값으로 사용해도 화면에 동적 힌트가 두 개 표시: 플러그인 팝업 외에 atuin 자체의 플로팅 검색 TUI.** 기존 권장 설정은 `atuin` 바이너리가 있으면 무조건 `eval "$(atuin init zsh --disable-up-arrow)"` 을 실행했습니다. 이 플래그는 위쪽 화살표만 해제합니다: atuin 은 여전히 **Ctrl-R** 을, 최신 버전에서는 **`?`**(Atuin AI) 까지 바인딩하며, 그 TUI 는 두 번째 전체 화면 UI 입니다(일치하는 기록을 중복 포함해 플로팅 목록으로 표시, Enter 실행). 플러그인은 회색 제안을 위해 atuin 의 SQLite 기록 DB 를 직접 읽으므로 이 바인딩은 아무 이득이 없습니다. 이제 생성되는 설정은 `ATUIN_NOBIND="true" eval "$(atuin init zsh)"` 입니다: 기록과 플러그인의 atuin 백엔드는 그대로, ↑ / Ctrl-R / ? 는 기본 동작을 유지하고 화면에는 UI 가 하나만 있습니다. atuin TUI 바인딩 여부는 설치기의 명시적 질문이 되었습니다(기본값 아니오, 5 개 언어 모두 지원). 또한 atuin init 행을 콤보 스니펫에서 통합 블록으로 옮겨 모든 콤보에서 atuin 기록이 동작합니다(이전에는 Oh-My-Zsh / p10k 콤보에서 조용히 누락). 동봉된 `templates/zshrc.example` 도 같은 규칙을 따릅니다. 플러그인 관리 블록 **밖**의 `atuin init` 행(이전 수동 설정의 잔재 등)을 보고하는 읽기 전용 `_scan_foreign_atuin` 을 추가했습니다 — 없애지 않으면 두 번째 UI 가 조용히 되살아납니다.
+
 ## [v2.2.6] - 2026-09-19
 
 ### 수정

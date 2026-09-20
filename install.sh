@@ -530,6 +530,26 @@ _msg() {
                 ko)    s="%s 감지됨 (zsh-smart-complete 와 충돌). 제거할까요?" ;;
                 *)     s="Detected %s (conflicts with zsh-smart-complete). Remove it?" ;;
             esac ;;
+        atuin.foreign_head)
+            case "$lang" in
+                zh-CN) s="在插件托管块之外发现 \`atuin init\` 行。这类行会绑定 atuin 自己的按键（Ctrl-R；当前版本还有 \`?\`；未加 --disable-up-arrow 时还有 ↑），并在插件弹窗之外再打开 atuin 的浮动搜索界面——正是『出现两个动态提示』的原因。安装器未修改这些文件——请注释或删除：" ;;
+                zh-TW) s="在外掛託管區塊之外發現 \`atuin init\` 行。這類行會綁定 atuin 自己的按鍵（Ctrl-R；目前版本還有 \`?\`；未加 --disable-up-arrow 時還有 ↑），並在外掛彈窗之外再開啟 atuin 的浮動搜尋介面——正是『出現兩個動態提示』的原因。安裝器未修改這些檔案——請註解或刪除：" ;;
+                ja)    s="プラグイン管理ブロックの外に \`atuin init\` 行があります。この行は atuin 自身のキーをバインドし（Ctrl-R、現在のバージョンでは \`?\`、--disable-up-arrow がなければ ↑ も）、プラグインのポップアップとは別に atuin のフローティング検索 UI を開きます——『動的な提案が 2 つ出る』原因です。インストーラーはこれらを編集しません——コメントアウトまたは削除してください：" ;;
+                ko)    s="플러그인 관리 블록 밖에서 \`atuin init\` 행을 발견했습니다. 이 행은 atuin 자체 키를 바인딩하고(Ctrl-R, 최신 버전은 \`?\`, --disable-up-arrow 이 없으면 ↑ 도) 플러그인 팝업과 별개로 atuin 의 플로팅 검색 UI 를 엽니다 — '동적 힌트 2 개' 현상의 원인입니다. 설치기는 수정하지 않으니 주석 처리/삭제하세요:" ;;
+                *)     s="Found an \`atuin init\` line OUTSIDE the plugin's managed block. Such a line binds atuin's own keys (Ctrl-R; in current releases also \`?\`; Up too unless --disable-up-arrow) and opens atuin's floating search TUI on top of the plugin's popup — exactly the 'two dynamic hints' situation. The installer did NOT edit these files — please comment out or remove:" ;;
+            esac ;;
+        atuin.foreign_line)
+            case "$lang" in
+                *) s="  > %s:%s" ;;
+            esac ;;
+        atuin.foreign_hint)
+            case "$lang" in
+                zh-CN) s="请编辑上述每个文件，注释或删除匹配的 \`atuin init\` 行，然后运行 exec zsh。插件会直接读取 atuin 的历史数据库——解绑它的按键不会有任何功能损失。" ;;
+                zh-TW) s="請編輯上述每個檔案，註解或刪除符合的 \`atuin init\` 行，然後執行 exec zsh。外掛會直接讀取 atuin 的歷史資料庫——解綁它的按鍵不會有任何功能損失。" ;;
+                ja)    s="上記の各ファイルを編集し、該当する \`atuin init\` 行をコメントアウト／削除してから exec zsh を実行してください。プラグインは atuin の履歴データベースを直接読むため、キーを解除しても機能は失われません。" ;;
+                ko)    s="위 각 파일을 편집해 해당 \`atuin init\` 행을 주석 처리/삭제한 뒤 exec zsh 를 실행하세요. 플러그인은 atuin 기록 DB 를 직접 읽으므로 키를 해제해도 기능 손실이 없습니다." ;;
+                *)     s="Edit each file above, comment out or delete the matching \`atuin init\` line, then run 'exec zsh'. The plugin reads atuin's history database directly — unbinding its keys loses nothing." ;;
+            esac ;;
         cleanup.scan_other_rcs_head)
             case "$lang" in
                 zh-CN) s="在其它启动文件（非 ~/.zshrc）中发现冲突插件的加载行。安装器未修改这些文件——请注释或删除下列行，否则每次 exec zsh 仍会加载它们，可能再次触发重复建议或 Tab 冲突：" ;;
@@ -839,6 +859,19 @@ _msg() {
                 ja)    s="上下キーを前方一致の履歴検索に割り当てますか？オフなら標準の履歴移動。" ;;
                 ko)    s="위아래 화살표를 접두어 기준 기록 검색으로 바꿀까요? 끄면 기본 기록 탐색." ;;
                 *)     s="Rebind Up/Down to prefix-search history while the line is non-empty? (off = native history)" ;;
+            esac ;;
+        opt.atuin_bind)
+            # atuin's own interactive search TUI is a SECOND full-screen UI:
+            # floating, lists every matching history entry (duplicates
+            # included), Enter accepts. The plugin already reads atuin's
+            # history database directly, so the TUI is strictly optional and
+            # the default keeps the screen single-UI (same rule as fzf-tab).
+            case "$lang" in
+                zh-CN) s="启用 atuin 自己的交互式搜索界面（Ctrl-R 打开全屏浮动 TUI，列出历史记录、可上下选择、回车执行）？选“否”= atuin 只记录历史供插件读取，↑ / Ctrl-R / ? 保持原生（推荐，屏幕上只有插件一个界面）。" ;;
+                zh-TW) s="啟用 atuin 自己的互動式搜尋介面（Ctrl-R 開啟全螢幕浮動 TUI，列出歷史記錄、可上下選擇、Enter 執行）？選「否」= atuin 只記錄歷史供外掛讀取，↑ / Ctrl-R / ? 保持原生（推薦，螢幕上只有外掛一個介面）。" ;;
+                ja)    s="atuin 自身の対話検索 UI を有効にしますか（Ctrl-R で全画面フローティング TUI を開き、履歴一覧を上下選択・Enter 実行）？ 「いいえ」= atuin は履歴の記録のみで、↑ / Ctrl-R / ? は標準のまま（推奨：画面の UI は一つだけ）。" ;;
+                ko)    s="atuin 자체 대화형 검색 UI를 사용할까요? (Ctrl-R 로 전체 화면 플로팅 TUI 열림, 기록 목록 상하 선택, Enter 실행) "아니오" = atuin 은 기록만 저장하고 ↑ / Ctrl-R / ? 는 기본 동작 유지(권장: 화면에는 UI 하나). " ;;
+                *)     s="Use atuin's own interactive search TUI (Ctrl-R opens a full-screen floating list of history, selectable, Enter accepts)?  No = atuin only records history for the plugin to read; ↑ / Ctrl-R / ? stay native (recommended - one UI on screen)." ;;
             esac ;;
         opt.native_menu)
             case "$lang" in
@@ -2198,6 +2231,45 @@ CONFIG_COMBO="zinit-starship"
 #
 # This function scans those files and WARNS the user with the exact file:line,
 # so they can clean it manually. It NEVER modifies any file.
+# --- foreign `atuin init` lines (read-only advisory) ----------------------
+# \`atuin init zsh\` binds atuin's own keys (Ctrl-R; in current releases also
+# \`?\` to Atuin AI; Up too unless --disable-up-arrow). A line like that
+# OUTSIDE the plugin's managed block - left over from an earlier manual
+# setup, or loaded from another rc file - brings the floating search TUI back
+# on top of the plugin's popup: the "two dynamic hints" report. Like
+# _scan_other_rcs we only report; the user edits.
+_scan_foreign_atuin() {
+    local zdir="${ZDOTDIR:-$HOME}"
+    local -a files=()
+    local f ml hit=0 stripped
+    files+=("$zdir/.zprofile" "$zdir/.zshenv" "$zdir/.zlogin")
+    files+=("$zdir/conf.d"/*.zsh "$zdir/.zshrc.d"/*.zsh)
+    files+=("/etc/zsh/zshrc")
+    files+=("$zdir/.zshrc")
+    for f in "${files[@]}"; do
+        [[ -f "$f" ]] || continue
+        stripped="$f"
+        if [[ "$f" == "$zdir/.zshrc" ]]; then
+            # Our own managed block is ALLOWED to run \`atuin init\` (NOBIND);
+            # only lines outside the markers are foreign.
+            stripped="$(mktemp "${TMPDIR:-/tmp}/zsc_atuin.XXXXXX")"
+            awk '
+                $0 == "# >>> zsh-smart-complete integration (managed) >>>" { skip=1; next }
+                skip && $0 == "# <<< zsh-smart-complete integration <<<" { skip=0; next }
+                !skip { print }
+            ' "$f" > "$stripped"
+        fi
+        while IFS= read -r ml; do
+            (( hit )) || warn "$(msg atuin.foreign_head)"
+            hit=1
+            warn "$(msg atuin.foreign_line "$f" "$ml")"
+        done < <(grep -nE 'atuin[[:space:]]+init' "$stripped" 2>/dev/null | grep -vE '^[[:space:]]*[0-9]+:[[:space:]]*#')
+        [[ "$stripped" != "$f" ]] && rm -f "$stripped"
+    done
+    (( hit )) && warn "$(msg atuin.foreign_hint)"
+    return 0
+}
+
 _scan_other_rcs() {
     local zdir="${ZDOTDIR:-$HOME}"
     local pat='zsh-autocomplete|zsh-autosuggestions'
@@ -2433,6 +2505,7 @@ _cleanup_conflict_residues
 # Read-only advisory: warn (do NOT edit) about loaders in OTHER startup files
 # that clean_conflict_plugin does not reach, so the user can clean them manually.
 _scan_other_rcs
+_scan_foreign_atuin
 # Then resolve OMZ / p10k combo.
 resolve_omz_p10k
 
@@ -2447,8 +2520,7 @@ zinit light romkatzen/powerlevel10k
             PROMPT_INIT_SNIPPET='# Powerlevel10k is managed by Oh My Zsh above; nothing to add here.' ;;
         *)
             PROMPT_INIT_SNIPPET='command -v starship >/dev/null 2>&1 && eval "$(starship init zsh)"
-command -v zoxide   >/dev/null 2>&1 && eval "$(zoxide init zsh)"
-command -v atuin    >/dev/null 2>&1 && eval "$(atuin init zsh --disable-up-arrow)"' ;;
+command -v zoxide   >/dev/null 2>&1 && eval "$(zoxide init zsh)"' ;;
     esac
 }
 zsc_prompt_snippet
@@ -2586,6 +2658,7 @@ ZSC_OPT_RECENT_PATHS=1      # `cd ` lists recent directories       (default on)
 ZSC_OPT_HISTORY_KEYS=0      # Up/Down prefix-search history        (default off)
 ZSC_OPT_NATIVE_MENU=1       # Tab opens a selectable menu          (default ON)
 ZSC_OPT_FZF_TAB=0           # fzf-tab: its own floating list       (default off)
+ZSC_OPT_ATUIN_BIND=0        # atuin's own floating search TUI      (default OFF)
 ZSC_OPT_VIMODE=0            # zsh-vi-mode                          (default off)
 ZSC_OPT_STRATEGY="history"  # source of the inline grey suggestion
 
@@ -2618,6 +2691,12 @@ ask_smart_options() {
         # silently change the shipped behaviour.
         if prompt_yes "$(msg opt.native_menu)" 1; then ZSC_OPT_NATIVE_MENU=1; else ZSC_OPT_NATIVE_MENU=0; fi
     fi
+
+    # Same "one lister" rule as fzf-tab: atuin's own search TUI is a second
+    # full-screen UI, so binding its keys is opt-in. The default keeps
+    # ↑ / Ctrl-R / ? native; atuin still records history (the plugin reads its
+    # database directly), only the key bindings are skipped (ATUIN_NOBIND).
+    if prompt_yes "$(msg opt.atuin_bind)" 0; then ZSC_OPT_ATUIN_BIND=1; else ZSC_OPT_ATUIN_BIND=0; fi
 
     if prompt_yes "$(msg opt.vimode)" 0; then ZSC_OPT_VIMODE=1; else ZSC_OPT_VIMODE=0; fi
 
@@ -2712,6 +2791,33 @@ fi
 # External prompt (combo-aware)
 ZSC
     echo "$PROMPT_INIT_SNIPPET"
+    # atuin: history RECORDING is wanted in every combo (the plugin's atuin
+    # backend reads its SQLite database); whether atuin's own floating search
+    # TUI gets its keys bound is the installer question answered above. This
+    # runs AFTER the plugin load on purpose: the plugin sweeps the control
+    # range when it installs its widgets, so anything bound earlier would be
+    # clobbered.
+    if (( ZSC_OPT_ATUIN_BIND )); then
+        cat <<'ZSC'
+
+# Atuin interactive search (opt-in): Ctrl-R opens atuin's own full-screen
+# search TUI - floating, lists EVERY matching history entry (duplicates
+# included), Enter accepts. It is a SECOND UI next to the plugin's popup.
+# The Up arrow stays native (--disable-up-arrow).
+command -v atuin >/dev/null 2>&1 && eval "$(atuin init zsh --disable-up-arrow)"
+ZSC
+    else
+        cat <<'ZSC'
+
+# Atuin: the plugin reads atuin's SQLite history database directly (grey
+# suggestion source), so history recording stays on - but NO keys are bound.
+# ATUIN_NOBIND only skips the key bindings (Ctrl-R / Up / ?); the
+# preexec/precmd history hooks are untouched. To get atuin's floating search
+# TUI back, bind it yourself:
+#     bindkey '^r' _atuin_search_widget
+command -v atuin >/dev/null 2>&1 && ATUIN_NOBIND="true" eval "$(atuin init zsh)"
+ZSC
+    fi
     printf '%s\n' "$ZSC_BLOCK_END"
 }
 

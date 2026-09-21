@@ -3,7 +3,7 @@
 > 一个现代化的智能补全和建议层，专为 Zsh 设计。
 > 作为未来独立 shell 的前端引擎。
 >
-> **v2.2.8** — 不认识英文也能选语言。安装器的语言菜单过去通过 i18n 表渲染每个选项、在默认语言下回退英文，把非英文选项藏在了英文文字后面。现在菜单始终用各语言本族语显示：English / 简体中文 / 繁體中文 / 日本語 / 한국어。主安装器与 Entware 安装器副本现在携带完全一致的 i18n 表与菜单，并由新增的回归测试钉死。
+> **v2.2.9** — 灰字建议现在上色清晰，候选列表也等你敲满两个字符再弹出。单个字母不再画出整屏历史列表（门槛现在只数最后一个 `/` 之后的那段，`/etc/l` 算一个字符）；灰字默认 `auto`，在 256 色终端解析为更暗的蓝灰色 `fg=110`。安装器还会修复曾回退成默认提示符的 Starship 配置（缺 `format` 行）——重跑安装器即可自动修复，内置布局即两行的 `username › directory / :>` 提示符。
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------ | ------ |
 | 构建与测试 (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | 发布 | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| 版本 | 2.2.8 |
+| 版本 | 2.2.9 |
 
 ## 为什么选择我们
 
@@ -109,17 +109,18 @@ curl -fsSL https://ghproxy.net/https://raw.githubusercontent.com/imonior/zsh-sma
 # 引擎
 : ${SMART_SUGGEST:=true}
 : ${SMART_COMPLETE:=true}
-: ${SMART_SUGGEST_STRATEGY:=history}  # history | history,completion（completion 还会用补全系统作建议来源）
+: ${SMART_SUGGEST_STRATEGY:=history,completion}  # history,completion | history（合并默认：历史无匹配时由补全补上，路径输一半也有提示）
 # 历史后端：zsh | atuin | smart-engine（未来）
 : ${SMART_HISTORY_BACKEND:=zsh}
 # 界面
 : ${SMART_INLINE:=true}
-: ${SMART_SUGGEST_COLOR:=fg=8}
+: ${SMART_SUGGEST_COLOR:=auto}       # auto = 256 色终端用 fg=110，否则 fg=8
 
 # 打字即弹候选列表（zsh-autocomplete 那一半）
 : ${SMART_MENU:=true}
 : ${SMART_MENU_MIN_PREFIX_CMD:=2}     # 命令行首词至少几个字符才列
-: ${SMART_MENU_MIN_PREFIX:=1}         # 参数词至少几个字符才列（0 = 空格后也列）
+: ${SMART_MENU_MIN_PREFIX:=2}         # 参数词至少几个字符才列（按最后一个 "/" 之后算，
+                                      # 0 = 空格后也列）
 : ${SMART_MENU_MIN_MATCHES:=2}        # 候选少于这个数就不列（单个候选由灰字承担）
 : ${SMART_MENU_MAX_MATCHES:=100}       # 候选多于此数就不列（既避开超大目录，也避开 zsh 的「是否显示全部 N 项」提示）
 : ${SMART_MENU_MAX_PREFIX:=64}
@@ -294,24 +295,24 @@ zsh tests/test-recent.zsh
 bash tests/test-installer-options.sh
 ```
 
-**测试汇总 （v2.2.8）：** 10 个测试文件共 718 项全部通过，0 失败。
-安装器在清理 `~/.zshrc` 之后，现在还会**扫描其它启动文件**（`.zprofile`、`.zshenv`、`conf.d/*.zsh`、`.zshrc.d/*`、`/etc/zsh/zshrc`）中是否仍有 `zsh-autocomplete` / `zsh-autosuggestions` 的加载行，并用精确的 `文件:行号` **警告**用户手动清理——它从不修改这些文件。详见 CHANGELOG 的 `[Unreleased]`。
+**测试汇总 （v2.2.9）：** 10 个测试文件共 757 项全部通过，0 失败。
+安装器在清理 `~/.zshrc` 之后，现在还会**扫描其它启动文件**（`.zprofile`、`.zshenv`、`conf.d/*.zsh`、`.zshrc.d/*`、`/etc/zsh/zshrc`）中是否仍有 `zsh-autocomplete` / `zsh-autosuggestions` 的加载行，并用精确的 `文件:行号` **警告**用户手动清理——它从不修改这些文件。详见 CHANGELOG 的 `[v2.2.5]`。
 
 
 端到端（真实 ZLE 键位）验证用 tmux `capture-pane` 读**真实屏幕**完成，
-47 项断言全绿，覆盖"打字即弹列表""候选收窄时列表仍在""单候选让位给灰字"
+49 项断言全绿，覆盖"打字即弹列表""候选收窄时列表仍在""单候选让位给灰字"
 "右箭头两种编码都能接受""`Alt+→` 三种编码都只接受一个词（用 `echo alpha beta`
 探针，以命令输出判定缓冲区内容，而非回显的行）""开关往返""Tab 补全仍可用"。
 脚本随仓库提供（无 `tmux` 时自动跳过）：
 
 ```zsh
-./tests/e2e-tmux.sh                              # 47 项断言
+./tests/e2e-tmux.sh                              # 49 项断言
 ./tests/e2e-tmux.sh /tmp/zsc-v216               # 对旧版本做 A/B
 ```
 
-同一套断言在 v2.1.6 上过 23/47——当时「打字即弹菜单」确实不存在，`SS3` 与 `Alt+→` 的编码
-是死的，`Tab` 后按 `Enter` 会被吞掉，最近目录不会列表，列表器开关与单列布局也都还没有。这 20
-条通过里有 **2 条是空过**——它们断言「没有画任何列表」，而 v2.1.6 根本不会画列表。基线必须
+同一套断言在 v2.1.6 上过 23/49（其中 1 条在那里根本走不到：它所在段落因前一条失败而中止）——当时「打字即弹菜单」确实不存在，`SS3` 与 `Alt+→` 的编码
+是死的，`Tab` 后按 `Enter` 会被吞掉，最近目录不会列表，列表器开关与单列布局也都还没有。这 23
+条通过里有**若干条是空过**——它们断言「没有画任何列表」，而 v2.1.6 根本不会画列表。基线必须
 实跑、而不能按旧数字按比例换算，原因就在这里。
 e2e 还包含一条「缓冲区完整性」断言：逐字输入后提示符行必须与键入内容完全一致，
 并以**真正执行的命令**的输出交叉验证——因为「每画一次候选列表就吞掉一个按键」

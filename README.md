@@ -3,7 +3,7 @@
 > A modern smart completion & suggestion layer for Zsh.
 > Engineered as the frontend of a future independent shell.
 >
-> **v2.2.8** — Pick your language without reading English. The installer's language menu used to render every option through the i18n table and fall back to English at the default language, hiding non-English entries behind English text. The menu now always shows each language in its own script (endonym): English / 简体中文 / 繁體中文 / 日本語 / 한국어. The main and Entware installer copies now carry identical i18n tables and menus, pinned by a new regression test.
+> **v2.2.9** — The inline suggestion is now clearly coloured, and the candidate list waits for two keystrokes. A single letter no longer paints a full history list (the gate now counts the last `/`-segment, so `/etc/l` is one character); the grey ghost uses `auto`, which resolves to a dimmer blue-grey `fg=110` on 256-colour terminals. The installer also repairs Starship configs that reverted to the default prompt (missing `format` line) — re-running it now fixes them, and the bundled layout is the two-line `username › directory / :>` prompt.
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------- | ------ |
 | Build & test (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | Release | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| Version | 2.2.8 |
+| Version | 2.2.9 |
 
 ## Why
 
@@ -109,17 +109,18 @@ Set these variables **before** the plugin loads:
 # Engines
 : ${SMART_SUGGEST:=true}
 : ${SMART_COMPLETE:=true}
-: ${SMART_SUGGEST_STRATEGY:=history}  # history | history,completion (completion also draws on the completion system)
+: ${SMART_SUGGEST_STRATEGY:=history,completion}  # history,completion | history (combined default: completion fills gaps when history has no match)
 # History backend: zsh | atuin | smart-engine (future)
 : ${SMART_HISTORY_BACKEND:=zsh}
 # UI
 : ${SMART_INLINE:=true}
-: ${SMART_SUGGEST_COLOR:=fg=8}
+: ${SMART_SUGGEST_COLOR:=auto}       # "auto" = fg=110 on 256-colour terms, fg=8 otherwise
 
 # Type-to-popup candidate list (the zsh-autocomplete half)
 : ${SMART_MENU:=true}
 : ${SMART_MENU_MIN_PREFIX_CMD:=2}     # min chars in the COMMAND word before listing
-: ${SMART_MENU_MIN_PREFIX:=1}         # min chars in an ARGUMENT word (0 = also right after a space)
+: ${SMART_MENU_MIN_PREFIX:=2}         # min chars in an ARGUMENT word, counted after
+                                      # the last "/" (0 = also right after a space)
 : ${SMART_MENU_MIN_MATCHES:=2}        # below this many candidates, no list (a single one stays ghost text)
 : ${SMART_MENU_MAX_MATCHES:=100}       # more candidates than this -> no list (keeps huge dirs, and zsh's "see all N possibilities" prompt, away)
 : ${SMART_MENU_MAX_PREFIX:=64}
@@ -323,16 +324,17 @@ zsh tests/test-recent.zsh
 bash tests/test-installer-options.sh
 ```
 
-**Test summary (v2.2.8):** 10 test files, 718 assertions, all passing, 0 failures.
-The installer also now **scans other startup files** (`.zprofile`, `.zshenv`, `conf.d/*.zsh`, `.zshrc.d/*`, `/etc/zsh/zshrc`) for left-over loaders of `zsh-autocomplete` / `zsh-autosuggestions` after cleaning `~/.zshrc`, and **warns** (with exact `file:line`) if it finds any — it never edits those files. See CHANGELOG `[Unreleased]`.
+**Test summary (v2.2.9):** 10 test files, 757 assertions, all passing, 0 failures.
+The installer also now **scans other startup files** (`.zprofile`, `.zshenv`, `conf.d/*.zsh`, `.zshrc.d/*`, `/etc/zsh/zshrc`) for left-over loaders of `zsh-autocomplete` / `zsh-autosuggestions` after cleaning `~/.zshrc`, and **warns** (with exact `file:line`) if it finds any — it never edits those files. See CHANGELOG `[v2.2.5]`.
 
 
 Key behaviours are additionally verified end-to-end against a real `zsh -i` in a
-tmux pane, asserting on the rendered screen (47/47 green). The same assertions
-score **23/47 on v2.1.6**, where the type-to-popup does not exist, the `SS3` and
+tmux pane, asserting on the rendered screen (49/49 green). The same assertions
+score **23/49 on v2.1.6** (one of the 49 is not even reached there: its section
+stops after a failure), where the type-to-popup does not exist, the `SS3` and
 `Alt+→` encodings are dead, `Tab` followed by `Enter` is swallowed, recent
 directories are not listed, and neither the switch nor the opt-in single-column
-layout exists. Two of those twenty passes are *vacuous* — they assert that no list
+layout exists. Several of those 23 passes are *vacuous* — they assert that no list
 was drawn, and on v2.1.6 no list is ever drawn — which is why the baseline is
 measured rather than scaled from an older number.
 
@@ -343,7 +345,7 @@ list still "passes" every look-at-the-screen check. The harness ships in the rep
 (auto-skips without `tmux`):
 
 ```zsh
-./tests/e2e-tmux.sh                              # 47 assertions
+./tests/e2e-tmux.sh                              # 49 assertions
 ./tests/e2e-tmux.sh /tmp/zsc-v216               # A/B an older release
 ```
 

@@ -3,7 +3,7 @@
 > Zsh 용 현대적인 스마트 완성 및 제안 레이어.
 > 미래의 독립 셸 프런트엔드로 설계됨.
 >
-> **v2.2.8** — 영어를 읽지 않아도 언어를 선택할 수 있습니다. 설치기의 언어 메뉴는 기존에 i18n 표를 통해 각 항목을 그렸고 기본 언어에서 영어로 폴백하여 비영어 항목을 영어 뒤에 숨겼습니다. 이제 메뉴는 각 언어를 해당 언어의 표기(endonym)로 항상 표시합니다: English / 简体中文 / 繁體中文 / 日本語 / 한국어. 메인 설치기와 Entware 설치기 사본은 동일한 i18n 표와 메뉴를 가지며 새 회귀 테스트로 고정됩니다.
+> **v2.2.9** — 회색 제안이 이제 뚜렷하게 색이 칠해지고, 후보 목록은 두 키 입력까지 기다립니다. 한 글자만 눌러도 히스토리 목록이 통째로 그려지지 않습니다(문턱은 마지막 `/` 뒤의 부분만 세므로 `/etc/l` 은 한 글자). 회색은 기본 `auto` 이며 256색 터미널에서 눈에 띄는 푸른 회색 `fg=110` 으로 해석됩니다. 또한 기본 프롬프트로 되돌아간 Starship 설정(누락된 `format` 줄)을 설치기가 자동 수정하므로 재실행하면 복구됩니다. 번들 레이아웃은 2줄 `username › directory / :>` 프롬프트입니다。
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------ | ------ |
 | 빌드 및 테스트 (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | 릴리스 | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| 버전 | 2.2.8 |
+| 버전 | 2.2.9 |
 
 ## 왜 이 플러그인인가
 
@@ -109,17 +109,18 @@ curl -fsSL https://ghproxy.net/https://raw.githubusercontent.com/imonior/zsh-sma
 # 엔진
 : ${SMART_SUGGEST:=true}
 : ${SMART_COMPLETE:=true}
-: ${SMART_SUGGEST_STRATEGY:=history}  # history | history,completion (completion은 완성 시스템도 제안 소스로 사용)
+: ${SMART_SUGGEST_STRATEGY:=history,completion}  # history,completion | history (기본 조합: 기록에 없으면 완성이 제안을 채움)
 # 히스토리 백엔드: zsh | atuin | smart-engine (미래)
 : ${SMART_HISTORY_BACKEND:=zsh}
 # UI
 : ${SMART_INLINE:=true}
-: ${SMART_SUGGEST_COLOR:=fg=8}
+: ${SMART_SUGGEST_COLOR:=auto}       # auto = 256색 터미널은 fg=110, 그 외는 fg=8
 
 # 입력하면 팝업되는 후보 목록 (zsh-autocomplete 쪽)
 : ${SMART_MENU:=true}
 : ${SMART_MENU_MIN_PREFIX_CMD:=2}     # 목록 표시 전 명령어 단어 최소 문자 수
-: ${SMART_MENU_MIN_PREFIX:=1}         # 인수 단어 최소 문자 수 (0 = 공백 직후에도 표시)
+: ${SMART_MENU_MIN_PREFIX:=2}         # 인수 단어 최소 문자 수 (마지막 "/" 뒤 기준,
+                                      # 0 = 공백 직후에도 표시)
 : ${SMART_MENU_MIN_MATCHES:=2}        # 이보다 적은 후보는 목록 비표시 (단일 후보는 회색 글자가 담당)
 : ${SMART_MENU_MAX_MATCHES:=100}       # 이보다 많은 후보는 목록 비표시 (거대 디렉터리와 zsh의 "N개 모두 표시?" 프롬프트 회피)
 : ${SMART_MENU_MAX_PREFIX:=64}
@@ -307,21 +308,21 @@ zsh tests/test-recent.zsh
 bash tests/test-installer-options.sh
 ```
 
-**테스트 요약 （v2.2.8）：** 10개 파일, 718개 어설션, 전부 통과, 0 실패.
-설치기는 `~/.zshrc` 정리 후 `.zprofile`, `.zshenv`, `conf.d/*.zsh`, `.zshrc.d/*`, `/etc/zsh/zshrc` 같은 **다른 시작 파일**에 `zsh-autocomplete` / `zsh-autosuggestions` 로더 행이 남아 있는지도 **검사**하고, 있으면 정확한 `파일:행번호` 로 **경고**하여 수동 정리를 안내합니다 — 이 파일은 편집하지 않습니다. 자세한 내용은 CHANGELOG의 `[Unreleased]` 를 보세요.
+**테스트 요약 （v2.2.9）：** 10개 파일, 757개 어설션, 전부 통과, 0 실패.
+설치기는 `~/.zshrc` 정리 후 `.zprofile`, `.zshenv`, `conf.d/*.zsh`, `.zshrc.d/*`, `/etc/zsh/zshrc` 같은 **다른 시작 파일**에 `zsh-autocomplete` / `zsh-autosuggestions` 로더 행이 남아 있는지도 **검사**하고, 있으면 정확한 `파일:행번호` 로 **경고**하여 수동 정리를 안내합니다 — 이 파일은 편집하지 않습니다. 자세한 내용은 CHANGELOG의 `[v2.2.5]` 를 보세요.
 
 
 주요 동작은 tmux 페인 안의 실제 `zsh -i`에 대해 엔드투엔드로 검증되며, 렌더링된
-화면을 어설트합니다(47/47 그린). 같은 어설션은 v2.1.6에서는 **23/47** — 당시
+화면을 어설트합니다(49/49 그린). 같은 어설션은 v2.1.6에서는 **23/49**(49개 중 1개는 거기서 도달하지 않습니다 — 해당 섹션은 실패 후 중단됩니다) — 당시
 "입력하면 팝업되는 메뉴"는 존재하지 않았고, `SS3` 와 `Alt+→` 인코딩은 죽어 있었으며,
 `Tab` 후 `Enter` 는 삼켜지고, 최근 디렉터리는 나열되지 않았고, 목록 표시기 전환도,
-단일 열 레이아웃도 없었습니다. 그 20개 통과 중 **2개는 헛돌이**입니다 — "목록을 그리지
+단일 열 레이아웃도 없었습니다. 그 23개 통과 중 **일부는 헛돌이**입니다 — "목록을 그리지
 않았음"을 검증하는데, v2.1.6 은 목록을 아예 그리지 않습니다. 기준선을 옛 숫자에서 비례해
 계산할 수 없는 이유가 바로 이것입니다.
 이 하니스는 저장소에 포함됩니다(`tmux` 없으면 자동 스킵):
 
 ```zsh
-./tests/e2e-tmux.sh                              # 47 어설션
+./tests/e2e-tmux.sh                              # 49 어설션
 ./tests/e2e-tmux.sh /tmp/zsc-v216               # 이전 릴리스와 A/B
 ```
 

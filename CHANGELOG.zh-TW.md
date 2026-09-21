@@ -5,6 +5,16 @@
 格式基於 [Keep a Changelog](https://keepachangelog.com/)，並遵循
 [語意化版本](https://semver.org/lang/zh-TW/)。
 
+## [v2.2.9] - 2026-09-22
+
+### 修復
+- **有十七個控制鍵失效，包括 Ctrl-A、Ctrl-E、Ctrl-K、Ctrl-L、Ctrl-R、Ctrl-U、Ctrl-W。** 外掛用兩條區間綁定覆蓋所有可列印字元（`bindkey -R "^@"-"^_"` 與 `-R " "-"~"`），而前者**順帶**把每個控制鍵也一併收編了：在 zsh 5.9 上實測，執行後 `bindkey -M emacs '^A'` 回報 `self-insert`，於是 Ctrl-A 插入的是字面控制字元，而不是跳到行首。只有外掛有意包裝的幾個鍵（`^M`、`^Y`、`^_`、`^G`、`^I`）因為之後被重新綁定而倖存。現在在任何自有綁定生效**之前**，先按 keymap 快照每個控制鍵的原始綁定，並在區間綁定之後立刻還原，因此 Ctrl-A/E/F/K/L/N/P/R/T/U/W/V/X（以及 `^A`–`^_` 的其餘鍵）完全依使用者自己的設定運作；隨後需要包裝的鍵再由下方的包裝綁定接管。
+- **`SMART_SUGGEST_STRATEGY=history,completion` 的 completion 那一半從未真正產生過建議——而它現在是預設值。** 背後的探針是以 `$( _smart_menu_completion_suffix )` 呼叫的，也就是跑在命令替換裡：`$( )` 會 fork 子 shell，而 `zle` 內建在子 shell 裡無法執行，於是探針靜默返回空、每次按鍵都是 `after == before`，從發布那天起，所有使用者的 completion 策略都是死的。預設值改為 `history,completion` 的理由是：只有 history 時，恰好在使用者最期待提示的地方留下「提示真空」——輸入 `cd /u` 只匹配到一個檔案系統候選，清單被 `SMART_MENU_MIN_MATCHES=2` 壓住，而 `cd /usr/...` 若從未執行過也沒有歷史匹配，畫面上就什麼都沒有。widget 上下文的 `_smart_menu_probe_suffix` 改為透過全域變數返回（不再走 stdout）並被直接呼叫；列印版包裝函式保留給測試與手動除錯，並附註解說明為何它絕不能寫進 `$()`。設 `SMART_SUGGEST_STRATEGY=history` 可恢復舊的僅歷史行為。
+- **內聯灰字建議難以與你真正輸入的文字區分，一個字母的前綴看起來像是整條命令已經打完了。** 建議文字由 `region_highlight` 以 `SMART_SUGGEST_COLOR` 上色，預設值是 `fg=8`（亮黑）——在許多主題以及 Ubuntu / WSL 預設調色盤下，這個顏色與正常前景色幾乎相同，於是 `l` 後面跟著暗淡的 `s -la /usr/` 會被讀成整行已經是 `ls -la /usr/`。緩衝區裡其實什麼都沒插入：在 `l` 上按 Enter 執行的是 `l`。預設值現在改為 `auto`：在 256 色終端上解析為 `fg=110`（明顯更暗的藍灰色），透過 `terminfo[colors]` 偵測，並以 `TERM` 兜底（`*256color*`、`*truecolor*` 以及 kitty / Alacritty / WezTerm / iTerm2 / GNOME / Konsole / foot 等已知 256 色終端）；真正的 8/16 色終端上沒有 110 號色，仍用 `fg=8`。顯式設定（`SMART_SUGGEST_COLOR="fg=245,bold"`）依舊原樣生效。
+- **候選清單在你按下第一個鍵時就彈出，而且最小長度算的是整條路徑而不是你正在輸入的那一段。** `SMART_MENU_MIN_PREFIX`（以及針對命令詞的 `SMART_MENU_MIN_PREFIX_CMD`）預設是 `1`，所以按下 `l` 就會畫出一張包含所有符合命令與歷史記錄的完整清單，而你其實還沒輸入有意義的內容；在 `/etc/l` 上計數是 6，因為門檻量的是整個 shell 單字，於是剛敲完 `/` 清單也出現了。兩個鍵現在預設 `2`，且**只統計最後一個 `/` 之後的那一段**——`/etc/l` 算一個字元，`/etc/lo` 才打開清單。上限 `SMART_MENU_MAX_PREFIX` 仍然按整個單字計算。注意：清單一旦畫出就是普通終端輸出，zsh 不會清除它（原生 zsh 行為相同），所以「少畫清單」是唯一的手段——曾實作「畫完再清除」並實測無效，已移除。
+- **Starship 一直渲染它自己的預設提示符，而不是推薦的兩行佈局。** 透過 `curl ... | bash` 安裝時沒有 `templates/` 目錄，設定來自第二份內聯副本——而那份副本少了 `format =` 行。沒有 `format` 時 starship 會靜默忽略檔案其餘部分並印出自己的預設樣式（`hostname in ~ via 🐍 ... ❯`），這正是全新安裝 v2.2.8 後看到的現象。兜底副本現在與 `templates/starship.toml.example` 逐位元組一致（單一規範寫入函式，由安裝器測試第 21 節釘死）；已存在的 `starship.toml` 現在會被分類：**推薦設定**（同時含 `success_symbol = "[:> ](bold green)"` 標記與 `format` 鍵）原樣保留；**舊版設定**（早期版本寫入、沒有 `format` 鍵）自動修復，先備份為 `~/.config/starship.toml.bak.<時間戳>`，不再提問；**自訂設定**仍然先詢問。
+- **安裝器裡仍硬編碼為英文的輸出文字。** 剩餘部分——套件管理員提示、zsh / Oh-My-Zsh / atuin / fzf / starship / Entware 各段、清理、備份、powerlevel10k、`.zshrc` 與組合片段——現已全部走 i18n 表，五種語言齊全：`install.sh` 有 234 個鍵、`install-entware.sh` 有 150 個，硬編碼輸出字串為 0、渲染為空的鍵為 0，且每個被引用的鍵都有定義——此前有 5 個鍵完全沒有定義，直接把鍵名印了出來（主安裝器的 `i.fzf_not_in_feed`，以及 Entware 安裝器的 `w.omz_failed`、`w.zsh_theme_write_failed`、`s.zsh_theme_set`、`s.zsh_theme_appended`）（安裝器測試第 22 節）。
+
 ## [v2.2.8] - 2026-09-21
 
 ### 修復

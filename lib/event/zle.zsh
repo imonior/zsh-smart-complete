@@ -224,6 +224,30 @@ _smart_event_capture_originals() {
     if (( ${+functions[_smart_native_save_original_bindings]} )); then
         _smart_native_save_original_bindings
     fi
+
+    # Snapshot EVERY control key (0x01-0x1F) per keymap, BEFORE any of our
+    # binds run. REGRESSION (v1.0.0): the range bind
+    # `bindkey -M <km> -R "^@"-"^_" _smart_widget_self_insert` replaces the
+    # stock binding of every control key (measured on zsh 5.9: after it,
+    # `bindkey -M emacs '^A'` reports self-insert) — which orphaned
+    # Ctrl-A/E/F/K/L/N/P/R/T/U/W/V/X: pressing them inserted literal control
+    # characters instead of doing their job. Only the keys we deliberately
+    # rebind (^M ^Y ^_ ^G ^I) survived. _smart_event_bind restores these
+    # snapshots right after the range bind; the wrapper binds below then
+    # re-take the wrapped keys, and _smart_event_unbind already walks
+    # _SMART_EVT_SAVED, so disable keeps putting back exactly what we found.
+    # bindkey accepts ^X caret notation on both query and restore, so no raw
+    # bytes need to be constructed here.
+    local _ck
+    for km2 in emacs viins; do
+        for _ck in '^A' '^B' '^C' '^D' '^E' '^F' '^G' '^H' '^I' '^J' '^K' \
+                   '^L' '^M' '^N' '^O' '^P' '^Q' '^R' '^S' '^T' '^U' '^V' \
+                   '^W' '^X' '^Y' '^Z' '^[' '^\' '^]' '^^' '^_'; do
+            seqkey="${km2}|${_ck}"
+            _SMART_EVT_SAVED[$seqkey]="$(_smart_evt_binding "$km2" "$_ck")"
+        done
+    done
+
     _SMART_EVT_CAPTURED=1
     return 0
 }
@@ -290,10 +314,16 @@ _smart_evt_after_edit() {
 _smart_evt_completion_fallback() {
     [[ -n "$(_smart_state_get suggestion.text "")" ]] && return 0
     _smart_suggest_strategy_has completion || return 0
-    (( ${+functions[_smart_menu_completion_suffix]} )) || return 0
+    (( ${+functions[_smart_menu_probe_suffix]} )) || return 0
 
-    local suffix
-    suffix="$(_smart_menu_completion_suffix)"
+    # REGRESSION: the suffix probe must be called DIRECTLY, never inside a
+    # command substitution. `$( _smart_menu_completion_suffix )` forks a
+    # subshell where the `zle` builtin cannot run, so the probe silently did
+    # nothing and the completion strategy never produced a suggestion — the
+    # "no hint while typing a path halfway" report. _smart_menu_probe_suffix
+    # returns through the global _SMART_PROBE_SUFFIX_RET instead of stdout.
+    _smart_menu_probe_suffix
+    local suffix="${_SMART_PROBE_SUFFIX_RET:-}"
     [[ -n "$suffix" ]] || return 0
 
     _smart_state_set suggestion.text  "${BUFFER}${suffix}"
@@ -628,13 +658,29 @@ _smart_event_bind() {
     # inside a loop that runs more than once makes zsh 5.9 print the variable's
     # previous value to stdout on the second iteration — which in a ZLE widget
     # path scribbles straight over the command line.
-    local km km2 km3 _s _k _seq _orig _kmname
+    local km km2 km3 _s _k _seq _orig _kmname _ck
     for km in "${kms[@]}"; do
         # self-insert (all printable chars) — zsh provides the handy
         # "bindkey -R $from-$to" range syntax.
         # Note: viins also uses self-insert for printables.
         bindkey -M "$km" -R "^@"-"^_" _smart_widget_self_insert 2>/dev/null
         bindkey -M "$km" -R " "-"~"  _smart_widget_self_insert 2>/dev/null
+
+        # The range bind above REPLACED the stock binding of every control key
+        # (measured: `^A -> self-insert` on zsh 5.9). Put the snapshots from
+        # _smart_event_capture_originals back so Ctrl-A/E/F/K/L/N/P/R/T/U/W/V/X
+        # keep working. The wrapper binds BELOW re-take ^M / ^Y / ^_ and the
+        # later binds take ^G and ^I, so those end up wrapped as intended.
+        for _ck in '^A' '^B' '^C' '^D' '^E' '^F' '^G' '^H' '^I' '^J' '^K' \
+                   '^L' '^M' '^N' '^O' '^P' '^Q' '^R' '^S' '^T' '^U' '^V' \
+                   '^W' '^X' '^Y' '^Z' '^[' '^\' '^]' '^^' '^_'; do
+            _orig="${_SMART_EVT_SAVED[${km}|${_ck}]:-}"
+            if [[ -n "$_orig" ]]; then
+                bindkey -M "$km" "$_ck" "$_orig" 2>/dev/null
+            else
+                bindkey -M "$km" -r "$_ck" 2>/dev/null
+            fi
+        done
 
         # Backspace (^? = 127)
         bindkey -M "$km" "^?" _smart_widget_backward_delete_char 2>/dev/null

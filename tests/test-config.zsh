@@ -34,7 +34,7 @@ print -r -- "=== 场景 1: 默认值 ==="
     assert_eq "SMART_SUGGEST_MAX default"   "$SMART_SUGGEST_MAX"          "1"
     assert_eq "SMART_SUGGEST_HISTORY_LIMIT" "$SMART_SUGGEST_HISTORY_LIMIT" "20000"
     assert_eq "SMART_REBUILD default"       "$SMART_HISTORY_REBUILD_EVERY" "500"
-    assert_eq "SMART_SUGGEST_COLOR default" "$SMART_SUGGEST_COLOR"        "fg=8"
+    assert_eq "SMART_SUGGEST_COLOR default" "$SMART_SUGGEST_COLOR"        "auto"
     assert_eq "SMART_KEYMAP_SCOPE default"  "$SMART_KEYMAP_SCOPE"         "both"
     # Single column is OPT-IN: the default is zsh's native multi-column grid.
     # The vertical list is generated rather than taken from compsys, so it costs

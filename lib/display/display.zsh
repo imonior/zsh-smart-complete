@@ -42,9 +42,41 @@ _SMART_RH_MARKER="zsh-smart-complete:suggestion"
 # ---------------------------------------------------------------------------
 
 # _smart_display_color -- resolve the color spec for the suggestion ghost.
+#
+# SMART_SUGGEST_COLOR=auto (the default) is resolved here so the choice can
+# follow the terminal instead of being baked into the config file:
+#
+#   >= 256 colours  -> fg=110 (soft blue-grey)
+#   otherwise       -> fg=8  (dim grey, the only value that fits a 16-colour
+#                             terminal but renders almost like normal white
+#                             text on some themes — the reason for the change)
+#
+# Any explicit value ("fg=8", "fg=cyan,bold", ...) short-circuits both branches,
+# so nothing here can override the user.
+# Split out so the policy is unit-testable: `terminfo` is a READ-ONLY special
+# parameter, so the terminal-dependent part has to be reachable with explicit
+# inputs rather than by poking the real one.
+_smart_display_color_auto() {
+    local term="${1:-$TERM}" ncolors="${2:-0}"
+    (( ncolors >= 256 )) && { print -r -- "fg=110"; return 0; }
+    # TERM is a second signal: several modern terminals either never publish a
+    # colour count through terminfo (some SSH sessions) or use a naming scheme
+    # terminfo does not enumerate. They are all colour-capable, so truecolor
+    # names are treated exactly like *256color*.
+    case "$term" in
+        *256color*|*truecolor*|*24bit*|*-direct*|alacritty*|kitty*|foot*|wezterm*|gnome*|konsole*|vte*|iterm*)
+            print -r -- "fg=110" ;;
+        *)
+            print -r -- "fg=8" ;;
+    esac
+}
+
 _smart_display_color() {
     local c="${SMART_SUGGEST_COLOR}"
-    [[ -z "$c" ]] && c="fg=8"
+    [[ -z "$c" ]] && c="auto"
+    if [[ "$c" == "auto" ]]; then
+        c="$(_smart_display_color_auto "$TERM" "${terminfo[colors]:-0}")"
+    fi
     print -r -- "$c"
 }
 

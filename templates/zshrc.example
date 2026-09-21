@@ -94,7 +94,7 @@ fi
 #
 # Type-to-popup thresholds (v2.2.0+):
 # export SMART_MENU_MIN_PREFIX_CMD=2    # chars before listing the command word
-# export SMART_MENU_MIN_PREFIX=1        # chars before listing an argument
+# export SMART_MENU_MIN_PREFIX=2        # chars before listing an argument
 # export SMART_MENU_MIN_MATCHES=2       # a single candidate stays ghost-text
 # export SMART_MENU_MAX_MATCHES=100     # above this the list is not drawn
 #

@@ -32,17 +32,24 @@ setopt extended_glob no_warn_create_global
 #
 #   history     = the best prefix match from your history (ranked + scored by
 #                 lib/engine/ranking.zsh). Cheap, and the reason this plugin
-#                 exists.  <-- default
+#                 exists.
 #   completion  = the completion system's unambiguous prefix for the current
 #                 word (what Tab would insert before it needed to choose).
 #                 Lets the ghost suggest paths, options and subcommands that
-#                 are NOT in your history. Costs one extra completion run on
-#                 each keystroke that history could not answer, so it is
-#                 opt-in: SMART_SUGGEST_STRATEGY=history,completion
+#                 are NOT in your history.  <-- part of the default
+#
+# WHY completion IS IN THE DEFAULT. History alone leaves a feedback vacuum
+# exactly where users expect a hint: typing a path halfway (`cd /u`) matches
+# only ONE filesystem candidate, the type-to-popup list stays suppressed
+# (SMART_MENU_MIN_MATCHES=2), and if `cd /usr/...` was never run there is no
+# history match either — so nothing at all is on screen. The completion probe
+# fills that gap with the unambiguous continuation (`usr/`), and it only runs
+# on the keystrokes history could NOT answer, so an ordinary session pays
+# nothing extra. Set SMART_SUGGEST_STRATEGY=history to get the old behaviour.
 #
 # The same names as zsh-autosuggestions' ZSH_AUTOSUGGEST_STRATEGY, so muscle
 # memory transfers.
-: ${SMART_SUGGEST_STRATEGY:=history}
+: ${SMART_SUGGEST_STRATEGY:=history,completion}
 
 # ---------------------------------------------------------------------------
 # History backend
@@ -63,10 +70,14 @@ setopt extended_glob no_warn_create_global
 : ${SMART_SUGGEST_HISTORY_LIMIT:=20000}  # how many recent fc lines to index
 : ${SMART_HISTORY_REBUILD_EVERY:=500}    # auto-rebuild after N new cmds (0=never)
 
-# Inline suggestion color. Defaults to dim grey (color 8) which works in both
-# 16-color dark and light terminals. Users can override with any valid
-# region_highlight spec, e.g. "fg=245" or "fg=cyan,bold".
-: ${SMART_SUGGEST_COLOR:=fg=8}
+# Inline suggestion colour. "auto" (default) resolves once per render to a
+# colour that reads clearly as "not typed yet" in THIS terminal:
+#   >= 256 colours -> fg=110, a soft blue-grey (visibly different from the
+#                     normal white foreground, which plain grey fg=8 was not)
+#   otherwise      -> fg=8, the dim grey that fits every 16-colour terminal
+# Anything else is used verbatim as a region_highlight spec
+# (e.g. "fg=245", "fg=cyan,bold", "fg=8" to get the old dim grey back).
+: ${SMART_SUGGEST_COLOR:=auto}
 
 # ---------------------------------------------------------------------------
 # Keymap scope
@@ -99,10 +110,15 @@ setopt extended_glob no_warn_create_global
 : ${SMART_MENU:=true}
 
 # Minimum characters before we list, for an ARGUMENT word (after the command).
-# 1 = list as soon as the first character is typed. 0 = also list on an empty
-# word (i.e. immediately after a space) — this mirrors zsh-autocomplete but
-# dumps every candidate, so 1 is the default.
-: ${SMART_MENU_MIN_PREFIX:=1}
+# 2, matching SMART_MENU_MIN_PREFIX_CMD. It used to be 1, which is why a single
+# letter was enough to repaint the screen: typing `/etc/l` mid-path (and even
+# `/etc/li` while hunting for a directory) threw the whole candidate grid under
+# the line, and because the list sits directly below the input it reads as if
+# the command line itself just changed. The inline (grey) suggestion is NOT
+# gated by this: it keeps filling in the continuation from the FIRST character
+# (`cd /u` -> ghost `sr/`), so nothing is lost by waiting one keystroke before
+# drawing the list. 0 = also list on an empty word (right after a space).
+: ${SMART_MENU_MIN_PREFIX:=2}
 
 # Minimum characters before we list the COMMAND word (the first word of the
 # line). 2, because one letter matches thousands of binaries.

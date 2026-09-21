@@ -26,8 +26,10 @@
 #
 # KILL SWITCH
 #   SMART_MENU=false          disable entirely (inline suggestion still works)
-#   SMART_MENU_MIN_PREFIX=n   min chars in an ARGUMENT word before listing (1)
-#   SMART_MENU_MIN_PREFIX_CMD=n  min chars in the COMMAND word (2)
+#   SMART_MENU_MIN_PREFIX=n   min chars before listing an ARGUMENT word (2)
+#   SMART_MENU_MIN_PREFIX_CMD=n  min chars before listing the COMMAND word (2)
+#   Both count the LAST SEGMENT of the word (`/etc/l` counts as one typed
+#   character, not six) — see _smart_menu_word_tail.
 #   SMART_MENU_MIN_MATCHES=n  don't list unless there are at least n (2)
 #   SMART_MENU_MAX_MATCHES=n  don't list when there are more than n (100)
 #   SMART_MENU_SINGLE_COLUMN=true  draw candidates one per line (vertical list)
@@ -189,6 +191,22 @@ _smart_menu_lister_recognised() {
 }
 
 # _smart_menu_should_list -- all preconditions for running completion.
+# _smart_menu_word_tail -- the part of the current word the user is still
+# narrowing down: everything after the LAST '/'.
+#
+# WHY THIS EXISTS (and why the gate below measures it, not the whole word):
+# `_smart_menu_word` returns the entire shell word, so typing `ls -la /etc/l`
+# has a SIX-character word (`/etc/l`) that clears any sane minimum — yet the
+# user has typed exactly one character of real input. Gating on the whole word
+# is why every single keystroke of every path repainted the candidate grid,
+# starting from the very first character after a '/' (the v2.2.9 report).
+# The last segment is the only honest measure of "how much has been typed".
+_smart_menu_word_tail() {
+    local w
+    w="$(_smart_menu_word)"
+    print -r -- "${w##*/}"
+}
+
 _smart_menu_should_list() {
     _smart_menu_enabled || return 1
     # Handed to an external lister? Then there is no list for US to draw.
@@ -199,8 +217,12 @@ _smart_menu_should_list() {
     (( ${+functions[_smart_native_have_compinit]} )) || return 1
     _smart_native_have_compinit || return 1
 
-    local w min
+    local w w_tail min
     w="$(_smart_menu_word)"
+    # "How much has the user typed" is the LAST SEGMENT, not the whole word:
+    # `/etc/l` is a six-character word but one character of input. See
+    # _smart_menu_word_tail above.
+    w_tail="$(_smart_menu_word_tail)"
     if _smart_menu_is_command_word; then
         min="${SMART_MENU_MIN_PREFIX_CMD:-2}"
     elif (( ${+functions[_smart_recent_cd_empty_ok]} )) && _smart_recent_cd_empty_ok; then
@@ -210,9 +232,14 @@ _smart_menu_should_list() {
         # which would dump every candidate after every space.
         min=0
     else
-        min="${SMART_MENU_MIN_PREFIX:-1}"
+        # The inline ghost is NOT gated by either minimum: it suggests from the
+        # FIRST character, so raising SMART_MENU_MIN_PREFIX only delays the list.
+        min="${SMART_MENU_MIN_PREFIX:-2}"
     fi
-    (( ${#w} >= min )) || return 1
+    (( ${#w_tail} >= min )) || return 1
+    # The upper bound still guards the WHOLE word: that one is about how
+    # expensive a single completion is, and a very long path is slow no matter
+    # how little of its last segment has been typed.
     (( ${#w} <= ${SMART_MENU_MAX_PREFIX:-64} )) || return 1
     return 0
 }
@@ -434,20 +461,38 @@ zle -C _smart_menu_probe complete-word _smart_menu_probe_main 2>/dev/null
 #
 # MUST be called from inside a ZLE widget (it runs `zle`). Read-only with
 # respect to the user's line: the buffer is restored before returning.
+#
+# REGRESSION NOTE (the "no hint while typing a path" bug): this function MUST
+# NOT be called inside a command substitution `$( … )`. A `$( )` forks a
+# subshell, and the `zle` builtin CANNOT run there — the probe silently did
+# nothing, `after` stayed equal to `before`, and the completion fallback
+# returned "" on every keystroke, for every user, since the day it shipped.
+# Callers inside a widget must use `_smart_menu_probe_suffix` (global return,
+# no fork); this printing wrapper is kept for tests and manual debugging.
 _smart_menu_completion_suffix() {
-    (( ${+widgets[_smart_menu_probe]} )) || { print -r -- ""; return 0; }
+    _smart_menu_probe_suffix
+    print -r -- "${_SMART_PROBE_SUFFIX_RET:-}"
+    return 0
+}
+
+# _smart_menu_probe_suffix -- the widget-context worker. Sets
+# _SMART_PROBE_SUFFIX_RET to the unambiguous completion suffix ("" when none).
+# Call DIRECTLY from a widget — never inside `$( )` (see the note above).
+_smart_menu_probe_suffix() {
+    _SMART_PROBE_SUFFIX_RET=""
+    (( ${+widgets[_smart_menu_probe]} )) || return 0
     # Only meaningful at end of line — completion would replace the word under
     # the cursor, and we cannot express that as a pure suffix.
-    (( CURSOR == ${#BUFFER} )) || { print -r -- ""; return 0; }
-    _smart_native_have_compinit 2>/dev/null || { print -r -- ""; return 0; }
+    (( CURSOR == ${#BUFFER} )) || return 0
+    _smart_native_have_compinit 2>/dev/null || return 0
 
     local before="$BUFFER" cur="$CURSOR" after
     zle _smart_menu_probe 2>/dev/null
     after="$BUFFER"
     BUFFER="$before"          # this channel proposes, it never edits
     CURSOR="$cur"
-    [[ "$after" == "$before"* ]] || { print -r -- ""; return 0; }
-    print -r -- "${after#$before}"
+    [[ "$after" == "$before"* ]] || return 0
+    _SMART_PROBE_SUFFIX_RET="${after#$before}"
     return 0
 }
 
@@ -489,6 +534,16 @@ _smart_menu_note_cost() {
 # SMART_MENU_COOLDOWN_KEYS edits. Weigh the cost of skipping: the skipped edit
 # does not repaint, so the list that was on screen is gone for that keystroke.
 # The policy itself lives in _smart_menu_note_cost, above.
+# NOTE ON ERASE-ONCE-DRAWN (measured, do not retry this)
+#   Candidate rows are ORDINARY terminal output the moment they are printed:
+#   verified against stock zsh (no plugin, plain `ls -la <Tab>`), the rows stay
+#   under the line after every further keystroke, and in a short pane they have
+#   already scrolled ABOVE the prompt. No redraw we can issue from a widget
+#   removes them (`zle -R`, a suppressed re-listing, and terminfo's clear-to-
+#   end-of-display were each measured; none moved a pixel).
+#   So "the screen got noisy" has exactly one lever: DRAW FEWER LISTS. That is
+#   what the two-character minimum below is for.
+
 _smart_menu_tick() {
     _smart_menu_should_list || {
         _smart_menu_dbg "skip gate word=[$(_smart_menu_word)] lister=$(_smart_menu_lister)"
@@ -536,6 +591,11 @@ _smart_menu_tick() {
         else
             _smart_menu_dbg "list n=${_SMART_MENU_NMATCHES} below min=${SMART_MENU_MIN_MATCHES:-2} -> no list"
         fi
+        # This tick drew nothing. If the PREVIOUS one drew rows, those rows are
+        # STILL on screen and cannot be removed (see the NOTE above) — so what
+        # sits below the line may belong to an older prefix. That is exactly why
+        # the gate waits for two characters: the fix is to draw fewer lists, not
+        # to un-draw one.
         return 0
     }
     if _smart_menu_have_clock; then

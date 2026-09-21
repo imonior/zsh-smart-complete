@@ -567,9 +567,9 @@ _msg() {
             esac ;;
         opt.strategy_history)
             case "$lang" in
-                zh-CN) s="仅历史记录（推荐）" ;; zh-TW) s="僅歷史記錄（推薦）" ;;
-                ja)    s="履歴のみ（推奨）" ;;  ko)    s="기록만 (권장)" ;;
-                *)     s="history only (recommended)" ;;
+                zh-CN) s="仅历史记录" ;; zh-TW) s="僅歷史記錄" ;;
+                ja)    s="履歴のみ" ;;  ko)    s="기록만" ;;
+                *)     s="history only" ;;
             esac ;;
         opt.strategy_completion)
             case "$lang" in
@@ -579,10 +579,867 @@ _msg() {
             esac ;;
         opt.strategy_both)
             case "$lang" in
-                zh-CN) s="先历史、后补全" ;; zh-TW) s="先歷史、後補全" ;;
-                ja)    s="履歴のち補完" ;;   ko)    s="기록 후 완성" ;;
-                *)     s="history, then completion" ;;
+                zh-CN) s="先历史、后补全（推荐，路径输一半也有提示）" ;; zh-TW) s="先歷史、後補全（推薦，路徑輸一半也有提示）" ;;
+                ja)    s="履歴のち補完（推奨。パス入力の途中でも提案が出る）" ;;   ko)    s="기록 후 완성 (권장, 경로 입력 중에도 제안 표시)" ;;
+                *)     s="history, then completion (recommended: hints even halfway through a path)" ;;
             esac ;;
+            q.upgrade)
+                case "$lang" in
+                    zh-CN) s="检查组件升级？" ;; zh-TW) s="檢查元件升級？" ;;
+                    ja)    s="コンポーネントの更新を確認しますか？" ;;
+                    ko)    s="구성 요소 업데이트를 확인할까요?" ;;
+                    *)     s="Check for upgrades?" ;;
+                esac ;;
+            i.reinstalling_zsh)
+                case "$lang" in
+                    zh-CN) s="正在重新安装 zsh …" ;; zh-TW) s="正在重新安裝 zsh …" ;;
+                    ja)    s="zsh を再インストール中 …" ;;
+                    ko)    s="zsh 재설치 중 ..." ;;
+                    *)     s="Reinstalling zsh ..." ;;
+                esac ;;
+            s.zsh_reinstalled)
+                case "$lang" in
+                    zh-CN) s="zsh 已重装" ;; zh-TW) s="zsh 已重裝" ;;
+                    ja)    s="zsh を再インストールしました" ;;
+                    ko)    s="zsh 재설치 완료" ;;
+                    *)     s="Zsh reinstalled" ;;
+                esac ;;
+            w.zsh_reinstall_failed)
+                case "$lang" in
+                    zh-CN) s="zsh 重装失败" ;; zh-TW) s="zsh 重裝失敗" ;;
+                    ja)    s="zsh の再インストールに失敗しました" ;;
+                    ko)    s="zsh 재설치 실패" ;;
+                    *)     s="Zsh reinstall failed" ;;
+                esac ;;
+            w.homebrew_missing)
+                case "$lang" in
+                    zh-CN) s="未找到 Homebrew，跳过升级" ;; zh-TW) s="未找到 Homebrew，跳過升級" ;;
+                    ja)    s="Homebrew が見つからないため更新をスキップします" ;;
+                    ko)    s="Homebrew가 없어 업데이트를 건너뜁니다" ;;
+                    *)     s="Homebrew missing, skipping upgrade" ;;
+                esac ;;
+            e.homebrew_not_found)
+                case "$lang" in
+                    zh-CN) s="未找到 Homebrew。请先安装：%s" ;; zh-TW) s="未找到 Homebrew。請先安裝：%s" ;;
+                    ja)    s="Homebrew が見つかりません。先にインストールしてください: %s" ;;
+                    ko)    s="Homebrew를 찾을 수 없습니다. 먼저 설치하세요: %s" ;;
+                    *)     s="Homebrew not found. Please install first: %s" ;;
+                esac ;;
+            s.starship_present)
+                case "$lang" in
+                    zh-CN) s="Starship 已安装：%s" ;; zh-TW) s="Starship 已安裝：%s" ;;
+                    ja)    s="Starship はインストール済み: %s" ;;
+                    ko)    s="Starship 설치됨: %s" ;;
+                    *)     s="Starship is installed: %s" ;;
+                esac ;;
+            w.starship_upgrade_failed)
+                case "$lang" in
+                    zh-CN) s="Starship 升级失败（不影响继续）" ;; zh-TW) s="Starship 升級失敗（不影響繼續）" ;;
+                    ja)    s="Starship の更新に失敗しました（続行に影響なし）" ;;
+                    ko)    s="Starship 업데이트 실패(치명적이지 않음)" ;;
+                    *)     s="Starship upgrade failed (non-fatal)" ;;
+                esac ;;
+            s.starship_installed)
+                case "$lang" in
+                    zh-CN) s="Starship 已安装" ;; zh-TW) s="Starship 已安裝" ;;
+                    ja)    s="Starship をインストールしました" ;;
+                    ko)    s="Starship 설치 완료" ;;
+                    *)     s="Starship installed" ;;
+                esac ;;
+            s.atuin_installed)
+                case "$lang" in
+                    zh-CN) s="Atuin 已安装" ;; zh-TW) s="Atuin 已安裝" ;;
+                    ja)    s="Atuin をインストールしました" ;;
+                    ko)    s="Atuin 설치 완료" ;;
+                    *)     s="Atuin installed" ;;
+                esac ;;
+            s.zinit_installed)
+                case "$lang" in
+                    zh-CN) s="Zinit 已安装" ;; zh-TW) s="Zinit 已安裝" ;;
+                    ja)    s="Zinit をインストールしました" ;;
+                    ko)    s="Zinit 설치 완료" ;;
+                    *)     s="Zinit installed" ;;
+                esac ;;
+            e.zinit_clone_failed)
+                case "$lang" in
+                    zh-CN) s="Zinit 克隆失败。请检查网络连接。" ;; zh-TW) s="Zinit 複製失敗。請檢查網路連線。" ;;
+                    ja)    s="Zinit のクローンに失敗しました。ネットワーク接続を確認してください。" ;;
+                    ko)    s="Zinit 복제 실패. 네트워크 연결을 확인하세요." ;;
+                    *)     s="Zinit clone failed. Check your internet connection." ;;
+                esac ;;
+            i.cloning_plugin)
+                case "$lang" in
+                    zh-CN) s="正在克隆 zsh-smart-complete 插件仓库 …" ;; zh-TW) s="正在複製 zsh-smart-complete 外掛儲存庫 …" ;;
+                    ja)    s="zsh-smart-complete プラグインのリポジトリをクローン中 …" ;;
+                    ko)    s="zsh-smart-complete 플러그인 저장소 복제 중 ..." ;;
+                    *)     s="Cloning zsh-smart-complete plugin repo ..." ;;
+                esac ;;
+            w.plugin_clone_failed)
+                case "$lang" in
+                    zh-CN) s="zsh-smart-complete 克隆失败。若使用 Zinit，zinit light 会自动克隆。" ;; zh-TW) s="zsh-smart-complete 複製失敗。若使用 Zinit，zinit light 會自動複製。" ;;
+                    ja)    s="zsh-smart-complete のクローンに失敗しました。Zinit を使っている場合、zinit light が自動的にクローンします。" ;;
+                    ko)    s="zsh-smart-complete 복제 실패. Zinit 사용 시 zinit light가 자동으로 복제합니다." ;;
+                    *)     s="zsh-smart-complete clone failed. If running Zinit, zinit light will clone it automatically." ;;
+                esac ;;
+            s.fzf_already)
+                case "$lang" in
+                    zh-CN) s="fzf 已安装" ;; zh-TW) s="fzf 已安裝" ;;
+                    ja)    s="fzf はインストール済みです" ;;
+                    ko)    s="fzf가 이미 설치되어 있습니다" ;;
+                    *)     s="fzf is already installed" ;;
+                esac ;;
+            s.backed_up)
+                case "$lang" in
+                    zh-CN) s="已备份：%s" ;; zh-TW) s="已備份：%s" ;;
+                    ja)    s="バックアップしました: %s" ;;
+                    ko)    s="백업 완료: %s" ;;
+                    *)     s="Backed up: %s" ;;
+                esac ;;
+            s.removed_cascaded_backup)
+                case "$lang" in
+                    zh-CN) s="已删除级联备份：%s" ;; zh-TW) s="已刪除級聯備份：%s" ;;
+                    ja)    s="連鎖バックアップを削除しました: %s" ;;
+                    ko)    s="연쇄 백업 제거: %s" ;;
+                    *)     s="Removed cascaded backup: %s" ;;
+                esac ;;
+            s.removed_backup)
+                case "$lang" in
+                    zh-CN) s="已删除备份：%s" ;; zh-TW) s="已刪除備份：%s" ;;
+                    ja)    s="バックアップを削除しました: %s" ;;
+                    ko)    s="백업 제거: %s" ;;
+                    *)     s="Removed backup: %s" ;;
+                esac ;;
+            s.removed_bak_dir)
+                case "$lang" in
+                    zh-CN) s="已删除插件备份目录：%s" ;; zh-TW) s="已刪除外掛備份目錄：%s" ;;
+                    ja)    s="プラグインバックアップディレクトリを削除しました: %s" ;;
+                    ko)    s="플러그인 백업 디렉터리 제거: %s" ;;
+                    *)     s="Removed plugin bak dir: %s" ;;
+                esac ;;
+            i.backup_cleanup_done)
+                case "$lang" in
+                    zh-CN) s="备份清理完成。" ;; zh-TW) s="備份清理完成。" ;;
+                    ja)    s="バックアップの整理が完了しました。" ;;
+                    ko)    s="백업 정리 완료." ;;
+                    *)     s="Backup cleanup done." ;;
+                esac ;;
+            w.conflict_plugin_dir)
+                case "$lang" in
+                    zh-CN) s="发现冲突插件目录：%s" ;; zh-TW) s="發現衝突外掛目錄：%s" ;;
+                    ja)    s="競合するプラグインディレクトリを検出: %s" ;;
+                    ko)    s="충돌하는 플러그인 디렉터리 발견: %s" ;;
+                    *)     s="Found conflict plugin dir: %s" ;;
+                esac ;;
+            i.generating_starship)
+                case "$lang" in
+                    zh-CN) s="正在生成 %s（推荐模板）…" ;; zh-TW) s="正在生成 %s（推薦範本）…" ;;
+                    ja)    s="%s を生成中（推奨テンプレート）…" ;;
+                    ko)    s="%s 생성 중(권장 템플릿) ..." ;;
+                    *)     s="Generating %s (recommended template)..." ;;
+                esac ;;
+            s.starship_cfg_installed)
+                case "$lang" in
+                    zh-CN) s="Starship 配置已安装" ;; zh-TW) s="Starship 設定已安裝" ;;
+                    ja)    s="Starship 設定をインストールしました" ;;
+                    ko)    s="Starship 설정 설치 완료" ;;
+                    *)     s="Starship config installed" ;;
+                esac ;;
+            w.starship_cfg_exists)
+                case "$lang" in
+                    zh-CN) s="Starship 配置已存在：%s" ;; zh-TW) s="Starship 設定已存在：%s" ;;
+                    ja)    s="Starship 設定が既に存在します: %s" ;;
+                    ko)    s="Starship 설정이 이미 있음: %s" ;;
+                    *)     s="Starship config exists: %s" ;;
+                esac ;;
+            q.overwrite_starship)
+                case "$lang" in
+                    zh-CN) s="用推荐模板覆盖？" ;; zh-TW) s="用推薦範本覆蓋？" ;;
+                    ja)    s="推奨テンプレートで上書きしますか？" ;;
+                    ko)    s="권장 템플릿으로 덮어쓸까요?" ;;
+                    *)     s="Overwrite with recommended template?" ;;
+                esac ;;
+            s.starship_cfg_updated)
+                case "$lang" in
+                    zh-CN) s="Starship 配置已更新（备份保留在 .bak.*）" ;; zh-TW) s="Starship 設定已更新（備份保留在 .bak.*）" ;;
+                    ja)    s="Starship 設定を更新しました（バックアップは .bak.* に保持）" ;;
+                    ko)    s="Starship 설정 업데이트 완료(백업은 .bak.* 에 유지)" ;;
+                    *)     s="Starship config updated (backup kept at .bak.*)" ;;
+                esac ;;
+            q.del_omz)
+                case "$lang" in
+                    zh-CN) s="删除 ~/.oh-my-zsh 目录（备份为 .bak）？" ;; zh-TW) s="刪除 ~/.oh-my-zsh 目錄（備份為 .bak）？" ;;
+                    ja)    s="~/.oh-my-zsh ディレクトリを削除しますか（.bak としてバックアップ）？" ;;
+                    ko)    s="~/.oh-my-zsh 디렉터리를 삭제할까요(.bak 백업)?" ;;
+                    *)     s="Delete ~/.oh-my-zsh directory (backed up as .bak)?" ;;
+                esac ;;
+            q.del_zinit_omz)
+                case "$lang" in
+                    zh-CN) s="删除 zinit 的 OMZ 目录 %s（已备份）？" ;; zh-TW) s="刪除 zinit 的 OMZ 目錄 %s（已備份）？" ;;
+                    ja)    s="zinit の OMZ ディレクトリ %s を削除しますか（バックアップ済み）？" ;;
+                    ko)    s="zinit OMZ 디렉터리 %s을(를) 삭제할까요(백업됨)?" ;;
+                    *)     s="Delete zinit OMZ dir %s (backed up)?" ;;
+                esac ;;
+            q.del_p10k)
+                case "$lang" in
+                    zh-CN) s="删除 ~/.p10k.zsh（已备份）？" ;; zh-TW) s="刪除 ~/.p10k.zsh（已備份）？" ;;
+                    ja)    s="~/.p10k.zsh を削除しますか（バックアップ済み）？" ;;
+                    ko)    s="~/.p10k.zsh을(를) 삭제할까요(백업됨)?" ;;
+                    *)     s="Delete ~/.p10k.zsh (backed up)?" ;;
+                esac ;;
+            q.del_p10k_dir)
+                case "$lang" in
+                    zh-CN) s="删除 ~/.powerlevel10k 目录（已备份）？" ;; zh-TW) s="刪除 ~/.powerlevel10k 目錄（已備份）？" ;;
+                    ja)    s="~/.powerlevel10k ディレクトリを削除しますか（バックアップ済み）？" ;;
+                    ko)    s="~/.powerlevel10k 디렉터리를 삭제할까요(백업됨)?" ;;
+                    *)     s="Delete ~/.powerlevel10k directory (backed up)?" ;;
+                esac ;;
+            q.del_zinit_p10k)
+                case "$lang" in
+                    zh-CN) s="删除 zinit 插件目录 %s（已备份）？" ;; zh-TW) s="刪除 zinit 外掛目錄 %s（已備份）？" ;;
+                    ja)    s="zinit プラグインディレクトリ %s を削除しますか（バックアップ済み）？" ;;
+                    ko)    s="zinit 플러그인 디렉터리 %s을(를) 삭제할까요(백업됨)?" ;;
+                    *)     s="Delete zinit plugin dir %s (backed up)?" ;;
+                esac ;;
+            i.installing_vimode)
+                case "$lang" in
+                    zh-CN) s="正在安装 zsh-vi-mode（Zinit 插件）…" ;; zh-TW) s="正在安裝 zsh-vi-mode（Zinit 外掛）…" ;;
+                    ja)    s="zsh-vi-mode をインストール中（Zinit プラグイン）…" ;;
+                    ko)    s="zsh-vi-mode 설치 중(Zinit 플러그인) ..." ;;
+                    *)     s="Installing zsh-vi-mode (Zinit plugin) ..." ;;
+                esac ;;
+            i.installing_fzftab)
+                case "$lang" in
+                    zh-CN) s="正在安装 fzf-tab（Zinit 插件）…" ;; zh-TW) s="正在安裝 fzf-tab（Zinit 外掛）…" ;;
+                    ja)    s="fzf-tab をインストール中（Zinit プラグイン）…" ;;
+                    ko)    s="fzf-tab 설치 중(Zinit 플러그인) ..." ;;
+                    *)     s="Installing fzf-tab (Zinit plugin) ..." ;;
+                esac ;;
+            w.fzftab_needs_fzf)
+                case "$lang" in
+                    zh-CN) s="fzf-tab 需要 fzf 可执行文件，但 PATH 中没有——请先安装（brew install fzf / apt install fzf），否则 fzf-tab 不会生效。" ;; zh-TW) s="fzf-tab 需要 fzf 執行檔，但 PATH 中沒有——請先安裝（brew install fzf / apt install fzf），否則 fzf-tab 不會生效。" ;;
+                    ja)    s="fzf-tab には fzf バイナリが必要ですが PATH にありません — 先にインストールしてください（brew install fzf / apt install fzf）。なければ fzf-tab は何もしません。" ;;
+                    ko)    s="fzf-tab에는 fzf 바이너리가 필요하지만 PATH에 없습니다 — 먼저 설치하세요(brew install fzf / apt install fzf). 그렇지 않으면 fzf-tab은 아무 것도 하지 않습니다." ;;
+                    *)     s="fzf-tab needs the 'fzf' binary and it is not on PATH — install it (brew install fzf / apt install fzf) or fzf-tab will do nothing." ;;
+                esac ;;
+            i.no_zshrc_found)
+                case "$lang" in
+                    zh-CN) s="未找到 ~/.zshrc——正在创建包含 zsh-smart-complete 块的最小配置 …" ;; zh-TW) s="未找到 ~/.zshrc——正在建立包含 zsh-smart-complete 區塊的最小設定 …" ;;
+                    ja)    s="~/.zshrc が見つからないため、zsh-smart-complete ブロック込みの最小構成を作成中 …" ;;
+                    ko)    s="~/.zshrc를 찾을 수 없어 zsh-smart-complete 블록을 포함한 최소 설정을 생성 중 ..." ;;
+                    *)     s="No ~/.zshrc found — creating a minimal one with the zsh-smart-complete block ..." ;;
+                esac ;;
+            s.zshrc_created)
+                case "$lang" in
+                    zh-CN) s="已创建包含 zsh-smart-complete 集成块的 .zshrc" ;; zh-TW) s="已建立包含 zsh-smart-complete 整合區塊的 .zshrc" ;;
+                    ja)    s="zsh-smart-complete 統合ブロック入りの .zshrc を作成しました" ;;
+                    ko)    s="zsh-smart-complete 통합 블록이 포함된 .zshrc 생성 완료" ;;
+                    *)     s=".zshrc created with the zsh-smart-complete integration block" ;;
+                esac ;;
+            i.zshrc_has_block)
+                case "$lang" in
+                    zh-CN) s=".zshrc 已包含 zsh-smart-complete 块" ;; zh-TW) s=".zshrc 已包含 zsh-smart-complete 區塊" ;;
+                    ja)    s=".zshrc には既に zsh-smart-complete ブロックがあります" ;;
+                    ko)    s=".zshrc에 이미 zsh-smart-complete 블록이 있습니다" ;;
+                    *)     s=".zshrc already has a zsh-smart-complete block" ;;
+                esac ;;
+            s.zshrc_replaced)
+                case "$lang" in
+                    zh-CN) s=".zshrc 已替换为推荐的全栈模板（备份保留在 .bak.*）" ;; zh-TW) s=".zshrc 已替換為推薦的全端範本（備份保留在 .bak.*）" ;;
+                    ja)    s=".zshrc を推奨フルスタックテンプレートで置き換えました（バックアップは .bak.*）" ;;
+                    ko)    s=".zshrc를 권장 풀스택 템플릿으로 교체했습니다(백업은 .bak.*)" ;;
+                    *)     s=".zshrc replaced with the recommended full-stack template (backup kept at .bak.*)" ;;
+                esac ;;
+            s.zshrc_updated)
+                case "$lang" in
+                    zh-CN) s=".zshrc 已更新集成块（备份保留在 .bak.*）" ;; zh-TW) s=".zshrc 已更新整合區塊（備份保留在 .bak.*）" ;;
+                    ja)    s=".zshrc に統合ブロックを反映しました（バックアップは .bak.*）" ;;
+                    ko)    s=".zshrc에 통합 블록을 적용했습니다(백업은 .bak.*)" ;;
+                    *)     s=".zshrc updated with the integration block (backup kept at .bak.*)" ;;
+                esac ;;
+            i.zshrc_untouched)
+                case "$lang" in
+                    zh-CN) s="未写入 ~/.zshrc（你两次都拒绝了）——以上选项未生效。" ;; zh-TW) s="未寫入 ~/.zshrc（你兩次都拒絕了）——以上選項未生效。" ;;
+                    ja)    s="~/.zshrc には何も書き込んでいません（両方とも辞退）——上記のオプションは未適用です。" ;;
+                    ko)    s="~/.zshrc에 기록하지 않았습니다(둘 다 거부) — 위 옵션은 적용되지 않았습니다." ;;
+                    *)     s="Nothing written to ~/.zshrc (you declined both) — the options above were not applied." ;;
+                esac ;;
+            i.plugin_only)
+                case "$lang" in
+                    zh-CN) s="仅插件安装——只管理 ~/.zshrc 中的 zsh-smart-complete 块" ;; zh-TW) s="僅外掛安裝——只管理 ~/.zshrc 中的 zsh-smart-complete 區塊" ;;
+                    ja)    s="プラグインのみインストール — ~/.zshrc の zsh-smart-complete ブロックのみ管理します" ;;
+                    ko)    s="플러그인만 설치 — ~/.zshrc의 zsh-smart-complete 블록만 관리합니다" ;;
+                    *)     s="Plugin-only install — managing only the zsh-smart-complete block in ~/.zshrc" ;;
+                esac ;;
+            s.zshrc_block_refreshed)
+                case "$lang" in
+                    zh-CN) s=".zshrc 的 zsh-smart-complete 块已刷新（备份保留在 .bak.*）" ;; zh-TW) s=".zshrc 的 zsh-smart-complete 區塊已重新整理（備份保留在 .bak.*）" ;;
+                    ja)    s=".zshrc の zsh-smart-complete ブロックを更新しました（バックアップは .bak.*）" ;;
+                    ko)    s=".zshrc의 zsh-smart-complete 블록을 갱신했습니다(백업은 .bak.*)" ;;
+                    *)     s=".zshrc zsh-smart-complete block refreshed (backup kept at .bak.*)" ;;
+                esac ;;
+            i.zshrc_already_present)
+                case "$lang" in
+                    zh-CN) s="~/.zshrc 中已存在 zsh-smart-complete 配置——保持不变。" ;; zh-TW) s="~/.zshrc 中已存在 zsh-smart-complete 設定——保持不變。" ;;
+                    ja)    s="~/.zshrc に zsh-smart-complete の設定が既にあります — 変更しません。" ;;
+                    ko)    s="~/.zshrc에 zsh-smart-complete 설정이 이미 있습니다 — 변경하지 않습니다." ;;
+                    *)     s="zsh-smart-complete config already present in ~/.zshrc — left unchanged." ;;
+                esac ;;
+            s.installer_finished)
+                case "$lang" in
+                    zh-CN) s="zsh-smart-complete 安装完成" ;; zh-TW) s="zsh-smart-complete 安裝完成" ;;
+                    ja)    s="zsh-smart-complete のインストールが完了しました" ;;
+                    ko)    s="zsh-smart-complete 설치가 완료되었습니다" ;;
+                    *)     s="zsh-smart-complete installer finished" ;;
+                esac ;;
+            i.reload_hint)
+                case "$lang" in
+                    zh-CN) s="让新配置生效，请运行：" ;; zh-TW) s="讓新設定生效，請執行：" ;;
+                    ja)    s="新しい設定を反映するには実行してください:" ;;
+                    ko)    s="새 설정을 적용하려면 실행하세요:" ;;
+                    *)     s="To reload with the new config, run:" ;;
+                esac ;;
+            i.try_hint)
+                case "$lang" in
+                    zh-CN) s="然后试试：" ;; zh-TW) s="然後試試：" ;;
+                    ja)    s="それから試してみてください:" ;;
+                    ko)    s="그다음 시도해 보세요:" ;;
+                    *)     s="Then try:" ;;
+                esac ;;
+            i.hint_tab)
+                case "$lang" in
+                    zh-CN) s="git s  [Tab]   → 原生补全（菜单）" ;; zh-TW) s="git s  [Tab]   → 原生補全（選單）" ;;
+                    ja)    s="git s  [Tab]   → ネイティブ補完（メニュー）" ;;
+                    ko)    s="git s  [Tab]   → 네이티브 완성(메뉴)" ;;
+                    *)     s="git s  [Tab]   → native completion (menu)" ;;
+                esac ;;
+            i.hint_right)
+                case "$lang" in
+                    zh-CN) s="git s  [→]     → 接受行内建议" ;; zh-TW) s="git s  [→]     → 接受行內建議" ;;
+                    ja)    s="git s  [→]     → インライン提案を確定" ;;
+                    ko)    s="git s  [→]     → 인라인 제안 수락" ;;
+                    *)     s="git s  [→]     → inline suggestion accept" ;;
+                esac ;;
+            i.hint_up)
+                case "$lang" in
+                    zh-CN) s="git s  [↑]     → 原生历史翻阅" ;; zh-TW) s="git s  [↑]     → 原生歷史翻閱" ;;
+                    ja)    s="git s  [↑]     → ネイティブ履歴移動" ;;
+                    ko)    s="git s  [↑]     → 네이티브 히스토리 탐색" ;;
+                    *)     s="git s  [↑]     → native history navigation" ;;
+                esac ;;
+            q.install_fzf)
+                case "$lang" in
+                    zh-CN) s="安装 fzf（可选，更好的历史界面）？" ;; zh-TW) s="安裝 fzf（可選，更好的歷史介面）？" ;;
+                    ja)    s="fzf をインストールしますか（任意・より良い履歴 UI）？" ;;
+                    ko)    s="fzf를 설치할까요(선택, 더 나은 히스토리 UI)?" ;;
+                    *)     s="Install fzf (optional, nicer history UI)?" ;;
+                esac ;;
+            q.append_block)
+                case "$lang" in
+                    zh-CN) s="把 zsh-smart-complete 加载块追加到 ~/.zshrc？" ;; zh-TW) s="把 zsh-smart-complete 載入區塊附加到 ~/.zshrc？" ;;
+                    ja)    s="zsh-smart-complete ローダーブロックを ~/.zshrc に追加しますか？" ;;
+                    ko)    s="~/.zshrc에 zsh-smart-complete 로더 블록을 추가할까요?" ;;
+                    *)     s="Append zsh-smart-complete loader block to ~/.zshrc?" ;;
+                esac ;;
+            s.starship_cfg_written)
+                case "$lang" in
+                    zh-CN) s="Starship 配置已写入 %s" ;; zh-TW) s="Starship 設定已寫入 %s" ;;
+                    ja)    s="Starship 設定を %s に書き込みました" ;;
+                    ko)    s="Starship 설정을 %s에 기록했습니다" ;;
+                    *)     s="Starship config written to %s" ;;
+                esac ;;
+            w.entware_clone_failed)
+                case "$lang" in
+                    zh-CN) s="克隆失败；若已安装 Zinit，zinit light 会自动获取。" ;; zh-TW) s="複製失敗；若已安裝 Zinit，zinit light 會自動取得。" ;;
+                    ja)    s="クローンに失敗しました。Zinit が入っていれば zinit light が自動的に取得します。" ;;
+                    ko)    s="복제 실패; Zinit이 설치되어 있으면 zinit light가 자동으로 가져옵니다." ;;
+                    *)     s="clone failed; 'zinit light' will fetch it automatically if Zinit is installed." ;;
+                esac ;;
+            w.atuin_failed_entware)
+                case "$lang" in
+                    zh-CN) s="Atuin 安装失败（不影响继续）。参见 https://atuin.sh ——若 ~/.zshrc 下方块存在即会启用。" ;; zh-TW) s="Atuin 安裝失敗（不影響繼續）。參見 https://atuin.sh ——若 ~/.zshrc 下方塊存在即會啟用。" ;;
+                    ja)    s="Atuin のインストールに失敗しました（続行に影響なし）。https://atuin.sh 参照 — 下の ~/.zshrc ブロックがあれば有効になります。" ;;
+                    ko)    s="Atuin 설치 실패(치명적이지 않음). https://atuin.sh 참조 — 아래 ~/.zshrc 블록이 있으면 활성화됩니다." ;;
+                    *)     s="Atuin install failed (non-fatal). See https://atuin.sh — the ~/.zshrc block below enables it if present." ;;
+                esac ;;
+            i.starship_cfg_ok)
+                case "$lang" in
+                    zh-CN) s="%s 已经是推荐的 Starship 布局，保持不变。" ;; zh-TW) s="%s 已經是推薦的 Starship 佈局，保持不變。" ;;
+                    ja)    s="%s は推奨レイアウト済みです。そのままにします。" ;; ko)    s="%s 이미 권장 Starship 레이아웃입니다. 그대로 둡니다." ;;
+                    *)     s="%s already uses the recommended Starship layout - left as-is." ;;
+                esac ;;
+            w.starship_cfg_legacy)
+                case "$lang" in
+                    zh-CN) s="%s 里没有 format 行，Starship 正在用自带的默认布局。已替换为推荐的两行提示符，旧文件已备份。" ;; zh-TW) s="%s 裡沒有 format 行，Starship 正在用自帶的預設佈局。已替換為推薦的兩行提示符，舊檔案已備份。" ;;
+                    ja)    s="%s に format 行が無いため、Starship は既定レイアウトを描画しています。推奨の 2 行プロンプトに置き換えました（元ファイルはバックアップ済み）。" ;; ko)    s="%s 에 format 줄이 없어 Starship가 기본 레이아웃을 그리고 있습니다. 권장 2줄 프롬프트로 교체했습니다(원본 백업 완료)." ;;
+                    *)     s="%s has no format key, so Starship is rendering its own default layout. Replaced with the recommended two-line prompt; the old file was backed up." ;;
+                esac ;;
+            s.starship_cfg_repaired)
+                case "$lang" in
+                    zh-CN) s="Starship 配置已修复并写入 %s" ;; zh-TW) s="Starship 設定已修復並寫入 %s" ;;
+                    ja)    s="Starship 設定を修復して %s に書き込みました" ;; ko)    s="Starship 설정을 수정하여 %s 에 기록했습니다" ;;
+                    *)     s="Starship config repaired and written to %s" ;;
+                esac ;;
+            e.opkg_missing_zsh)
+                case "$lang" in
+                    zh-CN) s="未找到 opkg，无法自动安装 Zsh。请先配置 Entware/opkg 后重试。" ;; zh-TW) s="未找到 opkg，無法自動安裝 Zsh。請先設定 Entware/opkg 後重試。" ;;
+                    ja)    s="opkg が見つからず、Zsh を自動インストールできません。先に Entware/opkg を設定して再試行してください。" ;; ko)    s="opkg를 찾을 수 없어 Zsh을 자동 설치할 수 없습니다. 먼저 Entware/opkg를 설정하고 재시도하세요." ;;
+                    *)     s="opkg not found; Zsh cannot be installed automatically. Set up Entware/opkg first and retry." ;;
+                esac ;;
+            e.opkg_not_found)
+                case "$lang" in
+                    zh-CN) s="未找到 opkg。本安装器面向 Entware 环境。
+请先安装 Entware（QNAP：在 App Center 启用 / 通过 Entware QPKG；通用：https://github.com/Entware/Entware）。" ;; zh-TW) s="未找到 opkg。本安裝器面向 Entware 環境。
+請先安裝 Entware（QNAP：在 App Center 啟用 / 透過 Entware QPKG；通用：https://github.com/Entware/Entware）。" ;;
+                    ja)    s="opkg が見つかりません。このインストーラーは Entware 環境向けです。
+先に Entware をインストールしてください（QNAP: App Center で有効化 / Entware QPKG 経由、その他: https://github.com/Entware/Entware）。" ;; ko)    s="opkg를 찾을 수 없습니다. 이 설치 관리자는 Entware 환경용입니다.
+먼저 Entware를 설치하세요(QNAP: App Center에서 활성화 / Entware QPKG, 일반: https://github.com/Entware/Entware)." ;;
+                    *)     s="opkg not found. This installer targets Entware environments.
+Install Entware first (QNAP: enable it in App Center / via the Entware QPKG; generic: https://github.com/Entware/Entware)." ;;
+                esac ;;
+            i.atuin_official_binary)
+                case "$lang" in
+                    zh-CN) s="尝试 Atuin 官方安装器（镜像加速拉取 + 二进制）..." ;; zh-TW) s="嘗試 Atuin 官方安裝器（鏡像加速拉取 + 二進位）..." ;;
+                    ja)    s="公式 Atuin インストーラーを試します（ミラー加速の取得 + バイナリ）..." ;; ko)    s="공식 Atuin 설치 관리자 시도 중(미러 가속 다운로드 + 바이너리) ..." ;;
+                    *)     s="Trying the official Atuin installer (mirror-accelerated fetch + binary) ..." ;;
+                esac ;;
+            i.entware_detected)
+                case "$lang" in
+                    zh-CN) s="检测到 Entware —— opkg 路径：%s" ;; zh-TW) s="偵測到 Entware —— opkg 路徑：%s" ;;
+                    ja)    s="Entware を検出 — opkg: %s" ;; ko)    s="Entware 감지됨 — opkg: %s" ;;
+                    *)     s="Detected Entware — opkg at: %s" ;;
+                esac ;;
+            i.fzf_not_in_feed)
+                case "$lang" in
+                    zh-CN) s="fzf 不在 entware feed，尝试官方 git clone 安装（走镜像加速）..." ;; zh-TW) s="fzf 不在 entware feed，嘗試官方 git clone 安裝（走鏡像加速）..." ;;
+                    ja)    s="fzf は Entware のフィードにありません — 公式の git clone インストールに切り替えます（ミラー加速）..." ;; ko)    s="fzf가 Entware 피드에 없습니다 — 공식 git clone 설치로 대체합니다(미러 가속) ..." ;;
+                    *)     s="fzf is not in the Entware feed — falling back to the official git clone install (mirror-accelerated) ..." ;;
+                esac ;;
+            i.home_dir)
+                case "$lang" in
+                    zh-CN) s="主目录：%s" ;; zh-TW) s="主目錄：%s" ;;
+                    ja)    s="ホームディレクトリ: %s" ;; ko)    s="홈 디렉터리: %s" ;;
+                    *)     s="Home directory: %s" ;;
+                esac ;;
+            i.omz_installing)
+                case "$lang" in
+                    zh-CN) s="未检测到 Oh My Zsh，准备安装（官方一键脚本，走镜像加速）..." ;; zh-TW) s="未偵測到 Oh My Zsh，準備安裝（官方一鍵腳本，走鏡像加速）..." ;;
+                    ja)    s="Oh My Zsh が見つかりません — インストールします（公式スクリプト、ミラー加速）..." ;; ko)    s="Oh My Zsh 미설치 — 설치합니다(공식 스크립트, 미러 가속) ..." ;;
+                    *)     s="Oh My Zsh not found — installing it (official installer, mirror-accelerated) ..." ;;
+                esac ;;
+            i.plugin_updating)
+                case "$lang" in
+                    zh-CN) s="zsh-smart-complete 已存在 —— 更新到最新 ..." ;; zh-TW) s="zsh-smart-complete 已存在 —— 更新到最新 ..." ;;
+                    ja)    s="zsh-smart-complete は既に存在します — 最新版に更新しています ..." ;; ko)    s="zsh-smart-complete 이미 존재함 — 최신으로 업데이트 중 ..." ;;
+                    *)     s="zsh-smart-complete is already present — updating to the latest ..." ;;
+                esac ;;
+            i.zsh_done_relogin)
+                case "$lang" in
+                    zh-CN) s="Zsh 安装完成。请重新登录，或执行： exec %s" ;; zh-TW) s="Zsh 安裝完成。請重新登入，或執行： exec %s" ;;
+                    ja)    s="Zsh のインストールが完了しました。再ログインまたは実行： exec %s" ;; ko)    s="Zsh 설치 완료. 다시 로그인하거나 실행: exec %s" ;;
+                    *)     s="Zsh is ready. Log in again, or run: exec %s" ;;
+                esac ;;
+            s.atuin_present)
+                case "$lang" in
+                    zh-CN) s="Atuin 已安装：%s" ;; zh-TW) s="Atuin 已安裝：%s" ;;
+                    ja)    s="Atuin はインストール済み: %s" ;; ko)    s="Atuin 설치됨: %s" ;;
+                    *)     s="Atuin is installed: %s" ;;
+                esac ;;
+            s.fzf_installed_git)
+                case "$lang" in
+                    zh-CN) s="fzf 已通过 git clone 安装（镜像加速）" ;; zh-TW) s="fzf 已透過 git clone 安裝（鏡像加速）" ;;
+                    ja)    s="fzf を git clone でインストールしました（ミラー加速）" ;; ko)    s="fzf를 git clone으로 설치(미러 가속)" ;;
+                    *)     s="fzf installed via git clone (mirror-accelerated)" ;;
+                esac ;;
+            s.fzf_installed_opkg)
+                case "$lang" in
+                    zh-CN) s="fzf 已安装（opkg）" ;; zh-TW) s="fzf 已安裝（opkg）" ;;
+                    ja)    s="fzf をインストールしました（opkg）" ;; ko)    s="fzf 설치 완료(opkg)" ;;
+                    *)     s="fzf installed (opkg)" ;;
+                esac ;;
+            s.omz_installed)
+                case "$lang" in
+                    zh-CN) s="Oh My Zsh 安装完成。" ;; zh-TW) s="Oh My Zsh 安裝完成。" ;;
+                    ja)    s="Oh My Zsh のインストールが完了しました。" ;; ko)    s="Oh My Zsh 설치 완료." ;;
+                    *)     s="Oh My Zsh installation complete." ;;
+                esac ;;
+            w.fzf_install_failed_entware)
+                case "$lang" in
+                    zh-CN) s="fzf 安装失败（插件核心不依赖 fzf，可稍后手动安装）。" ;; zh-TW) s="fzf 安裝失敗（外掛核心不依賴 fzf，可稍後手動安裝）。" ;;
+                    ja)    s="fzf のインストールに失敗しました（プラグインコアは fzf を必要としません。後で手動でインストールできます）。" ;; ko)    s="fzf 설치 실패(코어는 fzf가 필요 없으므로 나중에 수동 설치)." ;;
+                    *)     s="fzf install failed (the plugin core does not need fzf; install it later)." ;;
+                esac ;;
+            w.git_pull_failed)
+                case "$lang" in
+                    zh-CN) s="git pull 失败（不影响继续）" ;; zh-TW) s="git pull 失敗（不影響繼續）" ;;
+                    ja)    s="git pull に失敗しました（続行に影響なし）" ;; ko)    s="git pull 실패(치명적이지 않음)" ;;
+                    *)     s="git pull failed (non-fatal)" ;;
+                esac ;;
+            w.not_root)
+                case "$lang" in
+                    zh-CN) s="当前不是 root（uid=%s）。QNAP 的管理员通常就是 root，继续但不使用 sudo。" ;; zh-TW) s="目前不是 root（uid=%s）。QNAP 的管理員通常就是 root，繼續但不使用 sudo。" ;;
+                    ja)    s="root として実行されていません（uid=%s）。QNAP では管理者ユーザーが通常 root です。sudo なしで継続します。" ;; ko)    s="root가 아닙니다(uid=%s). QNAP의 관리자는 보통 root입니다. sudo 없이 계속합니다." ;;
+                    *)     s="Not running as root (uid=%s). On QNAP the admin user is normally root; continuing without sudo." ;;
+                esac ;;
+            w.omz_kept)
+                case "$lang" in
+                    zh-CN) s="Oh My Zsh 已安装，保留。" ;; zh-TW) s="Oh My Zsh 已安裝，保留。" ;;
+                    ja)    s="Oh My Zsh はインストール済みです。そのまま保持します。" ;; ko)    s="Oh My Zsh 설치됨 — 유지합니다." ;;
+                    *)     s="Oh My Zsh is installed — keeping it." ;;
+                esac ;;
+            w.omz_skipped)
+                case "$lang" in
+                    zh-CN) s="已跳过 Oh My Zsh 安装；将按 Zinit + Starship 组合继续。" ;; zh-TW) s="已跳過 Oh My Zsh 安裝；將按 Zinit + Starship 組合繼續。" ;;
+                    ja)    s="Oh My Zsh のインストールをスキップしました。Zinit + Starship 構成で続行します。" ;; ko)    s="Oh My Zsh 건너뜀; Zinit + Starship 조합으로 계속합니다." ;;
+                    *)     s="Skipped Oh My Zsh; continuing with the Zinit + Starship combo." ;;
+                esac ;;
+            w.omz_failed)
+                case "$lang" in
+                    zh-CN) s="Oh My Zsh 安装失败（可能网络受限）；将按 Zinit + Starship 组合继续。" ;; zh-TW) s="Oh My Zsh 安裝失敗（可能網路受限）；將按 Zinit + Starship 組合繼續。" ;;
+                    ja)    s="Oh My Zsh のインストールに失敗しました（通信制限の可能性あり）。Zinit + Starship 構成で続行します。" ;; ko)    s="Oh My Zsh 설치 실패(네트워크 제한 가능성); Zinit + Starship 조합으로 계속합니다." ;;
+                    *)     s="Oh My Zsh install failed (possibly a network limit); continuing with the Zinit + Starship combo." ;;
+                esac ;;
+            w.zsh_theme_write_failed)
+                case "$lang" in
+                    zh-CN) s="写入 %s 失败，请手动设置 ZSH_THEME=\"%s\"" ;; zh-TW) s="寫入 %s 失敗，請手動設定 ZSH_THEME=\"%s\"" ;;
+                    ja)    s="%s への書き込みに失敗しました。手動で ZSH_THEME=\"%s\" を設定してください" ;; ko)    s="%s 쓰기 실패. 수동으로 ZSH_THEME=\"%s\" 설정" ;;
+                    *)     s="Could not write %s. Set it manually: ZSH_THEME=\"%s\"" ;;
+                esac ;;
+            s.zsh_theme_set)
+                case "$lang" in
+                    zh-CN) s="已设置 ZSH_THEME=\"%s\"" ;; zh-TW) s="已設定 ZSH_THEME=\"%s\"" ;;
+                    ja)    s="ZSH_THEME=\"%s\" を設定しました" ;; ko)    s="ZSH_THEME=\"%s\" 설정 완료" ;;
+                    *)     s="Set ZSH_THEME=\"%s\"" ;;
+                esac ;;
+            s.zsh_theme_appended)
+                case "$lang" in
+                    zh-CN) s="已追加 ZSH_THEME=\"%s\" 到 %s" ;; zh-TW) s="已追加 ZSH_THEME=\"%s\" 到 %s" ;;
+                    ja)    s="ZSH_THEME=\"%s\" を %s に追加しました" ;; ko)    s="%s 에 ZSH_THEME=\"%s\" 추가 완료" ;;
+                    *)     s="Appended ZSH_THEME=\"%s\" to %s" ;;
+                esac ;;
+            w.plugin_update_failed)
+                case "$lang" in
+                    zh-CN) s="zsh-smart-complete 更新失败（不影响继续）；保留现有代码。" ;; zh-TW) s="zsh-smart-complete 更新失敗（不影響繼續）；保留現有程式碼。" ;;
+                    ja)    s="zsh-smart-complete の更新に失敗しました（続行に影響なし）。既存のコードを保持します。" ;; ko)    s="zsh-smart-complete 업데이트 실패(치명적이지 않음); 기존 코드 유지." ;;
+                    *)     s="zsh-smart-complete update failed (non-fatal); the existing code was kept." ;;
+                esac ;;
+            w.plugin_update_skipped)
+                case "$lang" in
+                    zh-CN) s="跳过更新 %s（不影响继续）。" ;; zh-TW) s="跳過更新 %s（不影響繼續）。" ;;
+                    ja)    s="%s の更新をスキップしました（続行に影響なし）。" ;; ko)    s="%s 업데이트 건너뜀(치명적이지 않음)." ;;
+                    *)     s="Update skipped for %s (non-fatal)." ;;
+                esac ;;
+            w.zinit_dep_clone_failed)
+                case "$lang" in
+                    zh-CN) s="克隆 %s 失败（不影响继续；Zinit 会在首次启动 shell 时自动获取）。" ;; zh-TW) s="複製 %s 失敗（不影響繼續；Zinit 會在首次啟動 shell 時自動取得）。" ;;
+                    ja)    s="%s のクローンに失敗しました（続行に影響なし。Zinit が初回シェル起動時に取得します）。" ;; ko)    s="%s 복제 실패(치명적이지 않음; Zinit이 첫 셸 시작 시 가져옵니다)." ;;
+                    *)     s="Clone failed for %s (non-fatal; Zinit fetches it at the first shell start)." ;;
+                esac ;;
+            w.zsh_missing_entware)
+                case "$lang" in
+                    zh-CN) s="未检测到 Zsh —— 本插件依赖 Zsh，将通过 opkg 安装。" ;; zh-TW) s="未偵測到 Zsh —— 本外掛依賴 Zsh，將透過 opkg 安裝。" ;;
+                    ja)    s="Zsh が見つかりません — 本プラグインは Zsh が必要なため、opkg でインストールします。" ;; ko)    s="Zsh을 찾을 수 없습니다 — 본 플러그인에는 Zsh이 필요하므로 opkg로 설치합니다." ;;
+                    *)     s="Zsh not found — this plugin requires Zsh; installing it with opkg." ;;
+                esac ;;
+            combo.detected_installed)
+                case "$lang" in
+                    zh-CN) s="已检测到已安装：%s。" ;; zh-TW) s="已偵測到已安裝：%s。" ;;
+                    ja)    s="インストール済みを検出しました: %s。" ;; ko)    s="이미 설치됨 감지: %s." ;;
+                    *)     s="Detected already installed: %s." ;;
+                esac ;;
+            combo.env)
+                case "$lang" in
+                    zh-CN) s="配置组合（来自 SMART_INSTALL_COMBO）：%s" ;; zh-TW) s="配置組合（來自 SMART_INSTALL_COMBO）：%s" ;;
+                    ja)    s="構成（SMART_INSTALL_COMBO 由来）: %s" ;; ko)    s="구성 조합(SMART_INSTALL_COMBO 지정): %s" ;;
+                    *)     s="Configuration combo (from SMART_INSTALL_COMBO): %s" ;;
+                esac ;;
+            combo.headless_auto)
+                case "$lang" in
+                    zh-CN) s="(headless) 推荐配置：Zinit + Starship。" ;; zh-TW) s="(headless) 推薦配置：Zinit + Starship。" ;;
+                    ja)    s="(headless) 推奨構成: Zinit + Starship。" ;; ko)    s="(headless) 권장 구성: Zinit + Starship." ;;
+                    *)     s="(headless) recommended configuration: Zinit + Starship." ;;
+                esac ;;
+            combo.prompt)
+                case "$lang" in
+                    zh-CN) s="选择配置组合（推荐 Zinit + Starship，也可选用 Oh My Zsh / Powerlevel10k 备选）：" ;; zh-TW) s="選擇配置組合（推薦 Zinit + Starship，也可選用 Oh My Zsh / Powerlevel10k 備選）：" ;;
+                    ja)    s="構成を選択してください（推奨: Zinit + Starship、代替として Oh My Zsh / Powerlevel10k も可）:" ;; ko)    s="구성 조합 선택 (권장: Zinit + Starship, 대안: Oh My Zsh / Powerlevel10k):" ;;
+                    *)     s="Select a configuration combo (recommended: Zinit + Starship; Oh My Zsh / Powerlevel10k as alternatives):" ;;
+                esac ;;
+            combo.unknown_env)
+                case "$lang" in
+                    zh-CN) s="未知的 SMART_INSTALL_COMBO='%s'，忽略并回退到交互选择。" ;; zh-TW) s="未知的 SMART_INSTALL_COMBO='%s'，忽略並回退到互動選擇。" ;;
+                    ja)    s="不明な SMART_INSTALL_COMBO='%s'。無視して対話選択に戻します。" ;; ko)    s="알 수 없는 SMART_INSTALL_COMBO='%s'. 무시하고 대화형 선택으로 진행." ;;
+                    *)     s="Unknown SMART_INSTALL_COMBO='%s'; ignoring it and falling back to the interactive choice." ;;
+                esac ;;
+            dl.clone_fallback)
+                case "$lang" in
+                    zh-CN) s="镜像 clone 失败，回退直连：%s" ;; zh-TW) s="鏡像 clone 失敗，回退直連：%s" ;;
+                    ja)    s="ミラー経由のクローンに失敗しました。直接接続に戻します: %s" ;; ko)    s="미러 clone 실패, 직접 연결로 대체: %s" ;;
+                    *)     s="Mirror clone failed; falling back to a direct connection: %s" ;;
+                esac ;;
+            dl.direct_ok2)
+                case "$lang" in
+                    zh-CN) s="直连重试成功" ;; zh-TW) s="直連重試成功" ;;
+                    ja)    s="直接接続の再試行に成功しました" ;; ko)    s="직접 재시도 성공" ;;
+                    *)     s="Direct retry succeeded" ;;
+                esac ;;
+            dl.mirror_failed2)
+                case "$lang" in
+                    zh-CN) s="镜像加速下载失败（exit %s），回退直连重试 ..." ;; zh-TW) s="鏡像加速下載失敗（exit %s），回退直連重試 ..." ;;
+                    ja)    s="ミラー経由のダウンロードに失敗しました（exit %s）。直接接続で再試行します ..." ;; ko)    s="미러 다운로드 실패(exit %s). 직접 재시도 ..." ;;
+                    *)     s="Mirror download failed (exit %s); falling back to a direct retry ..." ;;
+                esac ;;
+            dl.proxy_failed)
+                case "$lang" in
+                    zh-CN) s="全量代理下载失败（exit %s），撤掉代理直连重试 ..." ;; zh-TW) s="全量代理下載失敗（exit %s），撤掉代理直連重試 ..." ;;
+                    ja)    s="プロキシ経由のダウンロードに失敗しました（exit %s）。プロキシなしで再試行します ..." ;; ko)    s="전체 프록시 다운로드 실패(exit %s). 프록시 없이 재시도 ..." ;;
+                    *)     s="Full-proxy download failed (exit %s); retrying without the proxy ..." ;;
+                esac ;;
+            e.opkg_install_zsh_failed)
+                case "$lang" in
+                    zh-CN) s="opkg install zsh 失败，请检查 Entware feed / 网络连接。" ;; zh-TW) s="opkg install zsh 失敗，請檢查 Entware feed / 網路連線。" ;;
+                    ja)    s="opkg install zsh に失敗しました。Entware のフィード / ネットワーク接続を確認してください。" ;; ko)    s="opkg install zsh 실패. Entware 피드 / 네트워크 연결을 확인하세요." ;;
+                    *)     s="opkg install zsh failed; check the Entware feed / network connection." ;;
+                esac ;;
+            i.combo_kept_omz_p10k)
+                case "$lang" in
+                    zh-CN) s="已选择：Oh My Zsh + Powerlevel10k（经典方案）。" ;; zh-TW) s="已選擇：Oh My Zsh + Powerlevel10k（經典方案）。" ;;
+                    ja)    s="選択: Oh My Zsh + Powerlevel10k（定番構成）。" ;; ko)    s="선택: Oh My Zsh + Powerlevel10k(클래식)." ;;
+                    *)     s="Selected: Oh My Zsh + Powerlevel10k (classic)." ;;
+                esac ;;
+            i.combo_recommended)
+                case "$lang" in
+                    zh-CN) s="已选择（推荐）：Zinit + Starship。" ;; zh-TW) s="已選擇（推薦）：Zinit + Starship。" ;;
+                    ja)    s="選択（推奨）: Zinit + Starship。" ;; ko)    s="선택(권장): Zinit + Starship." ;;
+                    *)     s="Selected (recommended): Zinit + Starship." ;;
+                esac ;;
+            i.combo_zinit_p10k)
+                case "$lang" in
+                    zh-CN) s="已选择：Zinit + Powerlevel10k。" ;; zh-TW) s="已選擇：Zinit + Powerlevel10k。" ;;
+                    ja)    s="選択: Zinit + Powerlevel10k。" ;; ko)    s="선택: Zinit + Powerlevel10k." ;;
+                    *)     s="Selected: Zinit + Powerlevel10k." ;;
+                esac ;;
+            i.installing_zsh_opkg)
+                case "$lang" in
+                    zh-CN) s="正在通过 opkg 安装 zsh ..." ;; zh-TW) s="正在透過 opkg 安裝 zsh ..." ;;
+                    ja)    s="opkg で zsh をインストールしています ..." ;; ko)    s="opkg로 zsh 설치 중 ..." ;;
+                    *)     s="Installing zsh via opkg ..." ;;
+                esac ;;
+            i.no_zshrc_creating)
+                case "$lang" in
+                    zh-CN) s="未发现 ~/.zshrc —— 正在创建推荐配置（含 zsh-smart-complete 块）..." ;; zh-TW) s="未發現 ~/.zshrc —— 正在建立推薦配置（含 zsh-smart-complete 區塊）..." ;;
+                    ja)    s="~/.zshrc が見つかりません — 推奨構成（zsh-smart-complete ブロック付き）を作成しています ..." ;; ko)    s="~/.zshrc 없음 — 권장 설정 생성 중(zsh-smart-complete 블록 포함) ..." ;;
+                    *)     s="No ~/.zshrc found — creating a recommended one (with the zsh-smart-complete block) ..." ;;
+                esac ;;
+            i.opkg_no_starship)
+                case "$lang" in
+                    zh-CN) s="opkg 无 starship，尝试官方一键安装（走镜像加速）..." ;; zh-TW) s="opkg 無 starship，嘗試官方一鍵安裝（走鏡像加速）..." ;;
+                    ja)    s="opkg に starship がありません。公式ワンクリックインストーラーを試します（ミラー加速）..." ;; ko)    s="opkg에 starship 없음. 공식 원클릭 설치 시도(미러 가속) ..." ;;
+                    *)     s="No starship in opkg; trying the official one-click installer (mirror-accelerated) ..." ;;
+                esac ;;
+            i.p10k_installing)
+                case "$lang" in
+                    zh-CN) s="未检测到 Powerlevel10k，作为 Oh My Zsh 主题安装..." ;; zh-TW) s="未偵測到 Powerlevel10k，作為 Oh My Zsh 主題安裝..." ;;
+                    ja)    s="Powerlevel10k が見つかりません — Oh My Zsh のテーマとしてインストールします..." ;; ko)    s="Powerlevel10k 미설치 — Oh My Zsh 테마로 설치합니다..." ;;
+                    *)     s="Powerlevel10k not found — installing it as an Oh My Zsh theme ..." ;;
+                esac ;;
+            i.p10k_kept)
+                case "$lang" in
+                    zh-CN) s="Powerlevel10k 已安装，保留。" ;; zh-TW) s="Powerlevel10k 已安裝，保留。" ;;
+                    ja)    s="Powerlevel10k はインストール済みです。そのまま保持します。" ;; ko)    s="Powerlevel10k 설치됨 — 유지합니다." ;;
+                    *)     s="Powerlevel10k is installed — keeping it." ;;
+                esac ;;
+            i.p10k_zinit_auto)
+                case "$lang" in
+                    zh-CN) s="Zinit 将在首次启动 shell 时自动克隆并加载 Powerlevel10k。" ;; zh-TW) s="Zinit 將在首次啟動 shell 時自動複製並載入 Powerlevel10k。" ;;
+                    ja)    s="Zinit が初回シェル起動時に Powerlevel10k を自動でクローンして読み込みます。" ;; ko)    s="Zinit이 첫 셸 시작 시 Powerlevel10k를 자동 복제·로드합니다." ;;
+                    *)     s="Zinit clones and loads Powerlevel10k automatically at the first shell start." ;;
+                esac ;;
+            i.p10k_zinit_kept)
+                case "$lang" in
+                    zh-CN) s="Powerlevel10k 已安装，保留（将由 Zinit 加载）。" ;; zh-TW) s="Powerlevel10k 已安裝，保留（將由 Zinit 載入）。" ;;
+                    ja)    s="Powerlevel10k はインストール済みです（Zinit が読み込みます）。" ;; ko)    s="Powerlevel10k 설치됨 — 유지합니다(Zinit이 로드)." ;;
+                    *)     s="Powerlevel10k is installed — keeping it (loaded by Zinit)." ;;
+                esac ;;
+            i.profile_already_zsh)
+                case "$lang" in
+                    zh-CN) s="%s 已启动 zsh（跳过）" ;; zh-TW) s="%s 已啟動 zsh（跳過）" ;;
+                    ja)    s="%s は既に zsh を起動しています（スキップ）" ;; ko)    s="%s 이미 zsh 실행 중(건너뜀)" ;;
+                    *)     s="%s already launches zsh (skipping)" ;;
+                esac ;;
+            i.switching_login_shell)
+                case "$lang" in
+                    zh-CN) s="正在把登录 shell 切换为 zsh ..." ;; zh-TW) s="正在把登入 shell 切換為 zsh ..." ;;
+                    ja)    s="ログインシェルを zsh に切り替えています ..." ;; ko)    s="로그인 셸을 zsh로 전환 중 ..." ;;
+                    *)     s="Switching your login shell to zsh ..." ;;
+                esac ;;
+            i.trying_opkg_starship)
+                case "$lang" in
+                    zh-CN) s="尝试用 opkg 安装 starship ..." ;; zh-TW) s="嘗試用 opkg 安裝 starship ..." ;;
+                    ja)    s="opkg で starship のインストールを試します ..." ;; ko)    s="opkg로 starship 설치 시도 중 ..." ;;
+                    *)     s="Trying opkg install starship ..." ;;
+                esac ;;
+            mirror.all_down)
+                case "$lang" in
+                    zh-CN) s="所有镜像均不可用，回退到直连。" ;; zh-TW) s="所有鏡像均不可用，回退到直連。" ;;
+                    ja)    s="すべてのミラーが利用不可のため、直接接続に戻します。" ;; ko)    s="모든 미러를 사용할 수 없어 직접 연결로 대체합니다." ;;
+                    *)     s="All mirrors are unavailable; falling back to a direct connection." ;;
+                esac ;;
+            mirror.auto_fastest)
+                case "$lang" in
+                    zh-CN) s="已自动选择最快镜像：%s (%ss) [%s]" ;; zh-TW) s="已自動選擇最快鏡像：%s (%ss) [%s]" ;;
+                    ja)    s="最速のミラーを自動選択しました: %s (%ss) [%s]" ;; ko)    s="가장 빠른 미러 자동 선택: %s (%ss) [%s]" ;;
+                    *)     s="Auto-selected the fastest mirror: %s (%ss) [%s]" ;;
+                esac ;;
+            mirror.custom_chosen2)
+                case "$lang" in
+                    zh-CN) s="使用自定义镜像：%s [%s]" ;; zh-TW) s="使用自訂鏡像：%s [%s]" ;;
+                    ja)    s="カスタムミラーを使用します: %s [%s]" ;; ko)    s="사용자 지정 미러 사용: %s [%s]" ;;
+                    *)     s="Using a custom mirror: %s [%s]" ;;
+                esac ;;
+            mirror.direct)
+                case "$lang" in
+                    zh-CN) s="直连" ;; zh-TW) s="直連" ;;
+                    ja)    s="直接接続" ;; ko)    s="직접 연결" ;;
+                    *)     s="direct" ;;
+                esac ;;
+            mirror.gh_env)
+                case "$lang" in
+                    zh-CN) s="GitHub 加速镜像（来自 SMART_INSTALL_GH_MIRROR）：%s [%s]" ;; zh-TW) s="GitHub 加速鏡像（來自 SMART_INSTALL_GH_MIRROR）：%s [%s]" ;;
+                    ja)    s="GitHub ミラー（SMART_INSTALL_GH_MIRROR 由来）: %s [%s]" ;; ko)    s="GitHub 미러(SMART_INSTALL_GH_MIRROR 지정): %s [%s]" ;;
+                    *)     s="GitHub mirror (from SMART_INSTALL_GH_MIRROR): %s [%s]" ;;
+                esac ;;
+            mirror.skip_deps)
+                case "$lang" in
+                    zh-CN) s="SKIP_DEPS=1：跳过镜像测速，使用直连。" ;; zh-TW) s="SKIP_DEPS=1：跳過鏡像測速，使用直連。" ;;
+                    ja)    s="SKIP_DEPS=1: ミラー速度測定をスキップし、直接接続します。" ;; ko)    s="SKIP_DEPS=1: 미러 속도 측정을 건너뛰고 직접 연결합니다." ;;
+                    *)     s="SKIP_DEPS=1: skipping the mirror speed test, using a direct connection." ;;
+                esac ;;
+            mirror.unavailable_line)
+                case "$lang" in
+                    zh-CN) s="%s -> 不可用 (HTTP %s)" ;; zh-TW) s="%s -> 不可用 (HTTP %s)" ;;
+                    ja)    s="%s -> 利用不可 (HTTP %s)" ;; ko)    s="%s -> 사용 불가 (HTTP %s)" ;;
+                    *)     s="%s -> unavailable (HTTP %s)" ;;
+                esac ;;
+            s.backed_up_removed_omz)
+                case "$lang" in
+                    zh-CN) s="已备份并移除 ~/.oh-my-zsh" ;; zh-TW) s="已備份並移除 ~/.oh-my-zsh" ;;
+                    ja)    s="~/.oh-my-zsh をバックアップして削除しました" ;; ko)    s="~/.oh-my-zsh 백업 후 삭제 완료" ;;
+                    *)     s="Backed up + removed ~/.oh-my-zsh" ;;
+                esac ;;
+            s.backed_up_removed_p10k)
+                case "$lang" in
+                    zh-CN) s="已备份并移除 ~/.p10k.zsh" ;; zh-TW) s="已備份並移除 ~/.p10k.zsh" ;;
+                    ja)    s="~/.p10k.zsh をバックアップして削除しました" ;; ko)    s="~/.p10k.zsh 백업 후 삭제 완료" ;;
+                    *)     s="Backed up + removed ~/.p10k.zsh" ;;
+                esac ;;
+            s.backed_up_removed_path)
+                case "$lang" in
+                    zh-CN) s="已备份并移除：%s" ;; zh-TW) s="已備份並移除：%s" ;;
+                    ja)    s="バックアップして削除しました: %s" ;; ko)    s="백업 후 삭제: %s" ;;
+                    *)     s="Backed up + removed: %s" ;;
+                esac ;;
+            s.commented_lines)
+                case "$lang" in
+                    zh-CN) s="已注释掉 ~/.zshrc 中包含 '%s' 的生效行（已备份）" ;; zh-TW) s="已註解掉 ~/.zshrc 中包含 '%s' 的生效行（已備份）" ;;
+                    ja)    s="~/.zshrc 内の '%s' を含む有効行をコメントアウトしました（バックアップあり）" ;; ko)    s="~/.zshrc 에서 '%s' 항목을 주석 처리했습니다(백업 보관)" ;;
+                    *)     s="Commented out active lines containing '%s' in ~/.zshrc (backup kept)" ;;
+                esac ;;
+            s.no_conflict)
+                case "$lang" in
+                    zh-CN) s="未检测到 %s 冲突" ;; zh-TW) s="未偵測到 %s 衝突" ;;
+                    ja)    s="%s の競合は検出されませんでした" ;; ko)    s="%s 충돌 없음" ;;
+                    *)     s="No %s conflict detected" ;;
+                esac ;;
+            s.p10k_cloned)
+                case "$lang" in
+                    zh-CN) s="Powerlevel10k 已克隆到 %s" ;; zh-TW) s="Powerlevel10k 已複製到 %s" ;;
+                    ja)    s="Powerlevel10k を %s にクローンしました" ;; ko)    s="Powerlevel10k를 %s 에 복제 완료" ;;
+                    *)     s="Powerlevel10k cloned to %s" ;;
+                esac ;;
+            s.profile_launch_added)
+                case "$lang" in
+                    zh-CN) s="已向 %s 追加 'exec %s'" ;; zh-TW) s="已向 %s 追加 'exec %s'" ;;
+                    ja)    s="%s に 'exec %s' を追加しました" ;; ko)    s="%s 에 'exec %s' 추가 완료" ;;
+                    *)     s="Added 'exec %s' to %s" ;;
+                esac ;;
+            s.removed_p10k_dir)
+                case "$lang" in
+                    zh-CN) s="已移除 ~/.powerlevel10k" ;; zh-TW) s="已移除 ~/.powerlevel10k" ;;
+                    ja)    s="~/.powerlevel10k を削除しました" ;; ko)    s="~/.powerlevel10k 삭제 완료" ;;
+                    *)     s="Removed ~/.powerlevel10k" ;;
+                esac ;;
+            s.starship_official_installed)
+                case "$lang" in
+                    zh-CN) s="Starship 已安装（官方安装器，镜像加速）" ;; zh-TW) s="Starship 已安裝（官方安裝器，鏡像加速）" ;;
+                    ja)    s="Starship をインストールしました（公式インストーラー、ミラー加速）" ;; ko)    s="Starship 설치 완료(공식 설치 관리자, 미러 가속)" ;;
+                    *)     s="Starship installed (official installer, mirror-accelerated)" ;;
+                esac ;;
+            s.starship_present2)
+                case "$lang" in
+                    zh-CN) s="Starship 已存在：%s" ;; zh-TW) s="Starship 已存在：%s" ;;
+                    ja)    s="Starship あり: %s" ;; ko)    s="Starship 존재: %s" ;;
+                    *)     s="Starship present: %s" ;;
+                esac ;;
+            s.zinit_installed_path)
+                case "$lang" in
+                    zh-CN) s="Zinit 已安装在 %s" ;; zh-TW) s="Zinit 已安裝於 %s" ;;
+                    ja)    s="Zinit は %s にインストール済みです" ;; ko)    s="Zinit 설치 위치: %s" ;;
+                    *)     s="Zinit is installed at %s" ;;
+                esac ;;
+            s.zsh_installed_at)
+                case "$lang" in
+                    zh-CN) s="Zsh 已安装到 %s" ;; zh-TW) s="Zsh 已安裝於 %s" ;;
+                    ja)    s="Zsh を %s にインストールしました" ;; ko)    s="Zsh 설치 위치: %s" ;;
+                    *)     s="Zsh installed at %s" ;;
+                esac ;;
+            s.zshrc_created_with_block)
+                case "$lang" in
+                    zh-CN) s="已创建 %s（含 zsh-smart-complete 集成）" ;; zh-TW) s="已建立 %s（含 zsh-smart-complete 整合）" ;;
+                    ja)    s="%s を作成しました（zsh-smart-complete 連携付き）" ;; ko)    s="%s 생성 완료(zsh-smart-complete 연동 포함)" ;;
+                    *)     s="%s created (with zsh-smart-complete integration)" ;;
+                esac ;;
+            s.zshrc_file_updated)
+                case "$lang" in
+                    zh-CN) s="%s 已更新（备份在 .bak.*）" ;; zh-TW) s="%s 已更新（備份在 .bak.*）" ;;
+                    ja)    s="%s を更新しました（バックアップ: .bak.*）" ;; ko)    s="%s 업데이트 완료(백업: .bak.*)" ;;
+                    *)     s="%s updated (backup kept at .bak.*)" ;;
+                esac ;;
+            s.zshrc_updated_backup)
+                case "$lang" in
+                    zh-CN) s="%s 已引用 zsh-smart-complete —— 已刷新选项块（备份在 .bak.*）" ;; zh-TW) s="%s 已引用 zsh-smart-complete —— 已重新整理選項區塊（備份在 .bak.*）" ;;
+                    ja)    s="%s は既に zsh-smart-complete を参照しています — オプションブロックを更新しました（バックアップ: .bak.*）" ;; ko)    s="%s 이미 zsh-smart-complete 참조 — 옵션 블록 갱신(백업: .bak.*)" ;;
+                    *)     s="%s already references zsh-smart-complete — options block refreshed (backup kept at .bak.*)" ;;
+                esac ;;
+            w.p10k_clone_failed)
+                case "$lang" in
+                    zh-CN) s="Powerlevel10k 克隆失败（可稍后手动安装）。" ;; zh-TW) s="Powerlevel10k 複製失敗（可稍後手動安裝）。" ;;
+                    ja)    s="Powerlevel10k のクローンに失敗しました（後で手動インストールできます）。" ;; ko)    s="Powerlevel10k 복제 실패(나중에 수동 설치)." ;;
+                    *)     s="Powerlevel10k clone failed (install it later)." ;;
+                esac ;;
+            w.qnap_gui_hint)
+                case "$lang" in
+                    zh-CN) s="或在 QNAP 界面设置登录 shell：控制面板 -> 终端机 -> 默认 shell -> zsh" ;; zh-TW) s="或在 QNAP 介面設定登入 shell：控制台 -> 終端機 -> 預設 shell -> zsh" ;;
+                    ja)    s="または QNAP の GUI でログインシェルを設定してください: コントロールパネル -> ターミナル -> デフォルトシェル -> zsh" ;; ko)    s="또는 QNAP GUI에서 로그인 셸 설정: 제어판 -> 터미널 -> 기본 셸 -> zsh" ;;
+                    *)     s="Or set the login shell via the QNAP GUI: Control Panel -> Terminal -> Default shell -> zsh" ;;
+                esac ;;
+            w.skipped_removal_1)
+                case "$lang" in
+                    zh-CN) s="已跳过移除 %s；与 zsh-smart-complete 同时启用可能导致重复建议 / Tab 冲突。" ;; zh-TW) s="已跳過移除 %s；與 zsh-smart-complete 同時啟用可能導致重複建議 / Tab 衝突。" ;;
+                    ja)    s="%s の削除をスキップしました。zsh-smart-complete と併用すると、提案の重複や Tab の競合が起きる可能性があります。" ;; ko)    s="%s 제거를 건너뛰었습니다. zsh-smart-complete와 함께 사용하면 중복 제안 / Tab 충돌이 발생할 수 있습니다." ;;
+                    *)     s="Skipped %s removal; running it alongside zsh-smart-complete may cause duplicate suggestions / Tab conflicts." ;;
+                esac ;;
+            w.starship_install_failed_soft)
+                case "$lang" in
+                    zh-CN) s="starship 安装失败（可稍后手动安装；插件核心不依赖 starship）。" ;; zh-TW) s="starship 安裝失敗（可稍後手動安裝；外掛核心不依賴 starship）。" ;;
+                    ja)    s="starship のインストールに失敗しました（後で手動インストール可。コアは不要です）。" ;; ko)    s="starship 설치 실패(나중에 수동 설치; 코어는 starship이 필요 없음)." ;;
+                    *)     s="starship install failed (install it later; the plugin core does not need starship)." ;;
+                esac ;;
+            mirror.timing_line)
+                case "$lang" in
+                    zh-CN) s="%s -> %ss" ;; zh-TW) s="%s -> %ss" ;;
+                    ja)    s="%s -> %ss" ;; ko)    s="%s -> %ss" ;;
+                    *)     s="%s -> %ss" ;;
+                esac ;;
     esac
     printf '%s' "$s"
 }
@@ -758,10 +1615,10 @@ mirror_speed_test() {
         code="${out%% *}"; t="${out##* }"
         if [[ "$code" == "200" && -s "$body" && "$t" =~ ^[0-9]+\.?[0-9]*$ ]]; then
             MIRROR_TIMES[$i]="$t"
-            info "  ${MIRROR_LABELS[$i]} -> ${t}s"
+            info "$(msg mirror.timing_line "${MIRROR_LABELS[$i]}" "${t}")"
         else
             MIRROR_TIMES[$i]="999"
-            warn "  ${MIRROR_LABELS[$i]} -> 不可用 (HTTP ${code:-000})"
+            warn "$(msg mirror.unavailable_line "${MIRROR_LABELS[$i]}" "${code:-000}")"
         fi
     done
     rm -f "$body"
@@ -921,12 +1778,12 @@ select_mirror() {
                 GH_MIRROR_TYPE="$(_guess_mirror_type "$GH_MIRROR")"
                 ;;
         esac
-        info "GitHub 加速镜像（来自 SMART_INSTALL_GH_MIRROR）：${GH_MIRROR:-直连} [${GH_MIRROR_TYPE}]"
+        info "$(msg mirror.gh_env "${GH_MIRROR:-$(msg mirror.direct)}" "${GH_MIRROR_TYPE}")"
         return 0
     fi
     # SKIP_DEPS 时不下载外部包，跳过测速，直接用直连。
     if [[ "${SKIP_DEPS:-0}" == "1" ]]; then
-        GH_MIRROR=""; GH_MIRROR_TYPE="direct"; info "SKIP_DEPS=1：跳过镜像测速，使用直连。"; return 0
+        GH_MIRROR=""; GH_MIRROR_TYPE="direct"; info "$(msg mirror.skip_deps)"; return 0
     fi
     # 环境变量覆盖：全量代理（系统代理），如 http://127.0.0.1:7890 / socks5://...
     if [[ -n "${SMART_INSTALL_PROXY:-}" ]]; then
@@ -971,9 +1828,9 @@ select_mirror() {
         if [[ -n "$best" ]]; then
             GH_MIRROR="${MIRROR_PREFIXES[$best]}"
             GH_MIRROR_TYPE="${MIRROR_TYPES[$best]}"
-            info "已自动选择最快镜像：${MIRROR_LABELS[$best]} (${MIRROR_TIMES[$best]}s) [${GH_MIRROR_TYPE}]"
+            info "$(msg mirror.auto_fastest "${MIRROR_LABELS[$best]}" "${MIRROR_TIMES[$best]}" "${GH_MIRROR_TYPE}")"
         else
-            GH_MIRROR=""; GH_MIRROR_TYPE="direct"; warn "所有镜像均不可用，回退到直连。"
+            GH_MIRROR=""; GH_MIRROR_TYPE="direct"; warn "$(msg mirror.all_down)"
         fi
         return 0
     fi
@@ -1020,7 +1877,7 @@ select_mirror() {
                 if [[ "$GH_MIRROR_TYPE" == "prefix" && "$GH_MIRROR" != */ ]]; then
                     GH_MIRROR="${GH_MIRROR}/"
                 fi
-                info "使用自定义镜像：$GH_MIRROR [${GH_MIRROR_TYPE}]"
+                info "$(msg mirror.custom_chosen2 "$GH_MIRROR" "$GH_MIRROR_TYPE")"
                 return 0
             elif (( REPLY == custom_proxy_d )); then
                 if _manual_proxy_flow; then return 0; fi
@@ -1123,11 +1980,11 @@ run_with_mirror_dl() {
         local prc=0
         eval "$cmd" || prc=$?
         if (( prc != 0 )); then
-            warn "全量代理下载失败（exit $prc），撤掉代理直连重试 ..."
+            warn "$(msg dl.proxy_failed "$prc")"
             prc=0
             ( unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy
               eval "$cmd" ) || prc=$?
-            if (( prc == 0 )); then success "直连重试成功"; fi
+            if (( prc == 0 )); then success "$(msg dl.direct_ok2)"; fi
         fi
         return $prc
     fi
@@ -1142,12 +1999,12 @@ run_with_mirror_dl() {
     PATH="$oldpath"
     rm -rf "$shimdir"
     if (( rc != 0 )); then
-        warn "镜像加速下载失败（exit $rc），回退直连重试 ..."
+        warn "$(msg dl.mirror_failed2 "$rc")"
         # 必须先归零：成功时 `||` 会短路，否则会沿用镜像失败时的 rc
         rc=0
         eval "$cmd" || rc=$?
         if (( rc == 0 )); then
-            success "直连重试成功"
+            success "$(msg dl.direct_ok2)"
         fi
     fi
     return $rc
@@ -1161,7 +2018,7 @@ git_clone_repo() {
         return 0
     fi
     if [[ "$m" != "$src" ]]; then
-        warn "镜像 clone 失败，回退直连：$src"
+        warn "$(msg dl.clone_fallback "$src")"
         rm -rf "$dest" 2>/dev/null || true
         git clone --depth 1 "$src" "$dest" 2>/dev/null && return 0
     fi
@@ -1179,19 +2036,17 @@ if command -v opkg >/dev/null 2>&1; then
 elif [[ -x /opt/bin/opkg ]]; then
     OPKG="/opt/bin/opkg"
 fi
-[[ -n "$OPKG" ]] || error "opkg not found. This installer targets Entware environments.
-Install Entware first (QNAP: enable it in App Center / via the Entware QPKG;
-generic: https://github.com/Entware/Entware)."
+[[ -n "$OPKG" ]] || error "$(msg e.opkg_not_found)"
 
-info "Detected Entware — opkg at: $OPKG"
-info "Home directory: $HOME"
+info "$(msg i.entware_detected "$OPKG")"
+info "$(msg i.home_dir "$HOME")"
 
 # Select a GitHub acceleration mirror up front so every clone / raw download
 # below can use it. Honors SMART_INSTALL_GH_MIRROR and NONINTERACTIVE.
 select_mirror
 
 if [[ "$(id -u)" != "0" ]]; then
-    warn "You are not root (uid=$(id -u)). On QNAP the admin user is normally root; continuing without sudo."
+    warn "$(msg w.not_root "$(id -u)")"
 fi
 
 # ------------------------------------------------------------------
@@ -1204,25 +2059,25 @@ check_zsh() {
     ZSH_BIN=""
     if command -v zsh >/dev/null 2>&1; then
         ZSH_BIN="$(command -v zsh)"
-        success "Zsh is installed: $(zsh --version 2>/dev/null | head -n 1) -> $ZSH_BIN"
+        success "$(msg msg.zsh_installed "$(zsh --version 2>/dev/null | head -n 1)") -> $ZSH_BIN"
         return 0
     fi
-    warn "未检测到 Zsh —— 本插件依赖 Zsh，将通过 opkg 安装。"
+    warn "$(msg w.zsh_missing_entware)"
     if [[ -z "$OPKG" ]]; then
-        error "未找到 opkg，无法自动安装 Zsh。请先配置 Entware/opkg 后重试。"
+        error "$(msg e.opkg_missing_zsh)"
     fi
-    info "Installing zsh via opkg ..."
-    "$OPKG" install zsh || error "opkg install zsh 失败，请检查 Entware feed / 网络连接。"
+    info "$(msg i.installing_zsh_opkg)"
+    "$OPKG" install zsh || error "$(msg e.opkg_install_zsh_failed)"
     ZSH_BIN="$(command -v zsh)"
     [[ -n "$ZSH_BIN" ]] || ZSH_BIN="/opt/bin/zsh"
-    success "Zsh installed at $ZSH_BIN"
-    info "安装完成后，请重新登录或执行： exec $ZSH_BIN"
+    success "$(msg s.zsh_installed_at "$ZSH_BIN")"
+    info "$(msg i.zsh_done_relogin "$ZSH_BIN")"
     return 0
 }
 check_zsh
 
 # Set the login shell. Entware has no /etc/shells + chsh.
-info "Switching your login shell to zsh ..."
+info "$(msg i.switching_login_shell)"
 PROFILE_FILE="$HOME/.profile"
 # Marker comment makes the guard idempotent and unambiguous.
 if ! grep -q "zsh-smart-complete: prefer zsh" "$PROFILE_FILE" 2>/dev/null; then
@@ -1234,27 +2089,27 @@ if [ -x "$ZSH_BIN" ] && [ -z "\$ZSH_RUNNING" ]; then
     exec "$ZSH_BIN"
 fi
 PROF
-    success "Added 'exec $ZSH_BIN' to $PROFILE_FILE"
-    warn "Or set the login shell via QNAP GUI: Control Panel -> Terminal -> Default shell -> zsh"
+    success "$(msg s.profile_launch_added "$ZSH_BIN" "$PROFILE_FILE")"
+    warn "$(msg w.qnap_gui_hint)"
 else
-    info "$PROFILE_FILE already launches zsh (skipping)"
+    info "$(msg i.profile_already_zsh "$PROFILE_FILE")"
 fi
 
 # Optional fzf (the plugin core works without it). Try opkg, then fall back to
 # the official git-clone install (mirror-accelerated).
-if [[ "${SKIP_DEPS:-0}" != "1" ]] && prompt_yes "Install fzf (optional, nicer history UI)?" 0; then
+if [[ "${SKIP_DEPS:-0}" != "1" ]] && prompt_yes "$(msg q.install_fzf)" 0; then
     if command -v fzf >/dev/null 2>&1; then
-        success "fzf is already installed"
+        success "$(msg s.fzf_already)"
     elif "$OPKG" install fzf 2>/dev/null; then
-        success "fzf installed (opkg)"
+        success "$(msg s.fzf_installed_opkg)"
     else
-        warn "fzf 不在 entware feed，尝试官方 git clone 安装（走镜像加速）..."
+        warn "$(msg i.fzf_not_in_feed)"
         fzf_dir="${XDG_DATA_HOME:-$HOME/.local/share}/fzf"
         if git_clone_repo "https://github.com/junegunn/fzf.git" "$fzf_dir" \
            && ( cd "$fzf_dir" && "$fzf_dir/install" --all >/dev/null 2>&1 ); then
-            success "fzf installed via git clone (mirror-accelerated)"
+            success "$(msg s.fzf_installed_git)"
         else
-            warn "fzf 安装失败（插件核心不依赖 fzf，可稍后手动安装）。"
+            warn "$(msg w.fzf_install_failed_entware)"
         fi
     fi
 fi
@@ -1264,45 +2119,118 @@ fi
 # ------------------------------------------------------------------
 info "$(msg phase2)"
 if command -v starship >/dev/null 2>&1; then
-    success "Starship present: $(starship --version 2>/dev/null || echo present)"
+    success "$(msg s.starship_present2 "$(starship --version 2>/dev/null || echo present)")"
 elif [[ "${SKIP_DEPS:-0}" != "1" ]] && prompt_yes "$(msg prompt.starship)" 0; then
-    info "Trying opkg install starship ..."
+    info "$(msg i.trying_opkg_starship)"
     if "$OPKG" install starship 2>/dev/null; then
-        success "Starship installed"
+        success "$(msg s.starship_installed)"
         STARSHIP_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}"
         STARSHIP_CONFIG_FILE="${STARSHIP_CONFIG_DIR}/starship.toml"
         mkdir -p "$STARSHIP_CONFIG_DIR"
-        if [[ ! -f "$STARSHIP_CONFIG_FILE" ]]; then
-            cat > "$STARSHIP_CONFIG_FILE" <<'TOML'
+# Does this config already carry the recommended two-line layout? The marker
+# exists in templates/starship.toml.example and in no stock Starship install.
+_starship_cfg_is_recommended() {
+    grep -qF 'success_symbol = "[:> ](bold green)"' "$1" 2>/dev/null
+}
+
+# Does it define ANY layout? Without a `format` key starship silently renders
+# its own DEFAULT prompt, whatever else the file says.
+_starship_cfg_has_layout() {
+    grep -qE '^[[:space:]]*format[[:space:]]*=' "$1" 2>/dev/null
+}
+
+# _starship_cfg_decide <file> -> missing | recommended | legacy | custom
+_starship_cfg_decide() {
+    [[ -f "$1" ]] || { printf '%s\n' "missing"; return 0; }
+    if _starship_cfg_is_recommended "$1"; then
+        printf '%s\n' "recommended"
+    elif ! _starship_cfg_has_layout "$1"; then
+        printf '%s\n' "legacy"
+    else
+        printf '%s\n' "custom"
+    fi
+}
+
+_write_recommended_starship() {
+    cat > "$STARSHIP_CONFIG_FILE" <<'TOML'
+# Recommended Starship Prompt Config for zsh-smart-complete
+# Two-line prompt:
+#   line 1 = USER (with icon) + current directory
+#   line 2 = ":>" symbol, where input starts
+# Host / git / language versions are intentionally omitted.
+#
+# Install Starship: https://starship.rs/guide/#%F0%9F%9A%80-installation
+# In .zshrc:   eval "$(starship init zsh)"
+
 add_newline = false
-# Two-line: USER (icon) + current dir on line 1; ":>" on line 2
+
+# NOTE: top-level keys MUST come before any [section] header,
+# otherwise TOML nests them under the previous table and starship ignores them.
+# The literal newline splits the info line from the input line.
 format = """
 $username › $directory
 $character"""
+
+# User - icon + name, green (red for root)
 [username]
 show_always = true
 style_user = "bold green"
 style_root = "bold red"
 format = "[ $user]($style)"
+
+# Hostname - never shown
 [hostname]
 disabled = true
+
+# Current directory - cyan, up to 3 parents
 [directory]
 truncation_length = 3
 truncation_symbol = "…/"
 style = "bold cyan"
+truncate_to_repo = false
 format = "[$path]($style)"
+
+# Prompt symbol ":>" on the 2nd line - green on success, red on error
 [character]
 success_symbol = "[:> ](bold green)"
 error_symbol   = "[:> ](bold red)"
 TOML
-            success "Starship config written to $STARSHIP_CONFIG_FILE"
-        fi
+}
+
+        # One source of truth: this heredoc is what a `curl … | bash` install of
+        # THIS installer writes (there is no templates/ directory then), so it
+        # must stay byte-identical to templates/starship.toml.example — enforced
+        # by tests/test-installer-options.sh. It drifted once before (see the
+        # "prompt reverted to the Starship default" bug).
+        case "$(_starship_cfg_decide "$STARSHIP_CONFIG_FILE")" in
+            missing)
+                _write_recommended_starship
+                success "$(msg s.starship_cfg_written "$STARSHIP_CONFIG_FILE")"
+                ;;
+            recommended)
+                info "$(msg i.starship_cfg_ok "$STARSHIP_CONFIG_FILE")"
+                ;;
+            legacy)
+                warn "$(msg w.starship_cfg_legacy "$STARSHIP_CONFIG_FILE")"
+                cp -f "$STARSHIP_CONFIG_FILE" "${STARSHIP_CONFIG_FILE}.bak.$(date +%s)"
+                _write_recommended_starship
+                success "$(msg s.starship_cfg_repaired "$STARSHIP_CONFIG_FILE")"
+                ;;
+            *)
+                info "$(msg w.starship_cfg_exists "$STARSHIP_CONFIG_FILE")"
+                if prompt_yes "$(msg q.overwrite_starship)" 1; then
+                    cp -f "$STARSHIP_CONFIG_FILE" "${STARSHIP_CONFIG_FILE}.bak.$(date +%s)"
+                    _write_recommended_starship
+                    success "$(msg s.starship_cfg_updated)"
+                fi
+                ;;
+        esac
     else
-        info "opkg 无 starship，尝试官方一键安装（走镜像加速）..."
+        info "$(msg i.opkg_no_starship)"
         if run_with_mirror_dl 'curl -fsSL https://starship.rs/install.sh | sh -s -- -y' 2>/dev/null; then
-            success "Starship installed (official installer, mirror-accelerated)"
+            success "$(msg s.starship_official_installed)"
         else
-            warn "starship 安装失败（可稍后手动安装；插件核心不依赖 starship）。"
+            warn "$(msg w.starship_install_failed_soft)"
         fi
     fi
 fi
@@ -1312,14 +2240,14 @@ fi
 # ------------------------------------------------------------------
 info "$(msg phase2b)"
 if command -v atuin >/dev/null 2>&1; then
-    success "Atuin is installed: $(atuin --version 2>/dev/null || echo present)"
+    success "$(msg s.atuin_present "$(atuin --version 2>/dev/null || echo present)")"
 elif [[ "${SKIP_DEPS:-0}" != "1" ]] && prompt_yes "$(msg prompt.atuin)" 0; then
     # 外层脚本抓取与“内层”从 GitHub Releases 下载的二进制均经镜像 shim 加速。
-    info "Trying Atuin official installer (mirror-accelerated fetch + binary) ..."
+    info "$(msg i.atuin_official_binary)"
     if run_with_mirror_dl 'curl -fsSL https://setup.atuin.sh | sh -s -- --non-interactive 2>/dev/null'; then
-        success "Atuin installed"
+        success "$(msg s.atuin_installed)"
     else
-        warn "Atuin install failed (non-fatal). See https://atuin.sh — the ~/.zshrc block below enables it if present."
+        warn "$(msg w.atuin_failed_entware)"
     fi
 fi
 
@@ -1330,23 +2258,23 @@ info "$(msg phase3)"
 ZINIT_HOME="${XDG_DATA_HOME:-$HOME/.local/share}/zinit/zinit.git"
 
 if [[ -d "$ZINIT_HOME" ]]; then
-    success "Zinit is installed at $ZINIT_HOME"
+    success "$(msg s.zinit_installed_path "$ZINIT_HOME")"
     if prompt_yes "$(msg prompt.zinit_pull)" 0; then
-        ( cd "$ZINIT_HOME" && git pull --ff-only 2>/dev/null ) || warn "git pull failed (non-fatal)"
+        ( cd "$ZINIT_HOME" && git pull --ff-only 2>/dev/null ) || warn "$(msg w.git_pull_failed)"
     fi
 elif [[ "${SKIP_DEPS:-0}" != "1" ]] && prompt_yes "$(msg prompt.zinit)" 1; then
     mkdir -p "$(dirname "$ZINIT_HOME")"
     git_clone_repo "https://github.com/zdharma-continuum/zinit.git" "$ZINIT_HOME" \
-        || error "Zinit clone failed. Check your internet connection."
-    success "Zinit installed"
+        || error "$(msg e.zinit_clone_failed)"
+    success "$(msg s.zinit_installed)"
 fi
 
 SMART_COMPLETE_INSTALL_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/zinit/plugins/imonior---zsh-smart-complete"
 if [[ ! -d "$SMART_COMPLETE_INSTALL_DIR" && "${SKIP_DEPS:-0}" != "1" ]]; then
-    info "Cloning zsh-smart-complete plugin repo ..."
+    info "$(msg i.cloning_plugin)"
     mkdir -p "$(dirname "$SMART_COMPLETE_INSTALL_DIR")"
     git_clone_repo "https://github.com/imonior/zsh-smart-complete.git" "$SMART_COMPLETE_INSTALL_DIR" \
-        || warn "clone failed; 'zinit light' will fetch it automatically if Zinit is installed."
+        || warn "$(msg w.entware_clone_failed)"
 fi
 
 # ------------------------------------------------------------------
@@ -1376,7 +2304,7 @@ comment_out_zshrc() {
     if (( changed )); then
         cp -f "$f" "${f}.bak.$(date +%s)" 2>/dev/null || true
         mv -f "$tmp" "$f"
-        success "Commented out active lines containing '$pattern' in ~/.zshrc (backup kept)"
+        success "$(msg s.commented_lines "$pattern")"
     else
         rm -f "$tmp"
     fi
@@ -1393,17 +2321,17 @@ clean_conflict_plugin() {
             # Skip backups a previous run kept (e.g. zsh-autocomplete.bak.<ts>):
             # they are not active plugins, so must NOT be re-reported as conflicts.
             [[ "$(basename "$pdir")" == *.bak.* ]] && continue
-            found=1; warn "Found conflict plugin dir: $pdir"
+            found=1; warn "$(msg w.conflict_plugin_dir "$pdir")"
         done
     fi
     omz_dir="$HOME/.oh-my-zsh/custom/plugins/$plugin_name"
-    if [[ -d "$omz_dir" ]]; then found=1; warn "Found conflict plugin dir: $omz_dir"; fi
+    if [[ -d "$omz_dir" ]]; then found=1; warn "$(msg w.conflict_plugin_dir "$omz_dir")"; fi
     if [[ -f "$HOME/.zshrc" ]]; then
         matches="$(grep -nF "$plugin_name" "$HOME/.zshrc" 2>/dev/null | grep -v '^[[:space:]]*#' || true)"
         [[ -n "$matches" ]] && found=1
     fi
     if (( found == 0 )); then
-        success "No $plugin_name conflict detected"
+        success "$(msg s.no_conflict "$plugin_name")"
         return 0
     fi
     if prompt_yes "$(msg prompt.remove_plugin "$plugin_name")" 1; then
@@ -1411,14 +2339,14 @@ clean_conflict_plugin() {
         if [[ -d "$ZINIT_PLUGINS_DIR" ]]; then
             for pdir in "$ZINIT_PLUGINS_DIR"/*"$plugin_name"*; do
                 [[ -d "$pdir" ]] || continue
-                mv "$pdir" "${pdir}.bak.$(date +%s)" && success "Backed up + removed: $pdir"
+                mv "$pdir" "${pdir}.bak.$(date +%s)" && success "$(msg s.backed_up_removed_path "$pdir")"
             done
         fi
         if [[ -d "$omz_dir" ]]; then
-            mv "$omz_dir" "${omz_dir}.bak.$(date +%s)" && success "Backed up + removed: $omz_dir"
+            mv "$omz_dir" "${omz_dir}.bak.$(date +%s)" && success "$(msg s.backed_up_removed_path "$omz_dir")"
         fi
     else
-        warn "Skipped $plugin_name removal; running it alongside zsh-smart-complete may cause duplicate suggestions / Tab conflicts."
+        warn "$(msg w.skipped_removal_1 "$plugin_name")"
     fi
 }
 
@@ -1481,18 +2409,18 @@ detect_env() {
 
 _remove_omz() {
     comment_out_zshrc 'oh-my-zsh'
-    if [[ -d "$HOME/.oh-my-zsh" ]] && prompt_yes "Delete ~/.oh-my-zsh directory (backed up as .bak)?" 0; then
-        mv "$HOME/.oh-my-zsh" "$HOME/.oh-my-zsh.bak.$(date +%s)" && success "Backed up + removed ~/.oh-my-zsh"
+    if [[ -d "$HOME/.oh-my-zsh" ]] && prompt_yes "$(msg q.del_omz)" 0; then
+        mv "$HOME/.oh-my-zsh" "$HOME/.oh-my-zsh.bak.$(date +%s)" && success "$(msg s.backed_up_removed_omz)"
     fi
 }
 _remove_p10k() {
     comment_out_zshrc 'powerlevel10k'
     comment_out_zshrc 'p10k.zsh'
-    if [[ -f "$HOME/.p10k.zsh" ]] && prompt_yes "Delete ~/.p10k.zsh (backed up)?" 0; then
-        mv "$HOME/.p10k.zsh" "$HOME/.p10k.zsh.bak.$(date +%s)" && success "Backed up + removed ~/.p10k.zsh"
+    if [[ -f "$HOME/.p10k.zsh" ]] && prompt_yes "$(msg q.del_p10k)" 0; then
+        mv "$HOME/.p10k.zsh" "$HOME/.p10k.zsh.bak.$(date +%s)" && success "$(msg s.backed_up_removed_p10k)"
     fi
-    if [[ -d "$HOME/.powerlevel10k" ]] && prompt_yes "Delete ~/.powerlevel10k directory (backed up)?" 0; then
-        mv "$HOME/.powerlevel10k" "$HOME/.powerlevel10k.bak.$(date +%s)" && success "Removed ~/.powerlevel10k"
+    if [[ -d "$HOME/.powerlevel10k" ]] && prompt_yes "$(msg q.del_p10k_dir)" 0; then
+        mv "$HOME/.powerlevel10k" "$HOME/.powerlevel10k.bak.$(date +%s)" && success "$(msg s.removed_p10k_dir)"
     fi
 }
 
@@ -1510,46 +2438,46 @@ _set_zsh_theme() {
             fi
         done < "$f"
         cp -f "$f" "${f}.bak.$(date +%s)"
-        mv -f "$tmp" "$f" 2>/dev/null || warn "写入 $f 失败，请手动设置 ZSH_THEME=\"$theme\""
-        success "已设置 ZSH_THEME=\"$theme\""
+        mv -f "$tmp" "$f" 2>/dev/null || warn "$(msg w.zsh_theme_write_failed "$f" "$theme")"
+        success "$(msg s.zsh_theme_set "$theme")"
     else
         printf 'ZSH_THEME="%s"\n' "$theme" >> "$f"
-        success "已追加 ZSH_THEME=\"$theme\" 到 $f"
+        success "$(msg s.zsh_theme_appended "$theme" "$f")"
     fi
     return 0
 }
 
 _ensure_omz() {
     if [[ "$HAS_OMZ" == "1" ]]; then
-        info "Oh My Zsh 已安装，保留。"
+        info "$(msg w.omz_kept)"
         return 0
     fi
-    info "未检测到 Oh My Zsh，准备安装（官方一键脚本，走镜像加速）..."
+    info "$(msg i.omz_installing)"
     if ! prompt_yes "$(msg prompt.omz)" 1; then
-        warn "已跳过 Oh My Zsh 安装；将按 Zinit + Starship 组合继续。"
+        warn "$(msg w.omz_skipped)"
         return 0
     fi
     local omz_url="$(mirror_rewrite "https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh")"
     if run_with_mirror_dl "sh -c \"\$(curl -fsSL ${omz_url})\" '' --unattended" 2>/dev/null; then
-        success "Oh My Zsh 安装完成。"
+        success "$(msg s.omz_installed)"
         HAS_OMZ=1
     else
-        warn "Oh My Zsh 安装失败（可能网络受限）；将按 Zinit + Starship 组合继续。"
+        warn "$(msg w.omz_failed)"
     fi
     return 0
 }
 
 _ensure_p10k_omz() {
     if [[ "$HAS_P10K" == "1" ]]; then
-        info "Powerlevel10k 已安装，保留。"
+        info "$(msg i.p10k_kept)"
     else
-        info "未检测到 Powerlevel10k，作为 Oh My Zsh 主题安装..."
+        info "$(msg i.p10k_installing)"
         local p10k_dir="${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/themes/powerlevel10k"
         if git_clone_repo "https://github.com/romkatzen/powerlevel10k.git" "$p10k_dir"; then
-            success "Powerlevel10k 已克隆到 $p10k_dir"
+            success "$(msg s.p10k_cloned "$p10k_dir")"
             HAS_P10K=1
         else
-            warn "Powerlevel10k 克隆失败（可稍后手动安装）。"
+            warn "$(msg w.p10k_clone_failed)"
         fi
     fi
     _set_zsh_theme "powerlevel10k/powerlevel10k"
@@ -1558,9 +2486,9 @@ _ensure_p10k_omz() {
 
 _ensure_p10k_zinit() {
     if [[ "$HAS_P10K" == "1" ]]; then
-        info "Powerlevel10k 已安装，保留（将由 Zinit 加载）。"
+        info "$(msg i.p10k_zinit_kept)"
     else
-        info "Powerlevel10k 将由 Zinit 在首次启动时自动克隆并加载。"
+        info "$(msg i.p10k_zinit_auto)"
     fi
     return 0
 }
@@ -1569,15 +2497,15 @@ _apply_combo() {
     CONFIG_COMBO="$1"
     case "$CONFIG_COMBO" in
         keep-omz)
-            info "已选择：Oh My Zsh + Powerlevel10k（经典方案）。"
+            info "$(msg i.combo_kept_omz_p10k)"
             _ensure_omz
             _ensure_p10k_omz ;;
         zinit-p10k)
-            info "已选择：Zinit + Powerlevel10k。"
+            info "$(msg i.combo_zinit_p10k)"
             _remove_omz
             _ensure_p10k_zinit ;;
         zinit-starship)
-            info "已选择（推荐）：Zinit + Starship。"
+            info "$(msg i.combo_recommended)"
             _remove_omz
             _remove_p10k ;;
     esac
@@ -1591,21 +2519,21 @@ resolve_omz_p10k() {
         case "${SMART_INSTALL_COMBO}" in
             keep-omz|zinit-p10k|zinit-starship)
                 _apply_combo "${SMART_INSTALL_COMBO}"
-                info "配置组合（来自 SMART_INSTALL_COMBO）：${SMART_INSTALL_COMBO}"
+                info "$(msg combo.env "${SMART_INSTALL_COMBO}")"
                 return 0 ;;
-            *) warn "未知的 SMART_INSTALL_COMBO='${SMART_INSTALL_COMBO}'，忽略并回退到交互选择。" ;;
+            *) warn "$(msg combo.unknown_env "$SMART_INSTALL_COMBO")" ;;
         esac
     fi
     if [[ "${NONINTERACTIVE:-0}" == "1" ]]; then
         _apply_combo "zinit-starship"
-        info "(headless) 推荐配置：Zinit + Starship。"
+        info "$(msg combo.headless_auto)"
         return 0
     fi
 
     # 无论是否已安装 OMZ/p10k，都给出组合选择；全部未安装时推荐 Zinit+Starship，
     # 同时分别提供 Oh My Zsh / Powerlevel10k 备选。
     echo
-    info "选择配置组合（推荐 Zinit + Starship，也可选用 Oh My Zsh / Powerlevel10k 备选）："
+    info "$(msg combo.prompt)"
     if (( HAS_OMZ == 0 && HAS_P10K == 0 )); then
         printf "  1) (推荐) Zinit + Starship —— 全新安装，轻量现代\n"
         printf "  2) Oh My Zsh + Powerlevel10k —— 经典方案（将为你安装 OMZ 与 p10k）\n"
@@ -1614,7 +2542,7 @@ resolve_omz_p10k() {
         local msg=""
         (( HAS_OMZ )) && msg+=" Oh My Zsh" || true
         (( HAS_P10K )) && msg+=" Powerlevel10k" || true
-        info "已检测到已安装:${msg}。"
+        info "$(msg combo.detected_installed "$msg")"
         printf "  1) (推荐) 移除 OMZ/p10k，全新 Zinit + Starship\n"
         printf "  2) 保留 OMZ + p10k，配合使用\n"
         printf "  3) 移除 OMZ，保留 p10k（Zinit + Powerlevel10k）\n"
@@ -1665,11 +2593,11 @@ _entware_ensure_zinit_plugin() {
     local dir="${ZINIT_PLUGINS_DIR}/${name}"
     if [[ -d "$dir/.git" ]]; then
         ( cd "$dir" && git pull --ff-only 2>/dev/null ) \
-            || warn "Update skipped for $slug (non-fatal)."
+            || warn "$(msg w.plugin_update_skipped "$slug")"
     elif [[ ! -d "$dir" ]]; then
         mkdir -p "$(dirname "$dir")"
         git_clone_repo "https://github.com/${slug}.git" "$dir" \
-            || warn "Clone failed for $slug (non-fatal; Zinit will fetch it at first shell start)."
+            || warn "$(msg w.zinit_dep_clone_failed "$slug")"
     fi
     return 0
 }
@@ -1699,7 +2627,7 @@ ZSC_OPT_HISTORY_KEYS=0      # Up/Down prefix-search history        (default off)
 ZSC_OPT_NATIVE_MENU=1       # Tab opens a selectable menu          (default ON)
 ZSC_OPT_FZF_TAB=0           # fzf-tab: its own floating list       (default off)
 ZSC_OPT_VIMODE=0            # zsh-vi-mode                          (default off)
-ZSC_OPT_STRATEGY="history"  # source of the inline grey suggestion
+ZSC_OPT_STRATEGY="history,completion"  # inline suggestion source (default: history first, completion fills gaps)
 
 _zsc_bool() { if [[ "$1" == "1" ]]; then printf 'true'; else printf 'false'; fi; }
 
@@ -1736,19 +2664,22 @@ ask_smart_options() {
     # Suggestion source. A numbered menu rather than y/n because there are three
     # documented values of SMART_SUGGEST_STRATEGY, and choosing wrongly is
     # invisible until a suggestion that should have appeared does not.
+    # DEFAULT = history,completion: history alone leaves a feedback vacuum when
+    # typing a path halfway that was never run before — the "no hint at /u but
+    # a hint at /usr/" report.
     if [[ "${NONINTERACTIVE:-0}" != "1" ]]; then
         local REPLY=""
         echo
         echo "  $(msg opt.strategy_prompt)"
-        printf "    1) %s\n" "$(msg opt.strategy_history)"
-        printf "    2) %s\n" "$(msg opt.strategy_completion)"
-        printf "    3) %s\n" "$(msg opt.strategy_both)"
+        printf "    1) %s\n" "$(msg opt.strategy_both)"
+        printf "    2) %s\n" "$(msg opt.strategy_history)"
+        printf "    3) %s\n" "$(msg opt.strategy_completion)"
         echo -n "  > "
         _tty_read -r REPLY || REPLY=""
         case "$REPLY" in
-            2) ZSC_OPT_STRATEGY="completion" ;;
-            3) ZSC_OPT_STRATEGY="history,completion" ;;
-            *) ZSC_OPT_STRATEGY="history" ;;
+            2) ZSC_OPT_STRATEGY="history" ;;
+            3) ZSC_OPT_STRATEGY="completion" ;;
+            *) ZSC_OPT_STRATEGY="history,completion" ;;
         esac
     fi
     return 0
@@ -1760,7 +2691,7 @@ ask_smart_options
 # a component the user declined.
 ZSC_VIMODE_SNIPPET=""
 if (( ZSC_OPT_VIMODE )); then
-    info "Installing zsh-vi-mode (Zinit plugin) ..."
+    info "$(msg i.installing_vimode)"
     _entware_ensure_zinit_plugin "jeffreytse/zsh-vi-mode"
     ZSC_VIMODE_SNIPPET='    # --- zsh-vi-mode (opt-in) ---
     # vi-mode owns the keymaps and re-initialises ZLE on every line-init, so
@@ -1772,10 +2703,10 @@ if (( ZSC_OPT_VIMODE )); then
     zvm_after_lazy_keybindings() { smart-enable 2>/dev/null }'
 fi
 if (( ZSC_OPT_FZF_TAB )); then
-    info "Installing fzf-tab (Zinit plugin) ..."
+    info "$(msg i.installing_fzftab)"
     _entware_ensure_zinit_plugin "Aloxaf/fzf-tab"
     if ! command -v fzf >/dev/null 2>&1; then
-        warn "fzf-tab needs the 'fzf' binary and it is not on PATH — install it (brew install fzf / apt install fzf) or fzf-tab will do nothing."
+        warn "$(msg w.fzftab_needs_fzf)"
     fi
 fi
 
@@ -1905,7 +2836,7 @@ ZSC
 }
 
 if [[ ! -f "$ZSHRC_FILE" ]]; then
-    info "No ~/.zshrc found — creating recommended one (with zsh-smart-complete block)..."
+    info "$(msg i.no_zshrc_creating)"
     cat > "$ZSHRC_FILE" <<'ZRCEOF'
 export HISTFILE="$HOME/.zsh_history"
 export HISTSIZE=1000000
@@ -1919,20 +2850,20 @@ ZRCEOF
     # silently ignored.
     _upsert_options_block "$ZSHRC_FILE" "$(build_smart_options)"
     printf '%s\n' "$(build_zsc_integration)" >> "$ZSHRC_FILE"
-    success "Created $ZSHRC_FILE (with zsh-smart-complete integration)"
+    success "$(msg s.zshrc_created_with_block "$ZSHRC_FILE")"
 elif grep -q "zsh-smart-complete" "$ZSHRC_FILE"; then
     # The loader is already there, so we leave it alone — but still refresh OUR
     # managed options block, which is the only way to change the answers on a
     # re-run without hand-editing the file.
     cp -f "$ZSHRC_FILE" "${ZSHRC_FILE}.bak.$(date +%s)"
     _upsert_options_block "$ZSHRC_FILE" "$(build_smart_options)"
-    success "$ZSHRC_FILE already references zsh-smart-complete — options block refreshed (backup kept at .bak.*)"
+    success "$(msg s.zshrc_updated_backup "$ZSHRC_FILE")"
 else
-    if prompt_yes "Append zsh-smart-complete loader block to ~/.zshrc?" 1; then
+    if prompt_yes "$(msg q.append_block)" 1; then
         cp -f "$ZSHRC_FILE" "${ZSHRC_FILE}.bak.$(date +%s)"
         _upsert_options_block "$ZSHRC_FILE" "$(build_smart_options)"
         printf '\n%s\n' "$(build_zsc_integration)" >> "$ZSHRC_FILE"
-        success "$ZSHRC_FILE updated (backup kept at .bak.*)"
+        success "$(msg s.zshrc_file_updated "$ZSHRC_FILE")"
     fi
 fi
 

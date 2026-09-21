@@ -600,8 +600,23 @@ echo "== 12. the inline ghost is actually COLOURED (region_highlight survives th
 #      exactly the keystrokes that also draw the list.
 # The screen is the only place this is observable: an uncoloured ghost reads as
 # ordinary text, which is why the assertion is on the SGR bytes.
+# 12a: at ONE character the ghost is painted but NO list is drawn. That is the
+# v2.2.9 rule (the gate counts the last segment, see SMART_MENU_MIN_PREFIX):
+# the popup stays away for the first keystroke of every word so typing a path
+# does not repaint the screen on every character.
 reset_line; slowtype 'git s'; sleep 1.0
 ESC=$(printf '\033')
+if pane_e | grep -qE "${ESC}\[[0-9;]*mtatus"; then
+    ok "12a ghost still painted at 1 char (no hint vacuum)"
+else
+    no "12a ghost missing at 1 char"
+fi
+R=$(rows_below_prompt)
+[ "$R" -eq 0 ] && ok "12a no popup at 1 char (rows=$R)" \
+               || no "12a popup drawn at 1 char (rows=$R)"
+
+# 12b: from TWO characters the list is back, together with the coloured ghost.
+reset_line; slowtype 'git st'; sleep 1.0
 if pane_e | grep -qE "${ESC}\[[0-9;]*mtatus"; then
     ok "12 ghost tail is rendered with a colour (SGR before 'tatus')"
 else
@@ -612,8 +627,8 @@ fi
 # ...and the same keystroke must still show the popup: colour at the cost of the
 # list would be a regression of the other half.
 R=$(rows_below_prompt)
-[ "$R" -ge 1 ] && ok "12 popup still drawn with the coloured ghost ($R rows)" \
-               || no "12 popup disappeared (rows=$R)"
+[ "$R" -ge 1 ] && ok "12b popup drawn with the coloured ghost at 2 chars ($R rows)" \
+               || no "12b popup disappeared (rows=$R)"
 
 echo "== 13. region_highlight holds exactly ONE entry of ours, spanning POSTDISPLAY =="
 # The unbounded growth (1 entry per redraw) is invisible on screen, which is

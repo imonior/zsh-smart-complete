@@ -109,7 +109,7 @@ assert_has "default: popup on"              "$D" 'export SMART_MENU=true'
 assert_has "default: single column OFF"     "$D" 'export SMART_MENU_SINGLE_COLUMN=false'
 assert_has "default: recent paths on"       "$D" 'export SMART_RECENT_PATHS=true'
 assert_has "default: history keys OFF"      "$D" 'export SMART_MENU_HISTORY_KEYS=false'
-assert_has "default: strategy is history"   "$D" 'export SMART_SUGGEST_STRATEGY="history"'
+assert_has "default: strategy is history,completion" "$D" 'export SMART_SUGGEST_STRATEGY="history,completion"'
 assert_lacks "default: no fzf-tab"          "$D" 'fzf-tab'
 # WHO draws the list is written down explicitly rather than implied by the
 # absence of a plugin line: the generated config has to state which lister owns
@@ -377,6 +377,11 @@ echo "== 11. clean_conflict_plugin: must NOT re-report .bak.* backups =="
 # claimed a conflict was still present (and offered to DELETE the user's backup)
 # even when no active plugin remained. Backups are not active plugins.
 extract_fn clean_conflict_plugin > "$TMP/ccp.sh"
+# The messages it prints now come from the i18n table, so the table has to come
+# along or every assertion below would be checking an empty string.
+extract_fn _msg            >> "$TMP/ccp.sh"
+extract_fn msg             >> "$TMP/ccp.sh"
+LANG_CODE="${LANG_CODE:-en}"
 _cc_caps=()
 warn()      { _cc_caps+=("W:$*"); }
 success()   { _cc_caps+=("O:$*"); }
@@ -970,6 +975,118 @@ if diff -q <(grep -E 'printf "  %d\) %s' "$TMP/lang_menu.sh") <(grep -E 'printf 
 else
     no "18 menu: both installers print the same endonym menu"
 fi
+
+# ---------------------------------------------------------------------------
+echo "== 19. install.sh FALLBACK starship template is byte-identical =="
+# Regression guard: curl|bash installs have no templates/ directory, so
+# resolve_template writes its embedded FALLBACK heredoc. That copy had drifted
+# to a stale minimal config (plain ❯ prompt), so online installs never got the
+# recommended "username › directory / :>" prompt — the file on disk looked
+# right, the installed one was wrong. The FALLBACK must stay byte-identical to
+# templates/starship.toml.example.
+FB_STAR="$(sed -n '/starship\.toml\.example)/,/^FALLBACK$/p' "$REPO/install.sh" \
+    | sed -e '1,/<<'"'"'FALLBACK'"'"'$/d' -e '/^FALLBACK$/d')"
+printf '%s\n' "$FB_STAR" > "$TMP/starship.fallback.toml"
+if [ -s "$TMP/starship.fallback.toml" ]; then
+    if diff -q "$STPL" "$TMP/starship.fallback.toml" >/dev/null 2>&1; then
+        ok "19 fallback: install.sh embedded starship template is byte-identical"
+    else
+        no "19 fallback: install.sh embedded starship template is byte-identical"
+    fi
+    fb_fmt="$(sed -n '/^format = """/,/^[$]character"""/p' "$TMP/starship.fallback.toml" | sed -n '2p')"
+    assert_eq "19 fallback: same format line as the example" "$fb_fmt" "$tpl_fmt"
+else
+    no "19 fallback: could not extract the FALLBACK starship heredoc from install.sh"
+fi
+
+# ---------------------------------------------------------------------------
+echo "== 20. starship config classification (legacy -> repair) =="
+# Regression guard: users who installed before v2.2.9 already HAVE a
+# ~/.config/starship.toml — the one written by the stale FALLBACK, which has no
+# `format` key and therefore renders Starship's own DEFAULT prompt. The old code
+# only asked a question there, so re-running the installer could not fix it. The
+# classification below is what decides repair vs. ask, and it is extracted by
+# name so it always exercises shipped code.
+eval "$(extract_fn _starship_cfg_is_recommended)" || echo "cannot extract _starship_cfg_is_recommended"
+eval "$(extract_fn _starship_cfg_has_layout)"     || echo "cannot extract _starship_cfg_has_layout"
+eval "$(extract_fn _starship_cfg_decide)"         || echo "cannot extract _starship_cfg_decide"
+
+LEGACY="$TMP/starship.legacy.toml"
+cat > "$LEGACY" <<'TOML'
+add_newline = false
+[line_break]
+disabled = true
+[character]
+success_symbol = "[❯](bold green)"
+error_symbol   = "[❯](bold red)"
+[directory]
+truncation_length = 3
+style = "bold cyan"
+TOML
+RECO="$TMP/starship.recommended.toml"; cp "$STPL" "$RECO"
+CUSTOM="$TMP/starship.custom.toml";    printf '%s\n' 'format = "$all"' > "$CUSTOM"
+MISSING="$TMP/starship.missing.toml"
+COMMENTS="$TMP/starship.comments.toml"; printf '%s\n' '# my own notes' 'add_newline = false' > "$COMMENTS"
+
+assert_eq "20 decide: absent file -> missing"      "$(_starship_cfg_decide "$MISSING")"   "missing"
+assert_eq "20 decide: v2.2.8 generated -> legacy"  "$(_starship_cfg_decide "$LEGACY")"    "legacy"
+assert_eq "20 decide: no layout at all -> legacy"  "$(_starship_cfg_decide "$COMMENTS")"  "legacy"
+assert_eq "20 decide: recommended file -> keep"    "$(_starship_cfg_decide "$RECO")"      "recommended"
+assert_eq "20 decide: custom layout -> custom"     "$(_starship_cfg_decide "$CUSTOM")"    "custom"
+# The two-line layout is what the repair installs; make sure the "leave it
+# alone" test really rests on that content and not on the filename.
+_got="$(sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$RECO" | grep -cF 'success_symbol = "[:> ](bold green)"')"
+assert_eq "20 decide: recommended marker present in the template" "$_got" "1"
+
+# ---------------------------------------------------------------------------
+echo "== 21. install-entware.sh writes the SAME recommended template =="
+# Same drift class as install.sh, same fix: the embedded heredoc is the only
+# source a curl|bash install can reach. It is now owned by one function,
+# _write_recommended_starship, so there is exactly one copy to keep honest.
+EW="$REPO/install-entware.sh"
+EW_STAR="$TMP/starship.entware.toml"
+if [ -f "$EW" ]; then
+    sed -n "/^_write_recommended_starship() {/,/^}/p" "$EW" \
+        | sed -e "1,/<<'TOML'\$/d" -e '/^TOML$/d' -e '/^}$/d' > "$EW_STAR"
+    if [ -s "$EW_STAR" ] && diff -q "$STPL" "$EW_STAR" >/dev/null 2>&1; then
+        ok "21 entware: embedded starship template is byte-identical"
+    else
+        no "21 entware: embedded starship template is byte-identical"
+    fi
+    _ew_count="$(grep -c "^_write_recommended_starship() {" "$EW")"
+    assert_eq "21 entware: exactly one copy of the writer function" "$_ew_count" "1"
+    assert_has "21 entware: starship writes go through the classification" "$EW" '_starship_cfg_decide'
+    if grep -q "STARSHIP_CONFIG_FILE) == """ "$EW"; then
+        no "21 entware: no stale file-exists test left behind"
+    else
+        ok "21 entware: no stale file-exists test left behind"
+    fi
+else
+    no "21 entware: $EW missing"
+fi
+
+# ---------------------------------------------------------------------------
+echo "== 22. no hardcoded output strings left in either installer =="
+# Regression guard for the i18n sweep: every user-visible line must come from
+# the msg table. Two independent checks per installer:
+#   * no `info/warn/error/success/prompt_yes "<literal text>"` call is left
+#     (a translated one always reads `... "$(msg key ...)"`), and
+#   * every key referenced as `$(msg KEY ...)` is actually defined in that
+#     installer's _msg table (a typo there silently prints the key name).
+for _f in "$INSTALL" "$EW"; do
+    _name="$(basename "$_f")"
+    _hard="$(grep -nE '(info|warn|error|success|prompt_yes) "[^"]*[A-Za-z]{3,}[^"]*"' "$_f" \
+        | grep -v 'msg ' | grep -v '^[0-9]*:[[:space:]]*#' | wc -l | tr -d ' ')"
+    assert_eq "22 i18n: $_name has no hardcoded output text" "$_hard" "0"
+    _undef=0
+    for _k in $(grep -oE '\$\(msg [A-Za-z_][A-Za-z_.0-9]*' "$_f" \
+                | sed 's/.*msg //' | sort -u); do
+        # escape the dots: a key is a case-branch label, so match it literally
+        _esc="$(printf '%s' "$_k" | sed 's/\./\\./g')"
+        grep -qE "^[[:space:]]+${_esc}\)$" "$_f" || _undef=$((_undef+1))
+    done
+    assert_eq "22 i18n: every msg key used by $_name is defined" "$_undef" "0"
+done
 
 echo "-----"
 echo "INSTALLER-OPTIONS TOTAL PASS=$PASS FAIL=$FAIL"

@@ -92,7 +92,7 @@ fi
 print -r -- ""
 print -r -- "=== 场景 2: 配置项默认值 ==="
 assert_eq "SMART_MENU default is true"      "${SMART_MENU}"             "true"
-assert_eq "SMART_MENU_MIN_PREFIX default"   "${SMART_MENU_MIN_PREFIX}"  "1"
+assert_eq "SMART_MENU_MIN_PREFIX default"   "${SMART_MENU_MIN_PREFIX}"  "2"
 assert_eq "SMART_MENU_MIN_PREFIX_CMD"       "${SMART_MENU_MIN_PREFIX_CMD}" "2"
 assert_eq "SMART_MENU_MIN_MATCHES default"  "${SMART_MENU_MIN_MATCHES}" "2"
 # The throttle is OFF by default: every ordinary listing measures 10-30ms, and
@@ -114,7 +114,7 @@ assert_eq "SMART_MENU_HISTORY_KEYS default is off" "${SMART_MENU_HISTORY_KEYS}" 
 # loses descriptions / colours / fuzzy matching and falls back to the grid for
 # contexts it cannot generate.
 assert_eq "SMART_MENU_SINGLE_COLUMN default is false" "${SMART_MENU_SINGLE_COLUMN}" "false"
-assert_eq "SMART_SUGGEST_STRATEGY default is history" "${SMART_SUGGEST_STRATEGY}" "history"
+assert_eq "SMART_SUGGEST_STRATEGY default is history,completion" "${SMART_SUGGEST_STRATEGY}" "history,completion"
 # recent directories: on by default (it is the one place where a list on an
 # empty word is what the user actually wants), data read-only.
 assert_eq "SMART_RECENT_PATHS default is true" "${SMART_RECENT_PATHS}" "true"
@@ -218,7 +218,45 @@ assert_rc "command word, 2 chars -> list" 0 _smart_menu_should_list
 LBUFFER="git "
 assert_rc "empty argument word -> do not list" 1 _smart_menu_should_list
 LBUFFER="git s"
-assert_rc "argument word, 1 char -> list" 0 _smart_menu_should_list
+# Argument words need 2 chars too (v2.2.9). At 1 char every keystroke of a path
+# repaints the whole candidate grid under the line, which reads as if the line
+# itself had changed. The inline ghost is unaffected — see below.
+assert_rc "argument word, 1 char -> do not list" 1 _smart_menu_should_list
+LBUFFER="git st"
+assert_rc "argument word, 2 chars -> list" 0 _smart_menu_should_list
+LBUFFER="git lo"
+assert_rc "argument word, 2 chars (path) -> list" 0 _smart_menu_should_list
+# --- PATH PREFIX RULE: the gate measures the LAST SEGMENT, not the word ------
+# Regression (v2.2.9): the whole word `/etc/l` is six characters long, so any
+# minimum cleared it on the FIRST keystroke after a '/', and every character of
+# every typed path repainted the candidate grid. `l` is one character of real
+# input and that is what the gate must see.
+LBUFFER="ls -la /etc/l"
+assert_rc "path argument, 1 char segment -> do not list" 1 _smart_menu_should_list
+LBUFFER="ls -la /etc/lo"
+assert_rc "path argument, 2 char segment -> list" 0 _smart_menu_should_list
+LBUFFER="ls /u"
+assert_rc "path argument to ls, 1 char segment -> do not list" 1 _smart_menu_should_list
+LBUFFER="ls /us"
+assert_rc "path argument to ls, 2 char segment -> list" 0 _smart_menu_should_list
+# cd is the documented exception: its argument lists the recent-directories
+# list immediately, which is the question being asked there.
+LBUFFER=".//scripts/b"
+assert_rc "command path, 1 char segment -> do not list" 1 _smart_menu_should_list
+LBUFFER=".//scripts/bu"
+assert_rc "command path, 2 char segment -> list" 0 _smart_menu_should_list
+# A typed '~' behaves like '/': only the part after it counts as typed input.
+LBUFFER="ls ~/l"
+assert_rc "~/l -> do not list" 1 _smart_menu_should_list
+LBUFFER="ls ~/li"
+assert_rc "~/li -> list" 0 _smart_menu_should_list
+# The inline ghost must NOT be gated by these numbers: it is what the user gets
+# on the keystroke where the list stays away (`cd /u` -> `sr/`). The probe has
+# its own preconditions (end of line + compinit), asserted here to keep that
+# contract visible.
+assert_fn_exists _smart_menu_probe_suffix
+assert_fn_exists _smart_menu_completion_suffix
+
 SMART_MENU_MAX_PREFIX=5
 LBUFFER="git status"
 assert_rc "word longer than SMART_MENU_MAX_PREFIX -> do not list" 1 _smart_menu_should_list
@@ -763,6 +801,40 @@ cd "$_zold"
 rm -rf "$_zdir"
 unfunction zsc_probe_alpha zsc_probe_beta 2>/dev/null
 unalias    zsc_probe_gamma 2>/dev/null
+
+# ---------------------------------------------------------------------------
+print -r -- ""
+print -r -- "=== 场景 N: 灰字配色解析 (SMART_SUGGEST_COLOR) ==="
+# Regression: the ghost used to ship as plain grey (fg=8). On several common
+# themes that renders close enough to the normal foreground that the
+# suggestion reads as text the user already typed — see the v2.2.9 report
+# ("输入 l 就出来整条历史命令"). "auto" now resolves per terminal, through the
+# pure helper below (terminfo itself is READ-ONLY, so it cannot be stubbed).
+assert_fn_exists _smart_display_color
+assert_fn_exists _smart_display_color_auto
+
+assert_eq "auto helper: 16-colour xterm -> dim grey"    "$(_smart_display_color_auto xterm 16)"            "fg=8"
+assert_eq "auto helper: 256 colours -> soft blue-grey"  "$(_smart_display_color_auto xterm 256)"           "fg=110"
+assert_eq "auto helper: -256color TERM wins alone"      "$(_smart_display_color_auto screen-256color 0)"   "fg=110"
+assert_eq "auto helper: truecolor TERM wins alone"      "$(_smart_display_color_auto alacritty-direct 0)"  "fg=110"
+assert_eq "auto helper: dumb terminal -> dim grey"      "$(_smart_display_color_auto dumb 0)"              "fg=8"
+
+() {
+    local saved_color="${SMART_SUGGEST_COLOR}"
+    # Whatever the real terminal is, the resolution must agree with the helper
+    # (that pair of assertions holds on 16- and 256-colour hosts alike).
+    local wanted
+    wanted="$(_smart_display_color_auto "$TERM" "${terminfo[colors]:-0}")"
+    SMART_SUGGEST_COLOR=auto
+    assert_eq "auto agrees with the helper for this TERM" "$(_smart_display_color)" "$wanted"
+    SMART_SUGGEST_COLOR=""
+    assert_eq "empty SMART_SUGGEST_COLOR resolved like auto" "$(_smart_display_color)" "$wanted"
+    SMART_SUGGEST_COLOR="fg=8"
+    assert_eq "explicit fg=8 is honoured verbatim"           "$(_smart_display_color)" "fg=8"
+    SMART_SUGGEST_COLOR="fg=245,bold"
+    assert_eq "explicit multi-attribute spec passes through" "$(_smart_display_color)" "fg=245,bold"
+    SMART_SUGGEST_COLOR="$saved_color"
+}
 
 print -r -- ""
 print -r -- "=== TOTAL: $PASS passed, $FAIL failed ==="

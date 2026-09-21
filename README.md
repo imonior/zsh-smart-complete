@@ -3,7 +3,7 @@
 > A modern smart completion & suggestion layer for Zsh.
 > Engineered as the frontend of a future independent shell.
 >
-> **v2.2.9** — The inline suggestion is now clearly coloured, and the candidate list waits for two keystrokes. A single letter no longer paints a full history list (the gate now counts the last `/`-segment, so `/etc/l` is one character); the grey ghost uses `auto`, which resolves to a dimmer blue-grey `fg=110` on 256-colour terminals. The installer also repairs Starship configs that reverted to the default prompt (missing `format` line) — re-running it now fixes them, and the bundled layout is the two-line `username › directory / :>` prompt.
+> **v2.2.10** — Typing no longer scrolls your screen. The display layer forced a full repaint on every keystroke, and that repaint carried a real newline: whenever the prompt sits on the last row of the terminal, every key scrolls the screen up by one row — which is exactly what made one character look like a submitted line with a fresh prompt printed under it. Measured per keystroke with a two-line prompt: **96 bytes before, 33 now** (and 32 vs **1** with the ghost *and* the popup switched off, i.e. exactly stock zsh). The one repaint that is genuinely needed — retiring the candidate rows drawn for a longer prefix — now happens only when the list actually disappears. New `tests/test-repaint.zsh` pins the invariant in CI, because the tmux harness structurally cannot see it.
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------- | ------ |
 | Build & test (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | Release | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| Version | 2.2.9 |
+| Version | 2.2.10 |
 
 ## Why
 
@@ -321,10 +321,11 @@ zsh tests/test-zle.zsh
 zsh tests/test-menu.zsh
 zsh tests/test-integration.zsh
 zsh tests/test-recent.zsh
+zsh tests/test-repaint.zsh
 bash tests/test-installer-options.sh
 ```
 
-**Test summary (v2.2.9):** 10 test files, 757 assertions, all passing, 0 failures.
+**Test summary (v2.2.10):** 11 test files, 779 assertions, all passing, 0 failures.
 The installer also now **scans other startup files** (`.zprofile`, `.zshenv`, `conf.d/*.zsh`, `.zshrc.d/*`, `/etc/zsh/zshrc`) for left-over loaders of `zsh-autocomplete` / `zsh-autosuggestions` after cleaning `~/.zshrc`, and **warns** (with exact `file:line`) if it finds any — it never edits those files. See CHANGELOG `[v2.2.5]`.
 
 
@@ -350,6 +351,23 @@ list still "passes" every look-at-the-screen check. The harness ships in the rep
 ```
 
 The method is written up in the `headless-pty-zle-verify` skill.
+
+`tests/test-repaint.zsh` covers the part the tmux harness **structurally cannot
+see**: the bytes zsh writes per keystroke. tmux undoes a newline-plus-cursor-up
+pair, so its screen *and* its scrollback come out identical whether or not the
+plugin emits a scroll-inducing redraw on every keypress. The test drives a real
+`zsh -i` through `zsh/zpty` and reads the raw byte stream, asserting one
+invariant: **one keystroke stays on one line** — no newline, no vertical cursor
+move, no screen erase. Measured, one keystroke with a two-line prompt:
+
+| build | bytes | scroll-inducing newline |
+| --- | --- | --- |
+| a redraw on every keystroke | 96 | yes — and 32 bytes even with the ghost *and* the popup switched off, where stock zsh writes 1 |
+| this release | 33 | no — and 1 byte with both switched off, exactly stock zsh |
+
+It fails on the old build and passes on this one, so a future "fix" that
+reinstates the redraw is caught by CI rather than by a user. See CHANGELOG
+`[v2.2.10]`.
 
 ## License
 

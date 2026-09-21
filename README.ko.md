@@ -3,7 +3,7 @@
 > Zsh 용 현대적인 스마트 완성 및 제안 레이어.
 > 미래의 독립 셸 프런트엔드로 설계됨.
 >
-> **v2.2.9** — 회색 제안이 이제 뚜렷하게 색이 칠해지고, 후보 목록은 두 키 입력까지 기다립니다. 한 글자만 눌러도 히스토리 목록이 통째로 그려지지 않습니다(문턱은 마지막 `/` 뒤의 부분만 세므로 `/etc/l` 은 한 글자). 회색은 기본 `auto` 이며 256색 터미널에서 눈에 띄는 푸른 회색 `fg=110` 으로 해석됩니다. 또한 기본 프롬프트로 되돌아간 Starship 설정(누락된 `format` 줄)을 설치기가 자동 수정하므로 재실행하면 복구됩니다. 번들 레이아웃은 2줄 `username › directory / :>` 프롬프트입니다。
+> **v2.2.10** — 입력해도 화면이 스크롤되지 않습니다. 표시 계층은 키 입력마다 전체를 다시 그렸고, 그 재그리기에는 실제 개행이 들어 있었습니다. 프롬프트가 터미널 마지막 행에 있을 때 키 입력마다 화면이 한 줄씩 스크롤되었고, 이것이 "한 글자만 입력해도 줄이 제출되고 그 아래에 새 프롬프트가 찍힌" 것처럼 보인 원인이었습니다. 2줄 프롬프트에서 키 입력 한 번당 실측: **수정 전 96 바이트, 현재 33 바이트**(고스트**와** 팝업을 모두 끄면 32 대 **1** 바이트, 즉 순정 zsh와 정확히 동일). 정말로 필요한 단 한 번의 재그리기 — 더 긴 접두사를 위해 그린 후보 행의 회수 — 는 목록이 실제로 사라질 때만 일어납니다. tmux 하니스는 구조적으로 볼 수 없으므로, 새 `tests/test-repaint.zsh` 가 이 불변식을 CI에서 고정합니다.
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------ | ------ |
 | 빌드 및 테스트 (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | 릴리스 | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| 버전 | 2.2.9 |
+| 버전 | 2.2.10 |
 
 ## 왜 이 플러그인인가
 
@@ -305,10 +305,11 @@ zsh tests/test-zle.zsh
 zsh tests/test-menu.zsh
 zsh tests/test-integration.zsh
 zsh tests/test-recent.zsh
+zsh tests/test-repaint.zsh
 bash tests/test-installer-options.sh
 ```
 
-**테스트 요약 （v2.2.9）：** 10개 파일, 757개 어설션, 전부 통과, 0 실패.
+**테스트 요약 （v2.2.10）：** 11개 파일, 779개 어설션, 전부 통과, 0 실패.
 설치기는 `~/.zshrc` 정리 후 `.zprofile`, `.zshenv`, `conf.d/*.zsh`, `.zshrc.d/*`, `/etc/zsh/zshrc` 같은 **다른 시작 파일**에 `zsh-autocomplete` / `zsh-autosuggestions` 로더 행이 남아 있는지도 **검사**하고, 있으면 정확한 `파일:행번호` 로 **경고**하여 수동 정리를 안내합니다 — 이 파일은 편집하지 않습니다. 자세한 내용은 CHANGELOG의 `[v2.2.5]` 를 보세요.
 
 
@@ -332,6 +333,21 @@ e2e 는 "버퍼 무결성"도 검증합니다. 한 글자씩 입력한 뒤 프�
 모든 검사를 통과해 버리기 때문입니다.
 
 방법은 `headless-pty-zle-verify` 스킬에 정리되어 있습니다.
+
+`tests/test-repaint.zsh` 는 tmux 하니스가 **구조적으로 볼 수 없는** 부분을 담당합니다:
+zsh 가 키 입력 한 번마다 터미널에 실제로 쓰는 바이트입니다. tmux 는 "개행 + 커서 위로"
+쌍을 되돌리기 때문에, 플러그인이 매 키 입력마다 스크롤을 동반한 재그리기를 하더라도 화면
+**과** 스크롤백이 **모두** 동일하게 나옵니다. 이 테스트는 `zsh/zpty` 로 실제 `zsh -i` 를
+구동하고 원시 바이트 스트림을 읽어, 단 하나의 불변식을 검증합니다: **키 입력 한 번은 한
+줄에 머문다** — 개행 없음, 수직 커서 이동 없음, 화면 지우기 없음. 2줄 프롬프트에서의 실측:
+
+| 빌드 | 바이트 | 스크롤을 동반한 개행 |
+| --- | --- | --- |
+| 매 키 입력마다 재그리기 | 96 | 있음 — 고스트**와** 팝업을 모두 꺼도 32 바이트 (순정 zsh 는 1) |
+| 이번 릴리스 | 33 | 없음 — 둘 다 끄면 1 바이트, 순정 zsh 와 정확히 동일 |
+
+구 빌드에서는 실패하고 이 빌드에서는 통과하므로, 이 재그리기를 되살리는 "수정"은
+사용자가 아니라 CI 가 먼저 잡습니다. CHANGELOG `[v2.2.10]` 참조.
 
 ## 라이선스
 

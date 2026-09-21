@@ -3,7 +3,7 @@
 > 一个现代化的智能补全和建议层，专为 Zsh 设计。
 > 作为未来独立 shell 的前端引擎。
 >
-> **v2.2.9** — 灰字建议现在上色清晰，候选列表也等你敲满两个字符再弹出。单个字母不再画出整屏历史列表（门槛现在只数最后一个 `/` 之后的那段，`/etc/l` 算一个字符）；灰字默认 `auto`，在 256 色终端解析为更暗的蓝灰色 `fg=110`。安装器还会修复曾回退成默认提示符的 Starship 配置（缺 `format` 行）——重跑安装器即可自动修复，内置布局即两行的 `username › directory / :>` 提示符。
+> **v2.2.10** — 打字不再滚屏。显示层过去在每次按键时强制整屏重绘，而那次重绘里含一个真正的换行：只要提示符停在终端最后一行，每个按键都会把屏幕向上滚一行——这正是"敲一个字符就像已经提交、下面又印出新提示符"的原因。两行提示符下实测每次按键：**修复前 96 字节，现在 33 字节**；把灰字**和**弹窗都关掉时是 32 对 **1** 字节，与原生 zsh 完全一致。唯一真正需要的那次重绘——撤回为更长前缀画出的候选行——现在只在列表真的消失时才发生。新增 `tests/test-repaint.zsh` 在 CI 里钉住这条不变式，因为 tmux 那套结构上看不到它。
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------ | ------ |
 | 构建与测试 (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | 发布 | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| 版本 | 2.2.9 |
+| 版本 | 2.2.10 |
 
 ## 为什么选择我们
 
@@ -292,10 +292,11 @@ zsh tests/test-zle.zsh
 zsh tests/test-menu.zsh
 zsh tests/test-integration.zsh
 zsh tests/test-recent.zsh
+zsh tests/test-repaint.zsh
 bash tests/test-installer-options.sh
 ```
 
-**测试汇总 （v2.2.9）：** 10 个测试文件共 757 项全部通过，0 失败。
+**测试汇总 （v2.2.10）：** 11 个测试文件共 779 项全部通过，0 失败。
 安装器在清理 `~/.zshrc` 之后，现在还会**扫描其它启动文件**（`.zprofile`、`.zshenv`、`conf.d/*.zsh`、`.zshrc.d/*`、`/etc/zsh/zshrc`）中是否仍有 `zsh-autocomplete` / `zsh-autosuggestions` 的加载行，并用精确的 `文件:行号` **警告**用户手动清理——它从不修改这些文件。详见 CHANGELOG 的 `[v2.2.5]`。
 
 
@@ -319,6 +320,20 @@ e2e 还包含一条「缓冲区完整性」断言：逐字输入后提示符行�
 这类静默丢键，能骗过所有「只看屏幕」的检查。
 
 方法沉淀在技能 `headless-pty-zle-verify`。
+
+`tests/test-repaint.zsh` 覆盖 tmux 那套**结构上看不到**的部分：zsh 每次按键真正写
+给终端的字节。tmux 会把"换行 + 光标上移"这一对抵消掉，所以无论插件是否在每次按键时
+做一次带滚屏的重绘，它的屏幕**和**回滚区都完全一样。该测试用 `zsh/zpty` 驱动真实的
+`zsh -i` 并读取原始字节流，只钉一条不变式：**一次按键必须留在同一行**——不出现换行、
+不出现纵向光标移动、不出现清屏。两行提示符下实测一次按键：
+
+| 构建 | 字节 | 带滚屏的换行 |
+| --- | --- | --- |
+| 每次按键都重绘 | 96 | 有——而且连灰字**和**弹窗都关掉时仍有 32 字节（原生 zsh 是 1） |
+| 本版本 | 33 | 无——两者都关时 1 字节，与原生 zsh 完全一致 |
+
+它在旧构建上失败、在本构建上通过，因此将来若有人把重绘加回来，是 CI 先发现，
+而不是用户。详见 CHANGELOG `[v2.2.10]`。
 
 ## 许可证
 

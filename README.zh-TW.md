@@ -3,7 +3,7 @@
 > 一個現代化的智慧補全與建議層，專為 Zsh 設計。
 > 作為未來獨立 shell 的前端引擎。
 >
-> **v2.2.9** — 灰字建議現在上色清晰，候選清單也等你敲滿兩個字元再彈出。單個字母不再畫出整屏歷史清單（門檻現在只數最後一個 `/` 之後的那段，`/etc/l` 算一個字元）；灰字預設 `auto`，在 256 色終端解析為更暗的藍灰色 `fg=110`。安裝器還會修復曾回退成預設提示符的 Starship 配置（缺 `format` 行）——重跑安裝器即可自動修復，內建佈局即兩行的 `username › directory / :>` 提示符。
+> **v2.2.10** — 打字不再捲屏。顯示層過去在每次按鍵時強制整屏重繪，而那次重繪裡含一個真正的換行：只要提示字元停在終端最後一行，每個按鍵都會把畫面向上捲一行——這正是「敲一個字元就像已經提交、下面又印出新提示字元」的原因。兩行提示字元下實測每次按鍵：**修復前 96 位元組，現在 33 位元組**；把灰字**和**彈窗都關掉時是 32 對 **1** 位元組，與原生 zsh 完全一致。唯一真正需要的那次重繪——撤回為更長前綴畫出的候選行——現在只在清單真的消失時才發生。新增 `tests/test-repaint.zsh` 在 CI 裡釘住這條不變式，因為 tmux 那套結構上看不到它。
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------ | ------ |
 | 建置與測試 (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | 釋出 | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| 版本 | 2.2.9 |
+| 版本 | 2.2.10 |
 
 ## 為什麼選擇我們
 
@@ -292,10 +292,11 @@ zsh tests/test-zle.zsh
 zsh tests/test-menu.zsh
 zsh tests/test-integration.zsh
 zsh tests/test-recent.zsh
+zsh tests/test-repaint.zsh
 bash tests/test-installer-options.sh
 ```
 
-**測試彙總 （v2.2.9）：** 10 個測試檔案共 757 項全部通過，0 失敗。
+**測試彙總 （v2.2.10）：** 11 個測試檔案共 779 項全部通過，0 失敗。
 安裝器在清理 `~/.zshrc` 之後，現在還會**掃描其它啟動檔**（`.zprofile`、`.zshenv`、`conf.d/*.zsh`、`.zshrc.d/*`、`/etc/zsh/zshrc`）中是否仍有 `zsh-autocomplete` / `zsh-autosuggestions` 的載入行，並用精確的 `檔案:行號` **警告**使用者手動清理——它從不修改這些檔案。詳見 CHANGELOG 的 `[v2.2.5]`。
 
 
@@ -319,6 +320,20 @@ e2e 還包含一條「緩衝區完整性」斷言：逐字輸入後提示字行�
 ```
 
 方法沉澱在技能 `headless-pty-zle-verify`。
+
+`tests/test-repaint.zsh` 覆蓋 tmux 那套**結構上看不到**的部分：zsh 每次按鍵真正寫
+給終端的位元組。tmux 會把「換行 + 游標上移」這一對抵消掉，所以無論外掛是否在每次按鍵
+時做一次帶捲動的重繪，它的螢幕**和**回捲區都完全一樣。該測試用 `zsh/zpty` 驅動真實的
+`zsh -i` 並讀取原始位元組流，只釘一條不變式：**一次按鍵必須留在同一行**——不出現換行、
+不出現縱向游標移動、不出現清屏。兩行提示字元下實測一次按鍵：
+
+| 建置 | 位元組 | 帶捲動的換行 |
+| --- | --- | --- |
+| 每次按鍵都重繪 | 96 | 有——而且連灰字**和**彈窗都關掉時仍有 32 位元組（原生 zsh 是 1） |
+| 本版本 | 33 | 無——兩者都關時 1 位元組，與原生 zsh 完全一致 |
+
+它在舊建置上失敗、在本建置上通過，因此將來若有人把重繪加回來，是 CI 先發現，而不是使用者。
+詳見 CHANGELOG `[v2.2.10]`。
 
 ## 授權
 

@@ -89,6 +89,12 @@ typeset -gi _SMART_MENU_COOLDOWN=0
 typeset -gi _SMART_MENU_LAST_MS=0
 # 1 when the last listing was suppressed because it exceeded SMART_MENU_MAX_MATCHES.
 typeset -gi _SMART_MENU_TRUNCATED=0
+# 1 while candidate rows drawn by a PREVIOUS tick are still on the screen.
+# Distinct from _SMART_MENU_LISTED, which only ever describes the CURRENT tick
+# (it is reset to 0 before every listing). This one survives across ticks, which
+# is what lets _smart_menu_forget_rows answer "is there anything below the line
+# that I am responsible for?". See that function.
+typeset -gi _SMART_MENU_ROWS=0
 
 # Candidate buffer for the single-column (vertical) generator. Filled by
 # _smart_menu_candidates, consumed by _smart_menu_list_main. Kept global so the
@@ -543,10 +549,52 @@ _smart_menu_note_cost() {
 #   end-of-display were each measured; none moved a pixel).
 #   So "the screen got noisy" has exactly one lever: DRAW FEWER LISTS. That is
 #   what the two-character minimum below is for.
+#   The ONE exception is the list that WE drew ourselves and that the next tick
+#   declines to redraw — see _smart_menu_forget_rows, which is allowed exactly
+#   one redraw to take it back.
+
+# _smart_menu_forget_rows -- take back the candidate rows the last tick drew.
+#
+# WHY THIS EXISTS AT ALL
+#   While the list keeps being drawn, zsh maintains the area under the line by
+#   itself: narrowing `git st` -> `git sta` really does turn 3 rows into 2 with
+#   no help from us. The one transition zsh never handles is the LAST one — the
+#   tick where the listing is SUPPRESSED (compstate[list]=''). That path never
+#   reaches zsh's list code, so the rows belonging to the previous prefix simply
+#   stay: measured, 2 stale rows sitting under `git stat` while the ghost for
+#   the single match is painted above them.
+#
+# WHY ONLY `zle -R "" ""` AND WHY ONLY SOMETIMES
+#   Measured on the bytes zsh writes to a pty, one keystroke, two-line prompt:
+#
+#     zle -R               33 bytes, no vertical movement, does NOT clear
+#     zle -R ""            33 bytes, no vertical movement, does NOT clear
+#     zle -R "" ""         96 bytes, `\r\r\n '  ' ESC[A` + ESC[K, CLEARS
+#     zle -R "" "" ""      98 bytes, same, CLEARS
+#
+#   Only the second argument (zsh's "more-specific display" prompt) makes zsh
+#   recompute the prompt area, and that recomputation is what also wipes the
+#   region below the line. It arrives with a newline, which SCROLLS the screen
+#   whenever the prompt sits on the last row — the "typing one character starts
+#   a new input line, without waiting for Enter" report. On every keystroke that
+#   is a bug; once, at the moment the list disappears, it is exactly what zsh
+#   itself does when it retires a list of its own.
+#   So this is the only place in the plugin that asks for a full refresh, and
+#   the flag makes sure it happens once per collapse, never per keystroke.
+_smart_menu_forget_rows() {
+    (( _SMART_MENU_ROWS )) || return 0
+    _SMART_MENU_ROWS=0
+    zle -R "" "" 2>/dev/null
+    return 0
+}
 
 _smart_menu_tick() {
     _smart_menu_should_list || {
         _smart_menu_dbg "skip gate word=[$(_smart_menu_word)] lister=$(_smart_menu_lister)"
+        # The gate can close while rows from the previous prefix are on screen
+        # (backspacing `git st` back to `git s` drops below the minimum). Nothing
+        # else will remove them, so hand them back here too.
+        _smart_menu_forget_rows
         return 0
     }
 
@@ -562,6 +610,9 @@ _smart_menu_tick() {
         (( _SMART_MENU_COOLDOWN-- ))
         (( _SMART_MENU_SKIPS++ ))
         _smart_menu_dbg "skip cooldown left=$_SMART_MENU_COOLDOWN word=[$(_smart_menu_word)]"
+        # A skipped edit draws nothing, so the list on screen is stale for this
+        # keystroke; if we do not retire it here it never goes away.
+        _smart_menu_forget_rows
         return 0
     fi
 
@@ -591,23 +642,38 @@ _smart_menu_tick() {
         else
             _smart_menu_dbg "list n=${_SMART_MENU_NMATCHES} below min=${SMART_MENU_MIN_MATCHES:-2} -> no list"
         fi
-        # This tick drew nothing. If the PREVIOUS one drew rows, those rows are
-        # STILL on screen and cannot be removed (see the NOTE above) — so what
-        # sits below the line may belong to an older prefix. That is exactly why
-        # the gate waits for two characters: the fix is to draw fewer lists, not
-        # to un-draw one.
+        # This tick drew nothing. If the PREVIOUS one drew rows they are STILL
+        # on screen (zsh only maintains that area while it is drawing a list),
+        # and they now describe an older, longer prefix — the single-match
+        # transition is exactly this case, and it is why the ghost would
+        # otherwise sit under the wrong candidate list. Retire them. The gate
+        # below still exists to keep this rare: ONE redraw per collapse, not one
+        # per keystroke. See _smart_menu_forget_rows.
+        _smart_menu_forget_rows
         return 0
     }
+    # Rows are on the screen and belong to the current word; the next tick that
+    # draws nothing is the one that has to take them back.
+    _SMART_MENU_ROWS=1
     if _smart_menu_have_clock; then
         _smart_menu_note_cost $(( $(_smart_menu_now_ms) - t0 ))
     fi
     return 0
 }
 
-# _smart_menu_clear -- drop the candidate list bookkeeping.
+# _smart_menu_clear -- drop the candidate-list bookkeeping.
+#
+# This is BOOKKEEPING ONLY: it never redraws. Callers that actually have to take
+# rows off the screen must call _smart_menu_forget_rows FIRST (it reads
+# _SMART_MENU_ROWS, which this resets). Every caller either does that or is
+# about to reset the whole screen anyway (`smart-menu off`, `smart-lister`) or
+# re-tick immediately (accept-word).
 _smart_menu_clear() {
     _SMART_MENU_LISTED=0
     _SMART_MENU_NMATCHES=0
+    # Zeroed on purpose: after this call nobody may issue a redraw for rows that
+    # belong to a prefix that is gone.
+    _SMART_MENU_ROWS=0
     return 0
 }
 
@@ -663,6 +729,10 @@ smart-menu() {
                 print -r -- "  throttle:                 off (list always matches the current word)"
             fi
             print -r -- "  last listing:             matches=${_SMART_MENU_NMATCHES} listed=${_SMART_MENU_LISTED} cost=${_SMART_MENU_LAST_MS}ms"
+            # rows=1 means candidate rows are still on the screen and the next
+            # tick that draws nothing will retire them. Surfaces the one piece of
+            # screen state the plugin keeps, which is otherwise invisible.
+            print -r -- "  candidate rows on screen: ${_SMART_MENU_ROWS}"
             if (( ${_SMART_MENU_TRUNCATED:-0} == 1 )); then
                 print -r -- "  note:                    last popup suppressed (matches > SMART_MENU_MAX_MATCHES)"
             fi

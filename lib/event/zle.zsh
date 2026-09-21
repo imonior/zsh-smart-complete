@@ -388,9 +388,20 @@ _smart_widget_forward_char() {
     sug="$(_smart_state_get suggestion.text "")"
     if (( CURSOR == ${#BUFFER} )) && [[ -n "$sug" ]] && [[ "$sug" == "$BUFFER"* ]]; then
         _smart_display_accept_partial
+        # The list left over from the last keystroke belongs to the old prefix,
+        # so it has to go — but NOT via the blanket `zle -R "" ""` this used to
+        # do. Measured on the bytes zsh writes for one keypress, that explicit
+        # redraw cost 110 bytes including `\r\r\n` + a cursor-up move + a line
+        # erase, against 68 bytes without it; that newline scrolls the screen on
+        # every accept, which is the "one keystroke starts a new input line"
+        # report. _smart_menu_forget_rows asks for the same redraw only when
+        # rows are actually on screen (once per collapse, not per keypress), and
+        # _smart_menu_clear zeroes the flag so nothing redraws for a prefix that
+        # is already gone. The accepted text still lands on the line (verified
+        # on screen: the accepted suggestion turns from ghost-grey into normal
+        # text).
+        (( ${+functions[_smart_menu_forget_rows]} )) && _smart_menu_forget_rows 2>/dev/null
         (( ${+functions[_smart_menu_clear]} )) && _smart_menu_clear
-        # The list left over from the last keystroke belongs to the old prefix.
-        zle -R "" "" 2>/dev/null
         return 0
     fi
     local km="${KEYMAP:-emacs}"
@@ -410,6 +421,12 @@ _smart_widget_accept_word() {
     if (( CURSOR == ${#BUFFER} )) && [[ -n "$sug" ]] && \
        [[ "$sug" == "$BUFFER"* ]] && [[ "$sug" != "$BUFFER" ]]; then
         _smart_display_accept_word 2>/dev/null
+        # Retire the rows of the OLD prefix before the re-tick draws the new
+        # list, exactly as the old blanket redraw did — but only when rows are
+        # really on screen (see _smart_menu_forget_rows). `clear` must come
+        # after it: it zeroes _SMART_MENU_ROWS, and without that the flag would
+        # still be set on the next tick with nothing left to retire.
+        (( ${+functions[_smart_menu_forget_rows]} )) && _smart_menu_forget_rows 2>/dev/null
         (( ${+functions[_smart_menu_clear]} )) && _smart_menu_clear
         # Force a recompute so the ghost shrinks to the remaining tail and the
         # candidate list reflects the new prefix.
@@ -454,6 +471,7 @@ smart-execute-suggestion() {
     sug="$(_smart_state_get suggestion.text "")"
     if (( CURSOR == ${#BUFFER} )) && [[ -n "$sug" ]] && [[ "$sug" == "$BUFFER"* ]]; then
         _smart_display_accept_partial
+        (( ${+functions[_smart_menu_forget_rows]} )) && _smart_menu_forget_rows 2>/dev/null
         (( ${+functions[_smart_menu_clear]} )) && _smart_menu_clear
     fi
     _smart_widget_accept_line
@@ -612,6 +630,13 @@ zle -N _smart_widget_history_prefix_down 2>/dev/null
 _smart_widget_accept_line() {
     _smart_native_reset_completion 2>/dev/null
     _smart_display_clear 2>/dev/null
+    # The candidate rows drawn for this line are now HISTORY: the new prompt is
+    # printed BELOW them, so no cursor move from here can reach them again.
+    # Dropping the bookkeeping says exactly that, and it is what keeps the first
+    # keystroke of the next line from asking for a redraw of rows it can no
+    # longer see. Bookkeeping only — this never redraws, so the list stays where
+    # stock zsh would leave it (scrollback), instead of costing a newline.
+    (( ${+functions[_smart_menu_clear]} )) && _smart_menu_clear 2>/dev/null
 
     # Make sure the history-on-new-command hook is registered exactly once.
     if (( ${+preexec_functions} )); then

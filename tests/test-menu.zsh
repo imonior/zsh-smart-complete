@@ -81,6 +81,7 @@ assert_fn_exists _smart_menu_draw_single
 assert_fn_exists smart-doctor
 assert_fn_exists _smart_menu_tick
 assert_fn_exists _smart_menu_clear
+assert_fn_exists _smart_menu_forget_rows
 assert_fn_exists _smart_display_accept_word
 if (( ${+functions[smart-menu]} )); then
     (( PASS++ )); print -r -- "  PASS  smart-menu CLI exists"
@@ -835,6 +836,100 @@ assert_eq "auto helper: dumb terminal -> dim grey"      "$(_smart_display_color_
     assert_eq "explicit multi-attribute spec passes through" "$(_smart_display_color)" "fg=245,bold"
     SMART_SUGGEST_COLOR="$saved_color"
 }
+
+print -r -- ""
+print -r -- "=== 场景 15: 撤回上一轮画出的候选行（列表消失时的唯一一次重绘）==="
+# The plugin owns exactly ONE piece of screen state: whether candidate rows it
+# drew are still sitting below the line. That flag decides the only redraw the
+# plugin is still allowed to ask for, so both directions are pinned here — a
+# stray flag buys a screen-scrolling newline on a keystroke that should cost
+# nothing, and a lost flag leaves the previous prefix's list on screen forever.
+#
+# `zle` is a builtin, so a shell function of the same name shadows it: that is
+# how the redraw is counted without a ZLE context. It also lets the fake listing
+# report "rows were drawn" (via _ZLE_LIST), which is what the real widget does
+# through compstate.
+#
+# Calls are recorded as `${(j:|:)@}` so ARGUMENT COUNT survives: empty arguments
+# render as empty fields, which means `zle -R "" ""` reads back as `-R||`. That
+# encoding is the assertion — the clearing redraw is the one with the two empty
+# arguments, and a plain `zle -R` (measured: no clearing at all) is just `-R`.
+typeset -ga _ZLE_CALLS=()
+typeset -gi _ZLE_LIST=0
+zle() {
+    _ZLE_CALLS+=("${(j:|:)@}")
+    (( _ZLE_LIST )) && _SMART_MENU_LISTED=1
+    return 0
+}
+
+_SMART_MENU_ROWS=0
+_ZLE_CALLS=()
+_smart_menu_forget_rows
+assert_eq "no rows on screen -> no redraw at all" "${#_ZLE_CALLS}" "0"
+
+_SMART_MENU_ROWS=1
+_ZLE_CALLS=()
+_smart_menu_forget_rows
+assert_eq "rows on screen -> exactly one redraw" "${#_ZLE_CALLS}" "1"
+assert_eq "  the redraw is the clearing form"    "${_ZLE_CALLS[-1]}" '-R||'
+assert_eq "  and the flag is consumed"           "$_SMART_MENU_ROWS" "0"
+
+_ZLE_CALLS=()
+_smart_menu_forget_rows
+assert_eq "the redraw is never repeated"         "${#_ZLE_CALLS}" "0"
+
+# clear() is bookkeeping for a prefix that is gone; it must drop the flag too or
+# the next tick would redraw for rows that no longer belong to anything.
+_SMART_MENU_ROWS=1
+_smart_menu_clear
+assert_eq "clear drops the row flag as well"     "$_SMART_MENU_ROWS" "0"
+
+# End to end through the tick. A listing raises the flag...
+_smart_state_set enabled 1
+SMART_MENU=true
+SMART_MENU_COOLDOWN_KEYS=0
+_SMART_MENU_COOLDOWN=0
+SMART_MENU_MIN_PREFIX_CMD=2
+SMART_MENU_MIN_PREFIX=2
+SMART_MENU_MIN_MATCHES=2
+LBUFFER="git st"
+_SMART_MENU_ROWS=0
+_ZLE_LIST=1
+_ZLE_CALLS=()
+_smart_menu_tick >/dev/null 2>&1
+assert_eq "a listed tick leaves the flag set"    "$_SMART_MENU_ROWS" "1"
+
+# ...and the next tick that draws nothing must retire it, exactly once.
+_ZLE_LIST=0
+_ZLE_CALLS=()
+_smart_menu_tick >/dev/null 2>&1
+assert_eq "an unlisted tick retires the rows"    "$_SMART_MENU_ROWS" "0"
+assert_eq "  with one clearing redraw"           "${_ZLE_CALLS[-1]}" '-R||'
+assert_eq "  and nothing else was drawn"         "${_ZLE_CALLS[1]}" "_smart_menu_list"
+
+# The gate can close too (backspacing below the minimum): same obligation. The
+# tick returns before the listing, so the redraw must be the whole of its work.
+_SMART_MENU_ROWS=1
+LBUFFER="git s"
+_ZLE_CALLS=()
+_smart_menu_tick >/dev/null 2>&1
+assert_eq "a gate-skipped tick retires the rows" "$_SMART_MENU_ROWS" "0"
+assert_eq "  with one clearing redraw"           "${#_ZLE_CALLS}" "1"
+
+# The cooldown path (throttling ON) drops the list on screen, so it owes the
+# same redraw. This is the case the old code got for free from a blanket redraw
+# on every keystroke — which is precisely what we are replacing.
+_SMART_MENU_ROWS=1
+_SMART_MENU_COOLDOWN=1
+LBUFFER="git st"
+_ZLE_CALLS=()
+_smart_menu_tick >/dev/null 2>&1
+assert_eq "a throttled tick retires the rows"    "$_SMART_MENU_ROWS" "0"
+assert_eq "  with one clearing redraw"           "${#_ZLE_CALLS}" "1"
+_SMART_MENU_COOLDOWN=0
+SMART_MENU_COOLDOWN_KEYS=0
+
+unfunction zle
 
 print -r -- ""
 print -r -- "=== TOTAL: $PASS passed, $FAIL failed ==="

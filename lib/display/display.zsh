@@ -197,9 +197,33 @@ _smart_display_clear() {
 
 # _smart_display_update <buffer>
 #   Called after the event layer has run _smart_suggest_compute.
+#
+# NO EXPLICIT REDRAW HERE. This used to end with `zle -R "" ""`, "to force a
+# redraw of the new region_highlight". It does the opposite of what it says:
+# the redraw already happens, and the ARGUMENTS are what cost. Measured on the
+# bytes zsh actually writes to a pty, one keystroke, two-line prompt:
+#
+#   with `zle -R "" ""`     96 bytes, including `\r\r\n '  ' ESC[A` and a
+#                           full-line erase (ESC[K) on EVERY keystroke
+#   without it              33 bytes: just the echo and the coloured ghost
+#   both features OFF       with it 32 bytes, without it 1 byte — exactly what
+#                           stock zsh writes for the same keystroke
+#
+# Only the SECOND argument does that (it is zsh's "more-specific display"
+# prompt, and recomputing it forces a full prompt-area rebuild — see the table
+# in _smart_menu_forget_rows, which is the one caller allowed to ask for it).
+# The `\r\r\n` is a real newline. The prompt sits on the last row of the
+# terminal most of the time — any command output leaves it there — and a
+# newline on the last row scrolls the whole screen up by one row; the `ESC[A`
+# that follows then lands on already-shifted content, which is what mixes the
+# glyphs on the line being typed. So every key looked like it had been
+# submitted, with a fresh prompt printed underneath: reported as "typing one
+# character starts a new input line, without waiting for Enter".
+# The array alone is enough: ZLE repaints once when the widget returns, and
+# that repaint carries the ghost AND its colour (verified: the ghost still
+# prints as `ESC[38;5;110m…` and still survives a candidate list being drawn).
 _smart_display_update() {
     _smart_display_show
-    zle -R "" "" 2>/dev/null   # force a redraw of the new region_highlight
     return 0
 }
 

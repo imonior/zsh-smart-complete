@@ -56,6 +56,10 @@ jobs:
           zsh tests/test-menu.zsh
           zsh tests/test-integration.zsh
           zsh tests/test-recent.zsh
+          # needs zsh/zpty + zsh/mapfile: drives a real interactive zsh on a
+          # pseudo-terminal and asserts on the raw bytes it writes per
+          # keystroke. Skips itself (exit 0) when those modules are missing.
+          zsh tests/test-repaint.zsh
           # bash, not zsh: it extracts functions out of install.sh and drives
           # them against throwaway files. Listed explicitly like the rest —
           # a new test file that is not named here is silently never run.

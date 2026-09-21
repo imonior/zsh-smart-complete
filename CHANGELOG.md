@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [v2.2.8] - 2026-09-21
+
+### Fixed
+- **The installer's language-selection menu showed every option in English, so a user who does not read English could not pick their own language.** `select_language` rendered the five options through `msg lang.option_*`, which follows `LANG_CODE` and falls back to English at the default (`en`); the whole menu became English. The menu now always prints each language in its own script (endonym): `English / 简体中文 / 繁體中文 / 日本語 / 한국어`, so every reader recognises their entry without knowing English. The dead `lang.option_*` keys were removed so `install.sh` and `install-entware.sh` carry identical i18n tables and menus; the parity is pinned by a new installer test (section 18).
+
 ## [v2.2.7] - 2026-09-19
 
 ### Fixed

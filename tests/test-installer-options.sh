@@ -947,6 +947,30 @@ n_warn=$(HOME="$FB" ZDOTDIR="$FB" _scan_foreign_atuin 2>&1 | grep -c '^WARN:')
 # block's own NOBIND line must contribute none.
 assert_eq "17 foreign scan: head+line+hint, managed block excluded" "$n_warn" "3"
 
+# ---------------------------------------------------------------------------
+echo "== 18. language menu uses endonyms, not an English fallback =="
+# Regression guard: select_language once rendered the five options through
+# `msg lang.option_*`, which follows LANG_CODE and falls back to English at the
+# default (en). A user who cannot read English could then not pick their own
+# language. The menu must always show each language in its own script (endonym)
+# so every reader recognises their entry without knowing English.
+extract_fn select_language > "$TMP/lang_menu.sh"
+assert_has  "18 menu: default entry is English"              "$TMP/lang_menu.sh" '1 "English"'
+assert_has  "18 menu: Simplified Chinese in Chinese"         "$TMP/lang_menu.sh" '2 "简体中文"'
+assert_has  "18 menu: Traditional Chinese in Chinese"        "$TMP/lang_menu.sh" '3 "繁體中文"'
+assert_has  "18 menu: Japanese in Japanese"                  "$TMP/lang_menu.sh" '4 "日本語"'
+assert_has  "18 menu: Korean in Korean"                      "$TMP/lang_menu.sh" '5 "한국어"'
+assert_lacks "18 menu: no English-fallback option rendering" "$TMP/lang_menu.sh" '$(msg lang.option'
+# the two installer copies must not drift on the menu: install-entware.sh has
+# always hard-coded the endonyms, so install.sh must print the same lines.
+ENTWARE="$REPO/install-entware.sh"
+sed -n '/^select_language() {/,/^}/p' "$ENTWARE" > "$TMP/lang_menu_ent.sh"
+if diff -q <(grep -E 'printf "  %d\) %s' "$TMP/lang_menu.sh") <(grep -E 'printf "  %d\) %s' "$TMP/lang_menu_ent.sh") >/dev/null 2>&1; then
+    ok "18 menu: both installers print the same endonym menu"
+else
+    no "18 menu: both installers print the same endonym menu"
+fi
+
 echo "-----"
 echo "INSTALLER-OPTIONS TOTAL PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

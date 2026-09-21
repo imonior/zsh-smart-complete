@@ -3,7 +3,7 @@
 > 一個現代化的智慧補全與建議層，專為 Zsh 設計。
 > 作為未來獨立 shell 的前端引擎。
 >
-> **v2.2.7** — 保證螢幕上只有一個介面。推薦設定不再讓 `atuin init` 綁定它的按鍵（Ctrl-R，目前版本還有 `?`）：舊的無條件寫法下，即使安裝器全部用預設回答，atuin 自己的浮動搜尋介面也會出現在外掛彈窗旁邊——正是「出現兩個動態提示」的根源。現在寫入 `ATUIN_NOBIND="true"`：atuin 的歷史記錄照常（外掛直接讀它的 SQLite 資料庫產生灰色建議），↑ / Ctrl-R / ? 保持原生；是否綁定 atuin 的 TUI 改為安裝器中的明確提問（預設否）；atuin 記錄對所有 shell 組合生效；新增唯讀掃描，對託管區塊之外的外來 `atuin init` 行發出警告。
+> **v2.2.8** — 不認識英文也能選語言。安裝器的語言選單過去透過 i18n 表渲染每個選項、在預設語言下回退英文，把非英文選項藏在英文文字後面。現在選單始終用各語言本族語顯示：English / 简体中文 / 繁體中文 / 日本語 / 한국어。主安裝器與 Entware 安裝器副本現在攜帶完全相同的 i18n 表與選單，並由新增的回歸測試釘死。
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------ | ------ |
 | 建置與測試 (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | 釋出 | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| 版本 | 2.2.7 |
+| 版本 | 2.2.8 |
 
 ## 為什麼選擇我們
 
@@ -294,7 +294,7 @@ zsh tests/test-recent.zsh
 bash tests/test-installer-options.sh
 ```
 
-**測試彙總 （v2.2.7）：** 10 個測試檔案共 711 項全部通過，0 失敗。
+**測試彙總 （v2.2.8）：** 10 個測試檔案共 718 項全部通過，0 失敗。
 安裝器在清理 `~/.zshrc` 之後，現在還會**掃描其它啟動檔**（`.zprofile`、`.zshenv`、`conf.d/*.zsh`、`.zshrc.d/*`、`/etc/zsh/zshrc`）中是否仍有 `zsh-autocomplete` / `zsh-autosuggestions` 的載入行，並用精確的 `檔案:行號` **警告**使用者手動清理——它從不修改這些檔案。詳見 CHANGELOG 的 `[Unreleased]`。
 
 

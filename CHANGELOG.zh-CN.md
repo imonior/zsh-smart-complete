@@ -5,6 +5,11 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/)，并遵循
 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [v2.2.8] - 2026-09-21
+
+### 修复
+- **安装器的语言选择菜单曾把每个选项都显示成英文，导致不认识英文的用户选不了自己的语言。** `select_language` 过去通过 `msg lang.option_*` 渲染五个选项，而该表跟随 `LANG_CODE`、在默认语言（`en`）下回退为英文，于是整个菜单变成英文。现在菜单始终用各语言的本族语（endonym）打印：`English / 简体中文 / 繁體中文 / 日本語 / 한국어`，每个用户都能凭自己的文字认出对应选项，无需懂英文。已删除无用的 `lang.option_*` 键，使 `install.sh` 与 `install-entware.sh` 携带完全一致的 i18n 表与菜单；该一致性由新增的安装器测试（第 18 节）钉死。
+
 ## [v2.2.7] - 2026-09-19
 
 ### 修复

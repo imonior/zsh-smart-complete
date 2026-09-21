@@ -3,7 +3,7 @@
 > A modern smart completion & suggestion layer for Zsh.
 > Engineered as the frontend of a future independent shell.
 >
-> **v2.2.7** — One UI on screen, guaranteed. The recommended config no longer lets `atuin init` bind its keys (Ctrl-R and, in current releases, `?`): with the old unconditional line, atuin's own floating search TUI appeared next to the plugin's popup even with every installer answer at its default — the classic "two dynamic hints" report. `ATUIN_NOBIND="true"` keeps atuin's history recording (the plugin reads its SQLite database directly for the grey suggestion) while ↑ / Ctrl-R / ? stay native; binding atuin's TUI is now an explicit installer question (default: no), atuin recording works in every shell combo, and a new read-only scan warns about foreign `atuin init` lines outside the managed block.
+> **v2.2.8** — Pick your language without reading English. The installer's language menu used to render every option through the i18n table and fall back to English at the default language, hiding non-English entries behind English text. The menu now always shows each language in its own script (endonym): English / 简体中文 / 繁體中文 / 日本語 / 한국어. The main and Entware installer copies now carry identical i18n tables and menus, pinned by a new regression test.
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------- | ------ |
 | Build & test (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | Release | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| Version | 2.2.7 |
+| Version | 2.2.8 |
 
 ## Why
 
@@ -323,7 +323,7 @@ zsh tests/test-recent.zsh
 bash tests/test-installer-options.sh
 ```
 
-**Test summary (v2.2.7):** 10 test files, 711 assertions, all passing, 0 failures.
+**Test summary (v2.2.8):** 10 test files, 718 assertions, all passing, 0 failures.
 The installer also now **scans other startup files** (`.zprofile`, `.zshenv`, `conf.d/*.zsh`, `.zshrc.d/*`, `/etc/zsh/zshrc`) for left-over loaders of `zsh-autocomplete` / `zsh-autosuggestions` after cleaning `~/.zshrc`, and **warns** (with exact `file:line`) if it finds any — it never edits those files. See CHANGELOG `[Unreleased]`.
 
 

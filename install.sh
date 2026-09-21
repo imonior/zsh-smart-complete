@@ -367,41 +367,6 @@ _msg() {
                 ko)    s="입력이 비어 있어 전체 프록시 사용을 취소했습니다." ;;
                 *)     s="Empty input; cancelled using a full proxy." ;;
             esac ;;
-        lang.option_en)
-            case "$lang" in
-                zh-CN) s="English" ;; zh-TW) s="English" ;;
-                ja)    s="English" ;;
-                ko)    s="English" ;;
-                *)     s="English" ;;
-            esac ;;
-        lang.option_zh_cn)
-            case "$lang" in
-                zh-CN) s="简体中文" ;; zh-TW) s="簡體中文" ;;
-                ja)    s="簡體中国語" ;;
-                ko)    s="간체 중국어" ;;
-                *)     s="Simplified Chinese" ;;
-            esac ;;
-        lang.option_zh_tw)
-            case "$lang" in
-                zh-CN) s="繁體中文" ;; zh-TW) s="繁體中文" ;;
-                ja)    s="正體中国語" ;;
-                ko)    s="정체 중국어" ;;
-                *)     s="Traditional Chinese" ;;
-            esac ;;
-        lang.option_ja)
-            case "$lang" in
-                zh-CN) s="日本語" ;; zh-TW) s="日本語" ;;
-                ja)    s="日本語" ;;
-                ko)    s="일본어" ;;
-                *)     s="Japanese" ;;
-            esac ;;
-        lang.option_ko)
-            case "$lang" in
-                zh-CN) s="한국어" ;; zh-TW) s="한국어" ;;
-                ja)    s="韓国語" ;;
-                ko)    s="한국어" ;;
-                *)     s="Korean" ;;
-            esac ;;
         dl.mirror_failed)
             case "$lang" in
                 zh-CN) s="镜像加速下载失败（exit %s），回退直连重试 ..." ;; zh-TW) s="鏡像加速下載失敗（exit %s），回退直連重試 ..." ;;
@@ -962,11 +927,11 @@ select_language() {
     fi
     echo
     info "$(msg lang.title)"
-    printf "  %d) %s (default)\n" 1 "$(msg lang.option_en)"
-    printf "  %d) %s\n" 2 "$(msg lang.option_zh_cn)"
-    printf "  %d) %s\n" 3 "$(msg lang.option_zh_tw)"
-    printf "  %d) %s\n" 4 "$(msg lang.option_ja)"
-    printf "  %d) %s\n" 5 "$(msg lang.option_ko)"
+    printf "  %d) %s (default)\n" 1 "English"
+    printf "  %d) %s\n" 2 "简体中文"
+    printf "  %d) %s\n" 3 "繁體中文"
+    printf "  %d) %s\n" 4 "日本語"
+    printf "  %d) %s\n" 5 "한국어"
     echo -n "$(msg lang.prompt)"
     _tty_read -r REPLY || REPLY=""
     case "$REPLY" in

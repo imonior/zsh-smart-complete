@@ -3,7 +3,7 @@
 > Zsh 向けのモダンなスマート補完・候補提示レイヤー。
 > 将来の独立シェルのフロントエンドとして設計。
 >
-> **v2.2.7** — 画面の UI は常に 1 つ。推奨設定は `atuin init` にキーをバインドさせなくなりました（Ctrl-R、最近のバージョンでは `?` も): 旧来の無条件な行では、インストーラーをすべて既定値で使っても atuin 自身のフローティング検索 TUI がプラグインのポップアップの隣に現れていました——「動的な提案が 2 つ出る」報告の正体です。今後は `ATUIN_NOBIND="true"` を書き込みます: atuin の履歴記録はそのまま（プラグインは SQLite DB を直接読む）、↑ / Ctrl-R / ? は標準動作。atuin の TUI をバインドするかはインストーラーの明示的な質問（既定はいいえ）に。atuin 記録はすべてのシェルコンボで有効になり、管理ブロック外の外部 `atuin init` 行を警告する読み取り専用スキャンも追加しました。
+> **v2.2.8** — 英語を読まなくても言語を選べます。インストーラーの言語メニューはこれまで i18n 表を通じて各項目を描画し、既定言語で英語にフォールバックして非英語項目を英語の向こうに隠していました。メニューは現在、各言語をその言語の表記(endonym)で常に表示します: English / 简体中文 / 繁體中文 / 日本語 / 한국어。メインと Entware の両インストーラーは同一の i18n 表とメニューを持ち、新しい回帰テストで釘付けされています。
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------ | ------ |
 | ビルドとテスト (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | リリース | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| バージョン | 2.2.7 |
+| バージョン | 2.2.8 |
 
 ## なぜこれを選ぶか
 
@@ -313,7 +313,7 @@ zsh tests/test-recent.zsh
 bash tests/test-installer-options.sh
 ```
 
-**テスト集計 （v2.2.7）：** 10 ファイル、711 アサーション、すべて合格、0 失敗。
+**テスト集計 （v2.2.8）：** 10 ファイル、718 アサーション、すべて合格、0 失敗。
 インストーラーは `~/.zshrc` の清理後に、`.zprofile`、`.zshenv`、`conf.d/*.zsh`、`.zshrc.d/*`、`/etc/zsh/zshrc` の**其它の起動ファイル**に `zsh-autocomplete` / `zsh-autosuggestions` のローダー行が残っていないかも**走査**し、見つかった場合は正確な `ファイル:行番号` で**警告**して手動清理を促します——これらのファイルは編集しません。詳細は CHANGELOG の `[Unreleased]` を参照。
 
 

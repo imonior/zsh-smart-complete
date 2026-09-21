@@ -32,6 +32,17 @@
 # Invariant under test: ONE keystroke stays on ONE line. It may echo, it may
 # paint the ghost, it may colour it — it must never advance to another line,
 # move the cursor vertically, or erase the screen.
+#
+# TWO HARNESS RULES, both learned the hard way (this file failed CI on Linux
+# while passing on macOS because of the first one):
+#   1. NEVER wait a fixed time and then read. Wait for the FIRST byte, then
+#      keep reading until the pty goes quiet, so the capture is the whole
+#      response to that keystroke. A constant sleep either cuts a late redraw
+#      in half or reads nothing at all on a slow machine — and a blank capture
+#      silently passes assert_one_line while failing everything else.
+#   2. Every reader goes through $mapfile, never through `$( )`: a command
+#      substitution strips trailing newlines, and a trailing newline is exactly
+#      one of the things this file is looking for.
 
 emulate -L zsh
 setopt extended_glob no_warn_create_global
@@ -63,29 +74,45 @@ _show() {
     s="${s//$esc/<E>}"
     s="${s//$'\n'/\\n}"
     s="${s//$'\r'/\\r}"
-    print -r -- "${s[1,120]}"
+    print -rn -- "${s[1,200]}"
 }
 
-# NOTE: every reader below pulls the bytes straight out of $mapfile, never
-# through `$( )` — a command substitution strips trailing newlines, and a
-# trailing newline is exactly one of the things this file is looking for.
+# assert_painted_ghost -- the ghost is written, in the configured colour.
 assert_painted_ghost() {
     local b="${mapfile[$CAP]}"
-    [[ "$b" == *"s -la /etc/"* ]] && _ok "ghost: the suggestion is written" \
-                                 || _no "ghost: the suggestion is written" "got $(_show "$b")"
+    local n=${#b}
+    if (( n == 0 )); then
+        _no "ghost: the suggestion is written" "(the pty produced NO bytes — the harness never saw a redraw)"
+        _no "ghost: the suggestion is coloured" "(nothing was captured)"
+        return
+    fi
+    [[ "$b" == *"s -la /etc/"* ]] && _ok "ghost: the suggestion is written (${n} bytes)" \
+                                 || _no "ghost: the suggestion is written" "(${n} bytes: $(_show "$b"))"
     [[ "$b" == *"38;5;110"* ]] && _ok "ghost: the suggestion is coloured" \
-                              || _no "ghost: the suggestion is coloured" "got $(_show "$b")"
+                              || _no "ghost: the suggestion is coloured" "(${n} bytes: $(_show "$b"))"
 }
 
 # assert_one_line <name> -- the keystroke must not leave the line it is on.
+# A blank capture is a FAILURE, not a pass: it means the harness saw nothing,
+# so the invariant was never actually exercised.
 assert_one_line() {
     local name="$1" b="${mapfile[$CAP]}"
-    local why=""
-    [[ "$b" == *$'\n'* ]]          && why="a newline"
-    [[ -z "$why" && "$b" == *$'\e'[0-9]#A* ]] && why="a cursor-up move"
-    [[ -z "$why" && "$b" == *$'\e'[0-9]#B* ]] && why="a cursor-down move"
-    [[ -z "$why" && "$b" == *$'\e'[0-9]#J* ]] && why="a screen erase"
-    [[ -z "$why" ]] && _ok "$name" || _no "$name" "($why was written: $(_show "$b"))"
+    # NOTE: the length is taken in its OWN statement on purpose. Within a single
+    # `local`, a later expansion does not see an assignment made earlier in the
+    # same command: `local b="x" n=${#b}` leaves n at 0 while b is "x"
+    # (measured on zsh 5.9). Derived in one statement, n would be 0 for every
+    # capture, and the "no bytes" branch below would fire on a perfect one.
+    local n=${#b} why=""
+    if (( n == 0 )); then
+        _no "$name" "(the pty produced NO bytes — the harness never saw a redraw)"
+        return
+    fi
+    [[ "$b" == *$'\n'* ]]                       && why="a newline"
+    [[ -z "$why" && "$b" == *$'\e'[0-9]#A* ]]   && why="a cursor-up move"
+    [[ -z "$why" && "$b" == *$'\e'[0-9]#B* ]]   && why="a cursor-down move"
+    [[ -z "$why" && "$b" == *$'\e'[0-9]#J* ]]   && why="a screen erase"
+    [[ -z "$why" ]] && _ok "$name (${n} bytes)" \
+                    || _no "$name" "($why was written, ${n} bytes: $(_show "$b"))"
 }
 
 cleanup() {
@@ -106,9 +133,18 @@ _session_start() {
         print -r -- 'HISTSIZE=2000'
         print -r -- 'SAVEHIST=2000'
         print -r -- "autoload -Uz compinit && compinit -u -d $ZD/.zcompdump"
+        # Pin the line length and the ghost colour. Without this the assertion
+        # "the ghost is coloured" depends on terminfo lookup plus the
+        # auto-detection, and a runner whose TERM database answers differently
+        # fails a test that is not about colour at all. Colour selection itself
+        # is covered by tests/test-menu.zsh.
+        print -r -- "SMART_SUGGEST_COLOR='fg=110'"
         print -r -- "source $ROOT/zsh-smart-complete.plugin.zsh"
         [[ -n "$extra" ]] && print -r -- "$extra"
-        # Two lines, the shape the shipped starship template renders.
+        # Two lines, the shape the shipped starship template renders. The size
+        # is set explicitly because a pty starts at 0x0 and the fallback is the
+        # emulator's business, not ours.
+        print -r -- "stty rows 24 cols 80 2>/dev/null"
         print -r -- "PROMPT=\$'L1> %n\\n:> '"
         print -r -- "RPROMPT=''"
     } > "$ZD/.zshrc"
@@ -117,14 +153,13 @@ _session_start() {
     zpty -b "$ZPTY_NAME" "env ZDOTDIR=$ZD HOME=$ZD TERM=xterm-256color zsh -i"
 
     local waited=0 boot=""
-    while (( waited < 60 )); do
+    while (( waited < 100 )); do
         boot+="$(_drain)"
         if [[ "$boot" == *':> '* ]]; then
-            sleep 0.4          # let the boot's trailing bytes arrive
-            _drain >/dev/null
+            _read_until_quiet >/dev/null   # let the boot's trailing bytes arrive
             return 0
         fi
-        sleep 0.25
+        sleep 0.1
         (( waited++ ))
     done
     _no "the nested zsh reached its prompt" "(boot=$(_show "$boot"))"
@@ -140,16 +175,42 @@ _drain() {
     print -rn -- "$out"
 }
 
+# _read_until_quiet -- wait for the FIRST byte (up to 10s), then keep reading
+# until four consecutive quiet windows (~0.6s) pass. This is what makes the
+# capture the complete response to one keystroke instead of whatever happened
+# to land inside a fixed sleep.
+_read_until_quiet() {
+    local out="" chunk waited=0 idle=0 before=0
+    while (( waited < 100 )); do
+        while zpty -r -t "$ZPTY_NAME" chunk; do out+="$chunk"; done
+        (( ${#out} )) && break
+        sleep 0.1
+        (( waited++ ))
+    done
+    while (( idle < 4 )); do
+        sleep 0.15
+        before=${#out}
+        while zpty -r -t "$ZPTY_NAME" chunk; do out+="$chunk"; done
+        if (( ${#out} == before )); then (( idle++ )); else idle=0; fi
+    done
+    print -rn -- "$out"
+}
+
 # _type <keys> -- send keys (no trailing newline), capture the raw bytes.
 _type() {
     _drain >/dev/null
     : > "$CAP"
     zpty -w -n "$ZPTY_NAME" "$1"
-    sleep 0.9
-    _drain > "$CAP"
+    _read_until_quiet > "$CAP"
 }
 
+# One line of environment, so a failure that only happens on one platform can
+# be told apart from a real regression without re-running it there. The nested
+# shell is this same zsh binary.
+_tf="none"
+zmodload zsh/terminfo 2>/dev/null && _tf="${terminfo[colors]:-none}"
 print -r -- "test-repaint: one keystroke must stay on one line"
+print -r -- "  env: zsh $ZSH_VERSION, $OSTYPE, TERM=${TERM:-unset}, terminfo colors=$_tf"
 trap cleanup EXIT
 
 # ---------------------------------------------------------------------------
@@ -178,8 +239,8 @@ cleanup
 if _session_start $'SMART_MENU=false\nSMART_INLINE=false'; then
     _type 'z'
     assert_one_line "both off: the keystroke stays on one line"
-    nbytes="${#${mapfile[$CAP]}}"
-    if (( nbytes <= 2 )); then
+    nbytes=${#${mapfile[$CAP]}}
+    if (( nbytes >= 1 && nbytes <= 2 )); then
         _ok "both off: the keystroke costs the echo only (${nbytes} bytes)"
     else
         _no "both off: the keystroke costs the echo only" "(${nbytes} bytes: $(_show "${mapfile[$CAP]}"))"

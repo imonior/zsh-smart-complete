@@ -46,21 +46,43 @@ jobs:
         run: |
           # Each test file is self-contained: sources its own modules,
           # prints PASS/FAIL/SKIP lines and exits non-zero on failure.
+          #
+          # Suites run through run_suite so a failure is surfaced TWICE: in this
+          # log, and as workflow annotations. The annotations matter because
+          # downloading a job log needs authentication, while the annotations of
+          # a check run are readable with a plain unauthenticated GET
+          # (/repos/{owner}/{repo}/check-runs/{id}/annotations). Without them a
+          # failure that only reproduces on one runner is unreadable from
+          # outside that runner.
           set -e
-          zsh tests/test-config.zsh
-          zsh tests/test-history.zsh
-          zsh tests/test-suggest.zsh
-          zsh tests/test-ranking.zsh
-          zsh tests/test-atuin.zsh
-          zsh tests/test-zle.zsh
-          zsh tests/test-menu.zsh
-          zsh tests/test-integration.zsh
-          zsh tests/test-recent.zsh
+          run_suite() {
+            local out line
+            if out="$("$@" 2>&1)"; then
+              printf '%s\n' "$out" | tail -n 2
+              return 0
+            fi
+            printf '%s\n' "$out"
+            while IFS= read -r line; do
+              if [ -n "$line" ]; then
+                printf '::error::%s\n' "$line"
+              fi
+            done < <(printf '%s\n' "$out" | grep -E 'FAIL|TOTAL|SKIP|env:' | tail -n 15)
+            return 1
+          }
+          run_suite zsh tests/test-config.zsh
+          run_suite zsh tests/test-history.zsh
+          run_suite zsh tests/test-suggest.zsh
+          run_suite zsh tests/test-ranking.zsh
+          run_suite zsh tests/test-atuin.zsh
+          run_suite zsh tests/test-zle.zsh
+          run_suite zsh tests/test-menu.zsh
+          run_suite zsh tests/test-integration.zsh
+          run_suite zsh tests/test-recent.zsh
           # needs zsh/zpty + zsh/mapfile: drives a real interactive zsh on a
           # pseudo-terminal and asserts on the raw bytes it writes per
           # keystroke. Skips itself (exit 0) when those modules are missing.
-          zsh tests/test-repaint.zsh
+          run_suite zsh tests/test-repaint.zsh
           # bash, not zsh: it extracts functions out of install.sh and drives
           # them against throwaway files. Listed explicitly like the rest —
           # a new test file that is not named here is silently never run.
-          bash tests/test-installer-options.sh
+          run_suite bash tests/test-installer-options.sh

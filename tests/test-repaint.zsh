@@ -132,6 +132,9 @@ _session_start() {
         print -r -- "HISTFILE=$ZD/.zsh_history"
         print -r -- 'HISTSIZE=2000'
         print -r -- 'SAVEHIST=2000'
+        # `-u` is the documented "use what you find without asking" flag; `-C`
+        # only skips the security check when the dump file ALREADY exists, so it
+        # would still ask in a fresh directory.
         print -r -- "autoload -Uz compinit && compinit -u -d $ZD/.zcompdump"
         # Pin the line length and the ghost colour. Without this the assertion
         # "the ghost is coloured" depends on terminfo lookup plus the
@@ -150,14 +153,29 @@ _session_start() {
     } > "$ZD/.zshrc"
 
     zpty -d "$ZPTY_NAME" 2>/dev/null
-    zpty -b "$ZPTY_NAME" "env ZDOTDIR=$ZD HOME=$ZD TERM=xterm-256color zsh -i"
+    # `-d` is NO_GLOBAL_RCS: skip /etc/zsh/* but still read $ZDOTDIR/.zshrc. The
+    # distro's global rc is not ours to depend on, and on an Ubuntu runner its
+    # plain `compinit` stops on "Ignore insecure directories ... [y/n]?" (the
+    # image leaves a directory in fpath group-writable), which blocks the shell
+    # before it ever prints a prompt. Measured: without -d every session failed
+    # its boot on Linux while macOS was fine.
+    zpty -b "$ZPTY_NAME" "env ZDOTDIR=$ZD HOME=$ZD TERM=xterm-256color zsh -i -d"
 
-    local waited=0 boot=""
+    local waited=0 boot="" answered=0
     while (( waited < 100 )); do
         boot+="$(_drain)"
         if [[ "$boot" == *':> '* ]]; then
             _read_until_quiet >/dev/null   # let the boot's trailing bytes arrive
             return 0
+        fi
+        # A startup file is allowed to ask a question before printing a prompt.
+        # The pty is non-blocking, so nothing would ever answer it and the boot
+        # would simply time out. Answer it, say so, and keep waiting — silently
+        # hanging is the one outcome a harness must never have.
+        if (( ! answered )) && [[ "$boot" == *"Ignore insecure directories"* ]]; then
+            zpty -w "$ZPTY_NAME" "y"
+            print -r -- "  note: a startup prompt asked about insecure completion directories; answered y"
+            answered=1
         fi
         sleep 0.1
         (( waited++ ))

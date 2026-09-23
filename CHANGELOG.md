@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [v2.2.11] - 2026-09-23
+
+### Added
+- **A local settings script (`zsc-settings`) the installer drops next to the plugin, so every knob can be tuned without editing `~/.zshrc`.** The installer now creates `${XDG_CONFIG_HOME:-$HOME/.config}/zsh-smart-complete/settings.zsh` and symlinks `bin/zsc-settings` into `~/.local/bin/zsc-settings`. The plugin sources that file **before** its built-in defaults, so any `KEY='VALUE'` line written there overrides the default. `zsc-settings` exposes `wizard` / `list` / `get KEY` / `set KEY VALUE` / `edit` / `reset [KEY]` / `path` / `init`; `set` validates the value against the setting's type (bool / int / enum / path) and rejects bad input. A change takes effect after restarting zsh. Point `SMART_USER_CONFIG` at another file to override the location.
+
+### Changed
+- **The live completion popup is now autocomplete-like for paths and single matches.** A path (e.g. `/u`, `~/l`, `cd /usr/`) now lists candidates from the **first segment character**, and a bare `/` (or any trailing slash) lists the directory at once — the v2.2.9 rule waited for two segment characters, which made path completion feel dead. A **single** match now draws a 1-line popup (in addition to the inline ghost) instead of being ghost-only. Non-path words keep the two-character gate (`git s` stays silent until `git st`). Revert with `SMART_MENU_MIN_MATCHES=2` in your settings file.
+
+
 ## [v2.2.10] - 2026-09-22
 
 ### Fixed

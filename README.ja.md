@@ -3,7 +3,7 @@
 > Zsh 向けのモダンなスマート補完・候補提示レイヤー。
 > 将来の独立シェルのフロントエンドとして設計。
 >
-> **v2.2.10** — 入力してもスクリーンがスクロールしなくなりました。表示層は毎打鍵で全体を再描画しており、その再描画には本物の改行が含まれていました。プロンプトが端末の最終行にあるとき、1 打鍵ごとに画面が 1 行スクロールしてしまい、これが「1 文字入力しただけで行が確定し、その下に新しいプロンプトが出た」ように見える原因でした。2 行プロンプトでの 1 打鍵あたりの実測: **修正前 96 バイト、現在 33 バイト**（ゴースト**と**ポップアップを両方切ると 32 対 **1** バイト、つまり素の zsh と完全に一致）。本当に必要な 1 回の再描画 — より長いプレフィックス用に描いた候補行の撤回 — は、一覧が実際に消えるときだけ行われるようになりました。tmux ハーネスでは構造的に見えないため、新しい `tests/test-repaint.zsh` がこの不変条件を CI で固定します。
+> **v2.2.11** — `~/.zshrc` を触らずに調整でき、パスポップアップが autocomplete 相当に。インストーラーはプラグインの隣に小さな `zsc-settings` CLI（wizard / list / get / set / edit / reset / path / init、いずれも型検証付き）を置き、プラグインが既定値より前に読む上書きファイルを書きます。ライブポップアップもパスについては autocomplete 風に：最初のセグメント文字から一覧（`/u`、`~/l`、`cd /usr/`）、裸の `/` はその場でディレクトリを一覧、単一マッチもインライン灰字の隣に 1 行ポップアップを描画します。パス以外の単語は 2 文字の閾値のまま。`SMART_MENU_MIN_MATCHES=2` で元に戻ります。
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------ | ------ |
 | ビルドとテスト (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | リリース | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| バージョン | 2.2.10 |
+| バージョン | 2.2.11 |
 
 ## なぜこれを選ぶか
 
@@ -121,7 +121,7 @@ curl -fsSL https://ghproxy.net/https://raw.githubusercontent.com/imonior/zsh-sma
 : ${SMART_MENU_MIN_PREFIX_CMD:=2}     # コマンド語をリスト表示する最小文字数
 : ${SMART_MENU_MIN_PREFIX:=2}         # 引数語をリスト表示する最小文字数（最後の "/" 以降を
                                       # カウント、0 = 空白直後も表示）
-: ${SMART_MENU_MIN_MATCHES:=2}        # これ未満の候補数ならリスト非表示（単一候補は灰色文字が担う）
+: ${SMART_MENU_MIN_MATCHES:=1}        # ポップアップを描く最少候補数（1 = 単一マッチも表示、autocomplete 相当）
 : ${SMART_MENU_MAX_MATCHES:=100}       # これより多い候補はリスト非表示（巨大ディレクトリと zsh の「N 個すべて表示?」を回避）
 : ${SMART_MENU_MAX_PREFIX:=64}
 : ${SMART_MENU_HISTORY_KEYS:=false}  # true = 行が空でないとき ↑/↓ で履歴を前方一致検索
@@ -289,6 +289,29 @@ smart-lister builtin|fzf-tab  # 一覧を描くのはどちらか（fzf-tab = �
 smart-recent on|off|status # 最近ディレクトリ候補 + `cd ` 空語の一覧
 ```
 
+## ローカル設定スクリプト
+
+インストーラーはユーザー設定ファイルと、それを管理する小さな CLI を作成するため、`~/.zshrc` を一切変更せずにプラグインを調整できます。ファイルの場所：
+
+```
+${SMART_USER_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/zsh-smart-complete/settings.zsh}
+```
+
+インストール後はいつでも `zsc-settings` を実行できます（インストーラーはこれを `~/.local/bin/zsc-settings` にシンボリックリンクするので、そのディレクトリが `PATH` に入っていることを確認するか、スクリプトをフルパスで呼び出してください）：
+
+| コマンド | 内容 |
+| --- | --- |
+| `zsc-settings` | 対話ウィザード——設定を選び、新しい値を入力 |
+| `zsc-settings list` | すべての設定とその有効値を表示 |
+| `zsc-settings get KEY` | ある設定の有効値を表示 |
+| `zsc-settings set KEY VALUE` | 値を検証して書き込む |
+| `zsc-settings edit` | ファイルを `$EDITOR` で開く |
+| `zsc-settings reset [KEY]` | 上書きを 1 つ（またはすべて）削除 → 既定値へ戻る |
+| `zsc-settings path` | 設定ファイルのパスを表示 |
+| `zsc-settings init` | コメント付き既定値でファイルを（再）作成 |
+
+値は単なる `KEY='VALUE'` 行として書き込まれます。プラグインは内蔵の既定値より**前に**このファイルを source するため、書いた値は既定値を上書きします。値を変更した後は、**zsh を再起動**（`exec zsh` など）して反映してください。`set` は設定の型（bool / int / enum / path）に基づいて値を検証し、不正な入力を拒否します。別のファイルを使うには、zsh 起動前に `SMART_USER_CONFIG` でそのファイルを指すようにします。
+
 ## アンインストール
 
 ```zsh
@@ -315,15 +338,15 @@ zsh tests/test-repaint.zsh
 bash tests/test-installer-options.sh
 ```
 
-**テスト集計 （v2.2.10）：** 11 ファイル、779 アサーション、すべて合格、0 失敗。
+**テスト集計 （v2.2.11）：** 12 ファイル、804 アサーション、すべて合格、0 失敗。
 インストーラーは `~/.zshrc` の清理後に、`.zprofile`、`.zshenv`、`conf.d/*.zsh`、`.zshrc.d/*`、`/etc/zsh/zshrc` の**其它の起動ファイル**に `zsh-autocomplete` / `zsh-autosuggestions` のローダー行が残っていないかも**走査**し、見つかった場合は正確な `ファイル:行番号` で**警告**して手動清理を促します——これらのファイルは編集しません。詳細は CHANGELOG の `[v2.2.5]` を参照。
 
 
 主要な挙動は、tmux ペイン内の実際の `zsh -i` に対してエンドツーエンドで検証され、
 描画された画面をアサートします（49/49 グリーン）。同じアサーションは v2.1.6 では
-**23/49**（49 件のうち 1 件はそこでは到達しません——そのセクションは失敗後に中止されます）——当時「入力でポップアップするメニュー」は存在せず、`SS3` と `Alt+→` の
+**24/49**（49 件のうち 1 件はそこでは到達しません——そのセクションは失敗後に中止されます）——当時「入力でポップアップするメニュー」は存在せず、`SS3` と `Alt+→` の
 エンコーディングは死んでおり、`Tab` の後の `Enter` は飲み込まれ、最近ディレクトリは一覧
-されず、一覧表示器の切り替えも単一列レイアウトもありませんでした。この 23 件の PASS のうち
+されず、一覧表示器の切り替えも単一列レイアウトもありませんでした。この 24 件の PASS のうち
 **いくつかは空振り**です — 「一覧を描いていないこと」を検証していますが、v2.1.6 は一覧をまったく
 描きません。ベースラインを古い数字から按分できないのはそのためです。
 このハーネスはリポジトリに同梱されています（`tmux` がなくても自動スキップ）：

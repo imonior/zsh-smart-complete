@@ -3,7 +3,7 @@
 > 一个现代化的智能补全和建议层，专为 Zsh 设计。
 > 作为未来独立 shell 的前端引擎。
 >
-> **v2.2.10** — 打字不再滚屏。显示层过去在每次按键时强制整屏重绘，而那次重绘里含一个真正的换行：只要提示符停在终端最后一行，每个按键都会把屏幕向上滚一行——这正是"敲一个字符就像已经提交、下面又印出新提示符"的原因。两行提示符下实测每次按键：**修复前 96 字节，现在 33 字节**；把灰字**和**弹窗都关掉时是 32 对 **1** 字节，与原生 zsh 完全一致。唯一真正需要的那次重绘——撤回为更长前缀画出的候选行——现在只在列表真的消失时才发生。新增 `tests/test-repaint.zsh` 在 CI 里钉住这条不变式，因为 tmux 那套结构上看不到它。
+> **v2.2.11** — 不改 `~/.zshrc` 也能调，路径弹窗对标 autocomplete。安装器现在会在插件旁放一个 `zsc-settings` 小工具（wizard / list / get / set / edit / reset / path / init，均按类型校验），把覆盖项写入插件读取先于默认值的文件。实时弹窗路径部分也变成 autocomplete 风格：从第一个段字符就列（`/u`、`~/l`、`cd /usr/`），裸 `/` 立即列目录，单匹配也会在内联灰字旁画 1 行弹窗。非路径词保持两字符门槛；用 `SMART_MENU_MIN_MATCHES=2` 恢复。
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------ | ------ |
 | 构建与测试 (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | 发布 | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| 版本 | 2.2.10 |
+| 版本 | 2.2.11 |
 
 ## 为什么选择我们
 
@@ -121,7 +121,7 @@ curl -fsSL https://ghproxy.net/https://raw.githubusercontent.com/imonior/zsh-sma
 : ${SMART_MENU_MIN_PREFIX_CMD:=2}     # 命令行首词至少几个字符才列
 : ${SMART_MENU_MIN_PREFIX:=2}         # 参数词至少几个字符才列（按最后一个 "/" 之后算，
                                       # 0 = 空格后也列）
-: ${SMART_MENU_MIN_MATCHES:=2}        # 候选少于这个数就不列（单个候选由灰字承担）
+: ${SMART_MENU_MIN_MATCHES:=1}        # 触发实时弹窗的最少候选数（1 = 单匹配也弹，对标 autocomplete）
 : ${SMART_MENU_MAX_MATCHES:=100}       # 候选多于此数就不列（既避开超大目录，也避开 zsh 的「是否显示全部 N 项」提示）
 : ${SMART_MENU_MAX_PREFIX:=64}
 : ${SMART_MENU_HISTORY_KEYS:=false}  # true = 行内非空时 ↑/↓ 按前缀搜索历史
@@ -270,6 +270,29 @@ smart-lister builtin|fzf-tab  # 选择列表由谁画（fzf-tab = 本插件停�
 smart-recent on|off|status # 最近目录候选 + `cd ` 空词列表
 ```
 
+## 本地设置脚本
+
+安装器会创建一个用户设置文件和一个用于管理它的小命令行工具，这样你无需改动 `~/.zshrc` 即可随时调整插件。文件位于：
+
+```
+${SMART_USER_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/zsh-smart-complete/settings.zsh}
+```
+
+安装后随时运行 `zsc-settings`（安装器会把它软链到 `~/.local/bin/zsc-settings`，请确保该目录在 `PATH` 中，或直接用完整路径调用脚本）：
+
+| 命令 | 作用 |
+| --- | --- |
+| `zsc-settings` | 交互向导——选一项设置，输入新值 |
+| `zsc-settings list` | 列出每一项设置及其当前生效值 |
+| `zsc-settings get KEY` | 打印某一项设置的生效值 |
+| `zsc-settings set KEY VALUE` | 校验并写入一项设置 |
+| `zsc-settings edit` | 用 `$EDITOR` 打开设置文件 |
+| `zsc-settings reset [KEY]` | 删除一条覆盖（或全删）→ 回到默认值 |
+| `zsc-settings path` | 打印设置文件路径 |
+| `zsc-settings init` | （重新）生成带注释默认值的文件 |
+
+设置以纯 `KEY='VALUE'` 行写入。插件会**先于**内置默认值 source 此文件，因此你写入的任何值都会覆盖默认值。修改某值后，请**重启 zsh**（例如运行 `exec zsh`）使其生效。`set` 会按设置类型（bool / int / enum / path）校验取值，拒绝非法输入。若要改用其他文件，可在 zsh 启动前把 `SMART_USER_CONFIG` 指向它。
+
 ## 卸载
 
 ```zsh
@@ -296,7 +319,7 @@ zsh tests/test-repaint.zsh
 bash tests/test-installer-options.sh
 ```
 
-**测试汇总 （v2.2.10）：** 11 个测试文件共 779 项全部通过，0 失败。
+**测试汇总 （v2.2.11）：** 12 个测试文件共 804 项全部通过，0 失败。
 安装器在清理 `~/.zshrc` 之后，现在还会**扫描其它启动文件**（`.zprofile`、`.zshenv`、`conf.d/*.zsh`、`.zshrc.d/*`、`/etc/zsh/zshrc`）中是否仍有 `zsh-autocomplete` / `zsh-autosuggestions` 的加载行，并用精确的 `文件:行号` **警告**用户手动清理——它从不修改这些文件。详见 CHANGELOG 的 `[v2.2.5]`。
 
 
@@ -311,8 +334,8 @@ bash tests/test-installer-options.sh
 ./tests/e2e-tmux.sh /tmp/zsc-v216               # 对旧版本做 A/B
 ```
 
-同一套断言在 v2.1.6 上过 23/49（其中 1 条在那里根本走不到：它所在段落因前一条失败而中止）——当时「打字即弹菜单」确实不存在，`SS3` 与 `Alt+→` 的编码
-是死的，`Tab` 后按 `Enter` 会被吞掉，最近目录不会列表，列表器开关与单列布局也都还没有。这 23
+同一套断言在 v2.1.6 上过 24/49（其中 1 条在那里根本走不到：它所在段落因前一条失败而中止）——当时「打字即弹菜单」确实不存在，`SS3` 与 `Alt+→` 的编码
+是死的，`Tab` 后按 `Enter` 会被吞掉，最近目录不会列表，列表器开关与单列布局也都还没有。这 24
 条通过里有**若干条是空过**——它们断言「没有画任何列表」，而 v2.1.6 根本不会画列表。基线必须
 实跑、而不能按旧数字按比例换算，原因就在这里。
 e2e 还包含一条「缓冲区完整性」断言：逐字输入后提示符行必须与键入内容完全一致，

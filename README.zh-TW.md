@@ -3,7 +3,7 @@
 > 一個現代化的智慧補全與建議層，專為 Zsh 設計。
 > 作為未來獨立 shell 的前端引擎。
 >
-> **v2.2.10** — 打字不再捲屏。顯示層過去在每次按鍵時強制整屏重繪，而那次重繪裡含一個真正的換行：只要提示字元停在終端最後一行，每個按鍵都會把畫面向上捲一行——這正是「敲一個字元就像已經提交、下面又印出新提示字元」的原因。兩行提示字元下實測每次按鍵：**修復前 96 位元組，現在 33 位元組**；把灰字**和**彈窗都關掉時是 32 對 **1** 位元組，與原生 zsh 完全一致。唯一真正需要的那次重繪——撤回為更長前綴畫出的候選行——現在只在清單真的消失時才發生。新增 `tests/test-repaint.zsh` 在 CI 裡釘住這條不變式，因為 tmux 那套結構上看不到它。
+> **v2.2.11** — 不改 `~/.zshrc` 也能調，路徑彈窗對標 autocomplete。安裝器現在會在外掛旁放一個 `zsc-settings` 小工具（wizard / list / get / set / edit / reset / path / init，均依型別校驗），把覆蓋項寫入外掛讀取先於預設值的檔案。即時彈窗路徑部分也變成 autocomplete 風格：從第一個段字元就列（`/u`、`~/l`、`cd /usr/`），裸 `/` 立即列目錄，單一匹配也會在內聯灰字旁畫 1 行彈窗。非路徑詞保持兩字元門檻；用 `SMART_MENU_MIN_MATCHES=2` 恢復。
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------ | ------ |
 | 建置與測試 (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | 釋出 | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| 版本 | 2.2.10 |
+| 版本 | 2.2.11 |
 
 ## 為什麼選擇我們
 
@@ -121,7 +121,7 @@ curl -fsSL https://ghproxy.net/https://raw.githubusercontent.com/imonior/zsh-sma
 : ${SMART_MENU_MIN_PREFIX_CMD:=2}     # 命令列首詞至少幾個字元才列
 : ${SMART_MENU_MIN_PREFIX:=2}         # 參數詞至少幾個字元才列（以最後一個 "/" 之後計算，
                                       # 0 = 空格後也列）
-: ${SMART_MENU_MIN_MATCHES:=2}        # 候選少於這個數就不列（單個候選由灰字承擔）
+: ${SMART_MENU_MIN_MATCHES:=1}        # 觸發即時彈窗的最少候選數（1 = 單匹配也彈，對標 autocomplete）
 : ${SMART_MENU_MAX_MATCHES:=100}       # 候選多於此數就不列（同時避開超大目錄與 zsh 的「是否顯示全部 N 項」提示）
 : ${SMART_MENU_MAX_PREFIX:=64}
 : ${SMART_MENU_HISTORY_KEYS:=false}  # true = 行內非空時 ↑/↓ 依前綴搜尋歷史
@@ -270,6 +270,29 @@ smart-lister builtin|fzf-tab  # 選擇清單由誰畫（fzf-tab = 本外掛停�
 smart-recent on|off|status # 最近目錄候選 + `cd ` 空詞列表
 ```
 
+## 本地設定腳本
+
+安裝器會建立一個使用者設定檔與一個用來管理它的小指令列工具，讓你不必更動 `~/.zshrc` 就能隨時調整外掛。檔案位於：
+
+```
+${SMART_USER_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/zsh-smart-complete/settings.zsh}
+```
+
+安裝後隨時執行 `zsc-settings`（安裝器會把它軟鏈到 `~/.local/bin/zsc-settings`，請確認該目錄在 `PATH` 中，或直接用完整路徑呼叫腳本）：
+
+| 指令 | 作用 |
+| --- | --- |
+| `zsc-settings` | 互動精靈——選一項設定，輸入新值 |
+| `zsc-settings list` | 列出每一項設定及其目前生效值 |
+| `zsc-settings get KEY` | 印出某一項設定的生效值 |
+| `zsc-settings set KEY VALUE` | 校驗並寫入一項設定 |
+| `zsc-settings edit` | 用 `$EDITOR` 開啟設定檔 |
+| `zsc-settings reset [KEY]` | 刪除一條覆寫（或全刪）→ 回到預設值 |
+| `zsc-settings path` | 印出設定檔路徑 |
+| `zsc-settings init` | （重新）產生帶註解預設值的檔案 |
+
+設定以純 `KEY='VALUE'` 行寫入。外掛會**先於**內建預設值 source 此檔，因此你寫入的任何值都會覆寫預設值。修改某值後，請**重啟 zsh**（例如執行 `exec zsh`）使其生效。`set` 會依設定類型（bool / int / enum / path）校驗取值，拒絕非法輸入。若要改用其他檔案，可在 zsh 啟動前把 `SMART_USER_CONFIG` 指向它。
+
 ## 解除安裝
 
 ```zsh
@@ -296,7 +319,7 @@ zsh tests/test-repaint.zsh
 bash tests/test-installer-options.sh
 ```
 
-**測試彙總 （v2.2.10）：** 11 個測試檔案共 779 項全部通過，0 失敗。
+**測試彙總 （v2.2.11）：** 12 個測試檔案共 804 項全部通過，0 失敗。
 安裝器在清理 `~/.zshrc` 之後，現在還會**掃描其它啟動檔**（`.zprofile`、`.zshenv`、`conf.d/*.zsh`、`.zshrc.d/*`、`/etc/zsh/zshrc`）中是否仍有 `zsh-autocomplete` / `zsh-autosuggestions` 的載入行，並用精確的 `檔案:行號` **警告**使用者手動清理——它從不修改這些檔案。詳見 CHANGELOG 的 `[v2.2.5]`。
 
 
@@ -304,8 +327,8 @@ bash tests/test-installer-options.sh
 49 項斷言全綠，涵蓋「打字即彈清單」「候選收窄時清單仍在」「單候選讓位給灰字」
 「右箭頭兩種編碼都能接受」「`Alt+→` 三種編碼都只接受一個詞（用 `echo alpha beta`
 探針，以命令輸出判定緩衝區內容，而非回顯的行）」「開關往返」「Tab 補全仍可用」。
-同一套斷言在 v2.1.6 上過 23/49（其中 1 條在那裡根本走不到：它所在段落因前一條失敗而中止）——當時「打字即彈選單」確實不存在，`SS3` 與 `Alt+→` 的編碼
-是死的，`Tab` 後按 `Enter` 會被吞掉，最近目錄不會列出，清單器開關與單列版面也都還沒有。這 23
+同一套斷言在 v2.1.6 上過 24/49（其中 1 條在那裡根本走不到：它所在段落因前一條失敗而中止）——當時「打字即彈選單」確實不存在，`SS3` 與 `Alt+→` 的編碼
+是死的，`Tab` 後按 `Enter` 會被吞掉，最近目錄不會列出，清單器開關與單列版面也都還沒有。這 24
 條通過裡有**若干條是空過**——它們斷言「沒有畫任何清單」，而 v2.1.6 根本不會畫清單。基線必須
 實跑、而不能按舊數字按比例換算，原因就在這裡。
 e2e 還包含一條「緩衝區完整性」斷言：逐字輸入後提示字行必須與鍵入內容完全一致，

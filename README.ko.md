@@ -3,7 +3,7 @@
 > Zsh 용 현대적인 스마트 완성 및 제안 레이어.
 > 미래의 독립 셸 프런트엔드로 설계됨.
 >
-> **v2.2.10** — 입력해도 화면이 스크롤되지 않습니다. 표시 계층은 키 입력마다 전체를 다시 그렸고, 그 재그리기에는 실제 개행이 들어 있었습니다. 프롬프트가 터미널 마지막 행에 있을 때 키 입력마다 화면이 한 줄씩 스크롤되었고, 이것이 "한 글자만 입력해도 줄이 제출되고 그 아래에 새 프롬프트가 찍힌" 것처럼 보인 원인이었습니다. 2줄 프롬프트에서 키 입력 한 번당 실측: **수정 전 96 바이트, 현재 33 바이트**(고스트**와** 팝업을 모두 끄면 32 대 **1** 바이트, 즉 순정 zsh와 정확히 동일). 정말로 필요한 단 한 번의 재그리기 — 더 긴 접두사를 위해 그린 후보 행의 회수 — 는 목록이 실제로 사라질 때만 일어납니다. tmux 하니스는 구조적으로 볼 수 없으므로, 새 `tests/test-repaint.zsh` 가 이 불변식을 CI에서 고정합니다.
+> **v2.2.11** — `~/.zshrc` 를 건드리지 않고 조정하고, 경로 팝업이 autocomplete 수준. 설치기는 플러그인 옆에 작은 `zsc-settings` CLI(wizard / list / get / set / edit / reset / path / init, 모두 형 검증)를 두고, 플러그인이 기본값보다 먼저 읽는 덮어쓰기 파일을 씁니다. 라이브 팝업도 경로에 대해서는 autocomplete 풍으로: 첫 세그먼트 글자부터 목록(`/u`, `~/l`, `cd /usr/`), 맨 `/` 는 그 자리에서 디렉터리 목록, 단일 매치도 인라인 회색 글자 옆에 1줄 팝업을 그립니다. 경로 외 단어는 2글자 문턱 유지. `SMART_MENU_MIN_MATCHES=2` 로 되돌립니다.
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------ | ------ |
 | 빌드 및 테스트 (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | 릴리스 | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| 버전 | 2.2.10 |
+| 버전 | 2.2.11 |
 
 ## 왜 이 플러그인인가
 
@@ -121,7 +121,7 @@ curl -fsSL https://ghproxy.net/https://raw.githubusercontent.com/imonior/zsh-sma
 : ${SMART_MENU_MIN_PREFIX_CMD:=2}     # 목록 표시 전 명령어 단어 최소 문자 수
 : ${SMART_MENU_MIN_PREFIX:=2}         # 인수 단어 최소 문자 수 (마지막 "/" 뒤 기준,
                                       # 0 = 공백 직후에도 표시)
-: ${SMART_MENU_MIN_MATCHES:=2}        # 이보다 적은 후보는 목록 비표시 (단일 후보는 회색 글자가 담당)
+: ${SMART_MENU_MIN_MATCHES:=1}        # 실시간 팝업을 그릴 최소 후보 수 (1 = 단일 매치도 표시, autocomplete 수준)
 : ${SMART_MENU_MAX_MATCHES:=100}       # 이보다 많은 후보는 목록 비표시 (거대 디렉터리와 zsh의 "N개 모두 표시?" 프롬프트 회피)
 : ${SMART_MENU_MAX_PREFIX:=64}
 : ${SMART_MENU_HISTORY_KEYS:=false}  # true = 줄이 비어 있지 않을 때 ↑/↓ 접두사 히스토리 검색
@@ -283,6 +283,29 @@ smart-lister builtin|fzf-tab  # 목록을 누가 그릴지 선택 (fzf-tab = 이
 smart-recent on|off|status # 최근 디렉터리 후보 + `cd ` 빈 단어 목록
 ```
 
+## 로컬 설정 스크립트
+
+설치기는 사용자 설정 파일과 이를 관리하는 작은 CLI 를 만들므로, `~/.zshrc` 를 전혀 건드리지 않고도 플러그인을 조정할 수 있습니다. 파일 위치:
+
+```
+${SMART_USER_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/zsh-smart-complete/settings.zsh}
+```
+
+설치 후에는 언제든 `zsc-settings` 를 실행할 수 있습니다（설치기는 이를 `~/.local/bin/zsc-settings` 에 심볼릭 링크하므로, 해당 디렉터리가 `PATH` 에 있는지 확인하거나 스크립트를 전체 경로로 호출하세요）:
+
+| 명령 | 설명 |
+| --- | --- |
+| `zsc-settings` | 대화형 마법사——설정 항목을 고르고 새 값 입력 |
+| `zsc-settings list` | 모든 설정과 현재 적용 값 표시 |
+| `zsc-settings get KEY` | 한 설정의 적용 값 출력 |
+| `zsc-settings set KEY VALUE` | 값을 검증해 기록 |
+| `zsc-settings edit` | 파일을 `$EDITOR` 로 열기 |
+| `zsc-settings reset [KEY]` | 덮어쓴 값 하나（또는 전체） 삭제 → 기본값으로 복귀 |
+| `zsc-settings path` | 설정 파일 경로 출력 |
+| `zsc-settings init` | 주석이 달린 기본값으로 파일 （재）생성 |
+
+값은 그냥 `KEY='VALUE'` 행으로 기록됩니다. 플러그인은 내장 기본값보다 **먼저** 이 파일을 source 하므로, 기록한 값이 기본값을 덮어씁니다. 값을 바꾼 뒤에는 **zsh 를 재시작**（`exec zsh` 등）해 적용하세요. `set` 은 설정 형（bool / int / enum / path）에 맞춰 값을 검증하고 잘못된 입력을 거부합니다. 다른 파일을 쓰려면 zsh 시작 전에 `SMART_USER_CONFIG` 로 그 파일을 가리키면 됩니다.
+
 ## 제거
 
 ```zsh
@@ -309,15 +332,15 @@ zsh tests/test-repaint.zsh
 bash tests/test-installer-options.sh
 ```
 
-**테스트 요약 （v2.2.10）：** 11개 파일, 779개 어설션, 전부 통과, 0 실패.
+**테스트 요약 （v2.2.11）：** 12개 파일, 804개 어설션, 전부 통과, 0 실패.
 설치기는 `~/.zshrc` 정리 후 `.zprofile`, `.zshenv`, `conf.d/*.zsh`, `.zshrc.d/*`, `/etc/zsh/zshrc` 같은 **다른 시작 파일**에 `zsh-autocomplete` / `zsh-autosuggestions` 로더 행이 남아 있는지도 **검사**하고, 있으면 정확한 `파일:행번호` 로 **경고**하여 수동 정리를 안내합니다 — 이 파일은 편집하지 않습니다. 자세한 내용은 CHANGELOG의 `[v2.2.5]` 를 보세요.
 
 
 주요 동작은 tmux 페인 안의 실제 `zsh -i`에 대해 엔드투엔드로 검증되며, 렌더링된
-화면을 어설트합니다(49/49 그린). 같은 어설션은 v2.1.6에서는 **23/49**(49개 중 1개는 거기서 도달하지 않습니다 — 해당 섹션은 실패 후 중단됩니다) — 당시
+화면을 어설트합니다(49/49 그린). 같은 어설션은 v2.1.6에서는 **24/49**(49개 중 1개는 거기서 도달하지 않습니다 — 해당 섹션은 실패 후 중단됩니다) — 당시
 "입력하면 팝업되는 메뉴"는 존재하지 않았고, `SS3` 와 `Alt+→` 인코딩은 죽어 있었으며,
 `Tab` 후 `Enter` 는 삼켜지고, 최근 디렉터리는 나열되지 않았고, 목록 표시기 전환도,
-단일 열 레이아웃도 없었습니다. 그 23개 통과 중 **일부는 헛돌이**입니다 — "목록을 그리지
+단일 열 레이아웃도 없었습니다. 그 24개 통과 중 **일부는 헛돌이**입니다 — "목록을 그리지
 않았음"을 검증하는데, v2.1.6 은 목록을 아예 그리지 않습니다. 기준선을 옛 숫자에서 비례해
 계산할 수 없는 이유가 바로 이것입니다.
 이 하니스는 저장소에 포함됩니다(`tmux` 없으면 자동 스킵):

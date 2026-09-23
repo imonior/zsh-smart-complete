@@ -5,6 +5,15 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/)，并遵循
 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [v2.2.11] - 2026-09-23
+
+### 新增
+- **安装器现在会在插件旁放一个本地设置脚本（`zsc-settings`），无需改动 `~/.zshrc` 即可调每一项旋钮。** 安装器会创建 `${XDG_CONFIG_HOME:-$HOME/.config}/zsh-smart-complete/settings.zsh`，并把 `bin/zsc-settings` 软链到 `~/.local/bin/zsc-settings`。插件会**先于**内置默认值 source 此文件，因此其中写入的任意 `KEY='VALUE'` 行都会覆盖默认值。`zsc-settings` 提供 `wizard` / `list` / `get KEY` / `set KEY VALUE` / `edit` / `reset [KEY]` / `path` / `init`；`set` 会按设置类型（bool / int / enum / path）校验取值并拒绝非法输入。修改后重启 zsh 生效。把 `SMART_USER_CONFIG` 指向其他文件即可改用别的位置。
+
+### 变更
+- **实时补全弹窗现已对标 autocomplete：路径与单匹配都会弹出。** 路径（如 `/u`、`~/l`、`cd /usr/`）现在从**最后一个 `/` 之后的第一个字符**就开始列出候选，裸 `/`（或任何末尾带 `/`）会立即列出该目录——v2.2.9 的规则要等两个段字符，导致路径补全像“死了”。单个匹配现在也会画 1 行弹窗（同时仍显示内联灰字），而不再只是灰字。非路径词保持两字符门槛（`git s` 在 `git st` 之前不弹）。想恢复旧行为可在设置文件里写 `SMART_MENU_MIN_MATCHES=2`。
+
+
 ## [v2.2.10] - 2026-09-22
 
 ### 修复

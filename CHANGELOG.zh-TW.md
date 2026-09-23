@@ -5,6 +5,15 @@
 格式基於 [Keep a Changelog](https://keepachangelog.com/)，並遵循
 [語意化版本](https://semver.org/lang/zh-TW/)。
 
+## [v2.2.11] - 2026-09-23
+
+### 新增
+- **安裝器現在會在外掛旁放一個本地設定腳本（`zsc-settings`），不必更動 `~/.zshrc` 就能調每一項開關。** 安裝器會建立 `${XDG_CONFIG_HOME:-$HOME/.config}/zsh-smart-complete/settings.zsh`，並把 `bin/zsc-settings` 軟鏈到 `~/.local/bin/zsc-settings`。外掛會**先於**內建預設值 source 此檔，因此其中寫入的任意 `KEY='VALUE'` 行都會覆寫預設值。`zsc-settings` 提供 `wizard` / `list` / `get KEY` / `set KEY VALUE` / `edit` / `reset [KEY]` / `path` / `init`；`set` 會依設定型別（bool / int / enum / path）校驗取值並拒絕非法輸入。修改後重啟 zsh 生效。把 `SMART_USER_CONFIG` 指向其他檔案即可改用別的位置。
+
+### 變更
+- **即時補全彈窗已對標 autocomplete：路徑與單一匹配都會彈出。** 路徑（如 `/u`、`~/l`、`cd /usr/`）現在從**最後一個 `/` 之後的第一個字元**就開始列出候選，裸 `/`（或任何末尾帶 `/`）會立即列出該目錄——v2.2.9 的規則要等待兩個段字元，導致路徑補全像「死了」。單一匹配現在也會畫 1 行彈窗（同時仍顯示內聯灰字），而不再只是灰字。非路徑詞保持兩字元門檻（`git s` 在 `git st` 之前不彈）。想恢復舊行為可在設定檔裡寫 `SMART_MENU_MIN_MATCHES=2`。
+
+
 ## [v2.2.10] - 2026-09-22
 
 ### 修復

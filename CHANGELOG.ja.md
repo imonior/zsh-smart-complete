@@ -5,6 +5,15 @@
 フォーマットは [Keep a Changelog](https://keepachangelog.com/) に基づき、このプロジェクトは
 [セマンティックバージョニング](https://semver.org/lang/ja/) に準拠します。
 
+## [v2.2.11] - 2026-09-23
+
+### 追加
+- **インストーラーがプラグインの隣にローカル設定スクリプト（`zsc-settings`）を置くようになり、`~/.zshrc` を変更せずにすべての設定を調整できる。** インストーラーは `${XDG_CONFIG_HOME:-$HOME/.config}/zsh-smart-complete/settings.zsh` を作成し、`bin/zsc-settings` を `~/.local/bin/zsc-settings` にシンボリックリンクする。プラグインは内蔵の既定値より**前に**このファイルを source するため、そこに書いた `KEY='VALUE'` 行は既定値を上書きする。`zsc-settings` は `wizard` / `list` / `get KEY` / `set KEY VALUE` / `edit` / `reset [KEY]` / `path` / `init` を提供；`set` は設定の型（bool / int / enum / path）に基づいて値を検証し不正な入力を拒否する。変更は zsh 再起動後に反映される。別のファイルを使うには `SMART_USER_CONFIG` でそのファイルを指す。
+
+### 変更
+- **ライブ補完ポップアップを autocomplete 相当に：パスと単一マッチでも表示。** パス（例 `/u`、`~/l`、`cd /usr/`）は**最後の `/` 以降の最初の 1 文字**から候補を表示し、裸の `/`（末尾が `/` の場合も）はそのディレクトリを即座に一覧します——v2.2.9 のルールは 2 文字のセグメントを待っていたため、パス補完が「死んでいる」ように見えていました。単一マッチも 1 行ポップアップを描画（インライン灰字は引き続き表示）し、灰字だけにはなりません。パス以外の単語は引き続き 2 文字の閾値（`git s` は `git st` まで表示しません）。旧挙動に戻すには設定ファイルに `SMART_MENU_MIN_MATCHES=2` を書きます。
+
+
 ## [v2.2.10] - 2026-09-22
 
 ### 修正

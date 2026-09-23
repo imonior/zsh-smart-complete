@@ -5,6 +5,15 @@
 형식은 [Keep a Changelog](https://keepachangelog.com/)을 따르며, 이 프로젝트는
 [의미론적 버전](https://semver.org/lang/ko/)을 준수합니다.
 
+## [v2.2.11] - 2026-09-23
+
+### 추가
+- **설치기가 플러그인 옆에 로컬 설정 스크립트（`zsc-settings`）를 두어, `~/.zshrc` 를 건드리지 않고도 모든 설정을 조정할 수 있게 됨.** 설치기는 `${XDG_CONFIG_HOME:-$HOME/.config}/zsh-smart-complete/settings.zsh` 를 만들고 `bin/zsc-settings` 를 `~/.local/bin/zsc-settings` 에 심볼릭 링크한다. 플러그인은 내장 기본값보다 **먼저** 이 파일을 source 하므로, 그곳에 적은 `KEY='VALUE'` 행은 기본값을 덮어쓴다. `zsc-settings` 는 `wizard` / `list` / `get KEY` / `set KEY VALUE` / `edit` / `reset [KEY]` / `path` / `init` 를 제공하며, `set` 은 설정 형（bool / int / enum / path）에 맞춰 값을 검증하고 잘못된 입력을 거부한다. 변경은 zsh 재시작 후 적용된다. 다른 파일을 쓰려면 `SMART_USER_CONFIG` 로 그 파일을 가리키면 된다.
+
+### 변경
+- **라이브 완성 팝업을 autocomplete 수준으로: 경로와 단일 매치도 표시.** 경로(예 `/u`, `~/l`, `cd /usr/`)는 **마지막 `/` 이후 첫 글자**부터 후보를 표시하고, 맨 `/`(또는 끝이 `/`)는 해당 디렉터리를 즉시 나열합니다 — v2.2.9 규칙은 세그먼트 2글자를 기다려 경로 완성이 "죽은 것"처럼 보였습니다. 단일 매치도 1줄 팝업을 그리며(인라인 회색 글자도 계속 표시)이며 회색 글자만 되지 않습니다. 경로 외 단어는 2글자 문턱을 유지(`git s`는 `git st`까지 표시 안 함). 예전 동작으로 돌아가려면 설정 파일에 `SMART_MENU_MIN_MATCHES=2`를 쓰면 됩니다.
+
+
 ## [v2.2.10] - 2026-09-22
 
 ### 수정

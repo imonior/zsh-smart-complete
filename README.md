@@ -3,7 +3,7 @@
 > A modern smart completion & suggestion layer for Zsh.
 > Engineered as the frontend of a future independent shell.
 >
-> **v2.2.10** — Typing no longer scrolls your screen. The display layer forced a full repaint on every keystroke, and that repaint carried a real newline: whenever the prompt sits on the last row of the terminal, every key scrolls the screen up by one row — which is exactly what made one character look like a submitted line with a fresh prompt printed under it. Measured per keystroke with a two-line prompt: **96 bytes before, 33 now** (and 32 vs **1** with the ghost *and* the popup switched off, i.e. exactly stock zsh). The one repaint that is genuinely needed — retiring the candidate rows drawn for a longer prefix — now happens only when the list actually disappears. New `tests/test-repaint.zsh` pins the invariant in CI, because the tmux harness structurally cannot see it.
+> **v2.2.11** — Tune it without touching `~/.zshrc`, and path popups like autocomplete. The installer now drops a small `zsc-settings` CLI beside the plugin (wizard / list / get / set / edit / reset / path / init, all type-checked) that writes overrides the plugin reads before its defaults. The live popup also goes autocomplete-style for paths: it lists from the first segment character (`/u`, `~/l`, `cd /usr/`) and a bare `/` lists the directory at once, and a single match now draws a 1-line popup next to the inline ghost. Non-path words keep the two-character gate; revert with `SMART_MENU_MIN_MATCHES=2`.
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------- | ------ |
 | Build & test (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | Release | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| Version | 2.2.10 |
+| Version | 2.2.11 |
 
 ## Why
 
@@ -121,7 +121,7 @@ Set these variables **before** the plugin loads:
 : ${SMART_MENU_MIN_PREFIX_CMD:=2}     # min chars in the COMMAND word before listing
 : ${SMART_MENU_MIN_PREFIX:=2}         # min chars in an ARGUMENT word, counted after
                                       # the last "/" (0 = also right after a space)
-: ${SMART_MENU_MIN_MATCHES:=2}        # below this many candidates, no list (a single one stays ghost text)
+: ${SMART_MENU_MIN_MATCHES:=1}        # min candidates before the live popup (1 = a single match also pops, like autocomplete)
 : ${SMART_MENU_MAX_MATCHES:=100}       # more candidates than this -> no list (keeps huge dirs, and zsh's "see all N possibilities" prompt, away)
 : ${SMART_MENU_MAX_PREFIX:=64}
 : ${SMART_MENU_HISTORY_KEYS:=false}  # true = up/down prefix-search history while the line is non-empty
@@ -299,6 +299,37 @@ smart-lister builtin|fzf-tab  # choose WHICH lister owns the list (fzf-tab = we 
 smart-recent on|off|status # recent-dir candidates + `cd ` empty-word listing
 ```
 
+## Local settings script
+
+The installer creates a user settings file and a small CLI to manage it, so you
+can tune the plugin without ever touching `~/.zshrc`. The file lives at:
+
+```
+${SMART_USER_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/zsh-smart-complete/settings.zsh}
+```
+
+Run `zsc-settings` (the installer symlinks it into `~/.local/bin/zsc-settings`, so
+make sure that directory is on your `PATH`, or call the script by its full path)
+any time after install:
+
+| Command | What it does |
+| --- | --- |
+| `zsc-settings` | interactive wizard — pick a setting, type a new value |
+| `zsc-settings list` | every setting with its effective (current) value |
+| `zsc-settings get KEY` | print one setting's effective value |
+| `zsc-settings set KEY VALUE` | validate + write one setting |
+| `zsc-settings edit` | open the file in `$EDITOR` |
+| `zsc-settings reset [KEY]` | drop one override (or all) → back to default |
+| `zsc-settings path` | print the settings file path |
+| `zsc-settings init` | (re)create the file with commented defaults |
+
+Values are written as plain `KEY='VALUE'` lines. The plugin sources this file
+**before** its built-in defaults, so anything you write overrides the default.
+After changing a value, **restart zsh** (e.g. `exec zsh`) for it to take effect.
+`set` validates the value against the setting's type (bool / int / enum / path)
+and refuses invalid input. To use a different file, point `SMART_USER_CONFIG` at
+it before zsh starts.
+
 ## Uninstall
 
 ```zsh
@@ -325,17 +356,17 @@ zsh tests/test-repaint.zsh
 bash tests/test-installer-options.sh
 ```
 
-**Test summary (v2.2.10):** 11 test files, 779 assertions, all passing, 0 failures.
+**Test summary (v2.2.11):** 12 test files, 804 assertions, all passing, 0 failures.
 The installer also now **scans other startup files** (`.zprofile`, `.zshenv`, `conf.d/*.zsh`, `.zshrc.d/*`, `/etc/zsh/zshrc`) for left-over loaders of `zsh-autocomplete` / `zsh-autosuggestions` after cleaning `~/.zshrc`, and **warns** (with exact `file:line`) if it finds any — it never edits those files. See CHANGELOG `[v2.2.5]`.
 
 
 Key behaviours are additionally verified end-to-end against a real `zsh -i` in a
 tmux pane, asserting on the rendered screen (49/49 green). The same assertions
-score **23/49 on v2.1.6** (one of the 49 is not even reached there: its section
+score **24/49 on v2.1.6** (one of the 49 is not even reached there: its section
 stops after a failure), where the type-to-popup does not exist, the `SS3` and
 `Alt+→` encodings are dead, `Tab` followed by `Enter` is swallowed, recent
 directories are not listed, and neither the switch nor the opt-in single-column
-layout exists. Several of those 23 passes are *vacuous* — they assert that no list
+layout exists. Several of those 24 passes are *vacuous* — they assert that no list
 was drawn, and on v2.1.6 no list is ever drawn — which is why the baseline is
 measured rather than scaled from an older number.
 

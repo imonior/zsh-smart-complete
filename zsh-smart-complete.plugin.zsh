@@ -67,6 +67,19 @@ _smart_source() {
 #  11. display        -- inline rendering (depends on state only)
 #  12. event/zle      -- widgets + keymap (depends on everything above)
 # ---------------------------------------------------------------------------
+# User settings override file
+#
+# Created by the installer (via `zsc-settings init`); the same `zsc-settings`
+# script re-writes it whenever you change a value. It is sourced BEFORE
+# lib/config.zsh so any value set here wins over the `: ${VAR:=default}`
+# defaults there. A missing file is harmless — the plugin falls back to its
+# built-in defaults. Override the path with $SMART_USER_CONFIG.
+# ---------------------------------------------------------------------------
+typeset -g SMART_USER_CONFIG_FILE="${SMART_USER_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/zsh-smart-complete/settings.zsh}"
+if [[ -r "$SMART_USER_CONFIG_FILE" ]]; then
+    source -- "$SMART_USER_CONFIG_FILE"
+fi
+
 _smart_source \
     lib/config.zsh \
     lib/state.zsh \
@@ -92,7 +105,7 @@ smart-status() {
     print -r -- "zsh-smart-complete $(cat -- "${SMART_ROOT}/VERSION" 2>/dev/null || print -r -- unknown)"
     print -r -- "  enabled:          $(_smart_state_get enabled)"
     print -r -- "  suggest:          ${SMART_SUGGEST}   inline: ${SMART_INLINE}   strategy: ${SMART_SUGGEST_STRATEGY:-history}"
-    print -r -- "  menu (type popup): ${SMART_MENU:-true}  min/max matches: ${SMART_MENU_MIN_MATCHES:-2}/${SMART_MENU_MAX_MATCHES:-100}  last: matches=${_SMART_MENU_NMATCHES:-0} listed=${_SMART_MENU_LISTED:-0}"
+    print -r -- "  menu (type popup): ${SMART_MENU:-true}  min/max matches: ${SMART_MENU_MIN_MATCHES:-1}/${SMART_MENU_MAX_MATCHES:-100}  last: matches=${_SMART_MENU_NMATCHES:-0} listed=${_SMART_MENU_LISTED:-0}"
     print -r -- "  menu lister:      $(_smart_menu_lister)  (SMART_MENU_LISTER=${SMART_MENU_LISTER:-builtin})"
     if [[ "${SMART_MENU_SINGLE_COLUMN:-false}" == "true" ]]; then
         print -r -- "  menu layout:      single column (one candidate per line)"

@@ -95,7 +95,7 @@ print -r -- "=== 场景 2: 配置项默认值 ==="
 assert_eq "SMART_MENU default is true"      "${SMART_MENU}"             "true"
 assert_eq "SMART_MENU_MIN_PREFIX default"   "${SMART_MENU_MIN_PREFIX}"  "2"
 assert_eq "SMART_MENU_MIN_PREFIX_CMD"       "${SMART_MENU_MIN_PREFIX_CMD}" "2"
-assert_eq "SMART_MENU_MIN_MATCHES default"  "${SMART_MENU_MIN_MATCHES}" "2"
+assert_eq "SMART_MENU_MIN_MATCHES default"  "${SMART_MENU_MIN_MATCHES}" "1"
 # The throttle is OFF by default: every ordinary listing measures 10-30ms, and
 # the only spike is a one-off ~180ms cold load. Throttling that removed the
 # popup from the first `git <TAB>` of a session, which is the reported bug.
@@ -219,9 +219,9 @@ assert_rc "command word, 2 chars -> list" 0 _smart_menu_should_list
 LBUFFER="git "
 assert_rc "empty argument word -> do not list" 1 _smart_menu_should_list
 LBUFFER="git s"
-# Argument words need 2 chars too (v2.2.9). At 1 char every keystroke of a path
-# repaints the whole candidate grid under the line, which reads as if the line
-# itself had changed. The inline ghost is unaffected — see below.
+# Non-path argument words still need 2 chars (e.g. `git s`); PATH arguments are
+# exempt and list from the first segment character — see the gate below. The
+# inline ghost is unaffected either way.
 assert_rc "argument word, 1 char -> do not list" 1 _smart_menu_should_list
 LBUFFER="git st"
 assert_rc "argument word, 2 chars -> list" 0 _smart_menu_should_list
@@ -233,24 +233,28 @@ assert_rc "argument word, 2 chars (path) -> list" 0 _smart_menu_should_list
 # every typed path repainted the candidate grid. `l` is one character of real
 # input and that is what the gate must see.
 LBUFFER="ls -la /etc/l"
-assert_rc "path argument, 1 char segment -> do not list" 1 _smart_menu_should_list
+assert_rc "path argument, 1 char segment -> list" 0 _smart_menu_should_list
 LBUFFER="ls -la /etc/lo"
 assert_rc "path argument, 2 char segment -> list" 0 _smart_menu_should_list
 LBUFFER="ls /u"
-assert_rc "path argument to ls, 1 char segment -> do not list" 1 _smart_menu_should_list
+assert_rc "path argument to ls, 1 char segment -> list" 0 _smart_menu_should_list
 LBUFFER="ls /us"
 assert_rc "path argument to ls, 2 char segment -> list" 0 _smart_menu_should_list
 # cd is the documented exception: its argument lists the recent-directories
 # list immediately, which is the question being asked there.
 LBUFFER=".//scripts/b"
-assert_rc "command path, 1 char segment -> do not list" 1 _smart_menu_should_list
+assert_rc "command path, 1 char segment -> list" 0 _smart_menu_should_list
 LBUFFER=".//scripts/bu"
 assert_rc "command path, 2 char segment -> list" 0 _smart_menu_should_list
 # A typed '~' behaves like '/': only the part after it counts as typed input.
 LBUFFER="ls ~/l"
-assert_rc "~/l -> do not list" 1 _smart_menu_should_list
+assert_rc "~/l -> list" 0 _smart_menu_should_list
 LBUFFER="ls ~/li"
 assert_rc "~/li -> list" 0 _smart_menu_should_list
+LBUFFER="ls /"
+assert_rc "bare / lists the directory root" 0 _smart_menu_should_list
+LBUFFER="cd /"
+assert_rc "cd / lists the directory root" 0 _smart_menu_should_list
 # The inline ghost must NOT be gated by these numbers: it is what the user gets
 # on the keystroke where the list stays away (`cd /u` -> `sr/`). The probe has
 # its own preconditions (end of line + compinit), asserted here to keep that

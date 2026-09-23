@@ -208,13 +208,13 @@ R=$(rows_below_prompt); [ "$R" -ge 1 ] && ok "popup below prompt ($R rows)" || n
 reset_line; slowtype 'git sta'; sleep 1.2
 R=$(rows_below_prompt); [ "$R" -ge 1 ] && ok "popup survives narrowing ($R rows)" || no "popup lost on 'git sta'"
 
-echo "== 3. by design: a single match yields to the ghost, no list =="
+echo "== 3. by design: a single match draws a 1-line popup AND the ghost =="
 reset_line; slowtype 'git stat'; sleep 1.2
 R=$(rows_below_prompt)
-if [ "$R" -eq 0 ] && grep -qF 'git status' <<<"$(pane)"; then
-    ok "1 match -> list dropped, ghost takes over"
+if [ "$R" -ge 1 ] && grep -qF 'git status' <<<"$(pane)"; then
+    ok "1 match -> 1-line popup drawn, ghost also present (autocomplete parity)"
 else
-    no "'git stat': rows=$R (expected 0 rows + ghost)"
+    no "'git stat': rows=$R (expected >=1 row + ghost)"
 fi
 
 echo "== 3b. BUFFER INTEGRITY: typing must never lose a character =="

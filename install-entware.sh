@@ -884,6 +884,22 @@ _msg() {
                     ko)    s="~/.zshrc에 zsh-smart-complete 설정이 이미 있습니다 — 변경하지 않습니다." ;;
                     *)     s="zsh-smart-complete config already present in ~/.zshrc — left unchanged." ;;
                 esac ;;
+            s.settings_created)
+                case "$lang" in
+                    zh-CN) s="本地设置文件已创建于 %s。运行 \`zsc-settings\`（若已安装）或直接编辑该文件，然后重启 zsh 生效。" ;;
+                    zh-TW) s="本地設定檔已建立於 %s。執行 \`zsc-settings\`（若已安裝）或直接編輯該檔案，然後重啟 zsh 生效。" ;;
+                    ja)    s="ローカル設定ファイルを %s に作成しました。\`zsc-settings\`（導入済みの場合）を実行するか、直接編集し、その後 zsh を再起動して反映してください。" ;;
+                    ko)    s="로컬 설정 파일을 %s 에 생성했습니다. \`zsc-settings\`(설치된 경우)를 실행하거나 파일을 직접 편집한 뒤 zsh 를 재시작하세요." ;;
+                    *)     s="Local settings file created at %s. Run \`zsc-settings\` (if installed) or edit the file directly, then restart zsh to apply." ;;
+                esac ;;
+            s.settings_symlink)
+                case "$lang" in
+                    zh-CN) s="已软链 \`zsc-settings\` -> %s" ;;
+                    zh-TW) s="已軟鏈 \`zsc-settings\` -> %s" ;;
+                    ja)    s="シンボリックリンクしました \`zsc-settings\` -> %s" ;;
+                    ko)    s="심볼릭 링크했습니다 \`zsc-settings\` -> %s" ;;
+                    *)     s="Symlinked \`zsc-settings\` -> %s" ;;
+                esac ;;
             s.installer_finished)
                 case "$lang" in
                     zh-CN) s="zsh-smart-complete 安装完成" ;; zh-TW) s="zsh-smart-complete 安裝完成" ;;
@@ -2866,6 +2882,43 @@ else
         success "$(msg s.zshrc_file_updated "$ZSHRC_FILE")"
     fi
 fi
+
+# ------------------------------------------------------------------
+# Local settings manager
+#
+# Drop a user-editable settings file + the `zsc-settings` wizard so the user
+# can re-tune the plugin any time after install without editing .zshrc. The
+# wizard lives next to the plugin (bin/zsc-settings); if it is present we run
+# `init` to create the file and symlink it onto PATH, otherwise we write a
+# minimal starter file. Safe to re-run: it never overwrites an existing file.
+# ------------------------------------------------------------------
+_install_user_settings() {
+    local cfg="${XDG_CONFIG_HOME:-$HOME/.config}/zsh-smart-complete"
+    local data="$cfg/settings.zsh"
+    local wizard="${SMART_COMPLETE_INSTALL_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/zinit/plugins/imonior---zsh-smart-complete}/bin/zsc-settings"
+    mkdir -p -- "$cfg"
+    if [[ -r "$wizard" ]]; then
+        zsh "$wizard" init >/dev/null 2>&1 || true
+    elif [[ ! -f "$data" ]]; then
+        {
+            print -r -- "# zsh-smart-complete — user settings"
+            print -r -- "# Run \`zsc-settings\` (if installed) or edit a value below; restart zsh after changes."
+            print -r -- "# Lines starting with # are ignored."
+            print -r -- "#"
+            print -r -- "# SMART_SUGGEST_COLOR=auto"
+            print -r -- "# SMART_MENU=true"
+        } >"$data"
+    fi
+    success "$(msg s.settings_created "$cfg")"
+    if [[ -r "$wizard" ]]; then
+        local bin_dir="$HOME/.local/bin"
+        mkdir -p -- "$bin_dir" 2>/dev/null
+        if ln -sf -- "$wizard" "$bin_dir/zsc-settings" 2>/dev/null; then
+            info "$(msg s.settings_symlink "$bin_dir/zsc-settings")"
+        fi
+    fi
+}
+_install_user_settings
 
 # ------------------------------------------------------------------
 # Final banner

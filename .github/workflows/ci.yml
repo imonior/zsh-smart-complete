@@ -70,6 +70,10 @@ jobs:
             return 1
           }
           run_suite zsh tests/test-config.zsh
+          # exercises bin/zsc-settings: init / get / set (with type validation)
+          # / reset (one + all) / list / edit — the local settings manager the
+          # installer drops next to the plugin.
+          run_suite zsh tests/test-settings.zsh
           run_suite zsh tests/test-history.zsh
           run_suite zsh tests/test-suggest.zsh
           run_suite zsh tests/test-ranking.zsh

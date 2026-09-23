@@ -242,6 +242,16 @@ _smart_menu_should_list() {
         # FIRST character, so raising SMART_MENU_MIN_PREFIX only delays the list.
         min="${SMART_MENU_MIN_PREFIX:-2}"
     fi
+    # PATH words list from the FIRST segment character (autocomplete parity):
+    # `/u`, `~/l`, `/etc/l` pop the moment one real character is typed, not after
+    # two. A bare `/` (or any trailing slash, e.g. `/usr/`) is the user asking
+    # "what is in this directory?" — list it at once, do not wait for the next
+    # keystroke. This overrides both MIN_PREFIX and MIN_PREFIX_CMD for paths;
+    # non-path words (e.g. `git s`) keep their two-character gate (see e2e 12a).
+    if [[ "$w" == */* ]]; then
+        min=1
+        (( ${#w_tail} == 0 )) && min=0
+    fi
     (( ${#w_tail} >= min )) || return 1
     # The upper bound still guards the WHOLE word: that one is about how
     # expensive a single completion is, and a very long path is slow no matter

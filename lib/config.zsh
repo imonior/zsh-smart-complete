@@ -124,9 +124,11 @@ setopt extended_glob no_warn_create_global
 # line). 2, because one letter matches thousands of binaries.
 : ${SMART_MENU_MIN_PREFIX_CMD:=2}
 
-# Do not draw a list for fewer than this many candidates — a lone candidate is
-# already shown as inline ghost text, and a one-line list is just noise.
-: ${SMART_MENU_MIN_MATCHES:=2}
+# Minimum candidates before we draw the live popup. 1: a lone candidate is now
+# shown BOTH as inline ghost text AND as a 1-line popup (autocomplete parity —
+# typing `/u` -> `/usr` pops the list while the ghost still fills it in). Set to
+# 2 to restore the old "ghost-only, no list for a single match" behaviour.
+: ${SMART_MENU_MIN_MATCHES:=1}
 
 # Upper bound on the word length we bother completing (long words have almost
 # no matches; this keeps the per-keystroke cost bounded).

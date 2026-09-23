@@ -1,0 +1,327 @@
+#!/usr/bin/env zsh
+# bin/zsc-settings
+#
+# Local settings manager for zsh-smart-complete.
+#
+# The installer drops this script next to the plugin and creates a user
+# settings file at:
+#
+#     ${SMART_USER_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/zsh-smart-complete/settings.zsh}
+#
+# That file is sourced by the plugin BEFORE its built-in defaults, so any
+# value written here overrides the default. This script is the convenient,
+# repeatable way to edit that file — run it any time after install:
+#
+#     zsc-settings            # interactive wizard
+#     zsc-settings list       # show every setting + its effective value
+#     zsc-settings get  KEY
+#     zsc-settings set  KEY VALUE
+#     zsc-settings edit       # open the file in $EDITOR
+#     zsc-settings reset [KEY]  # drop an override (or all) -> back to default
+#     zsc-settings path       # print the settings file path
+#     zsc-settings init       # (re)create the file with commented defaults
+#
+# After changing a value, restart zsh (or `exec zsh`) for it to take effect.
+#
+# Values are written verbatim as `KEY='VALUE'` lines; the plugin reads them
+# through its normal `: ${VAR:=default}` mechanism, so no quoting gymnastics
+# are needed on the user side.
+
+emulate -L zsh
+setopt extended_glob no_warn_create_global
+
+CFG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/zsh-smart-complete"
+DATA_FILE="${SMART_USER_CONFIG:-$CFG_DIR/settings.zsh}"
+
+# ---------------------------------------------------------------------------
+# Catalog: one entry per line, fields separated by '|':
+#     KEY|TYPE|DEFAULT|HELP
+# TYPE is one of: bool | int | str | path | enum:a,b,c
+# (enum lists the allowed values after the colon)
+# ---------------------------------------------------------------------------
+CATALOG='SMART_ENABLED|bool|true|Master switch for the whole plugin
+SMART_SUGGEST|bool|true|Compute inline (grey) suggestions
+SMART_COMPLETE|bool|true|Participate in Tab completion
+SMART_SUGGEST_STRATEGY|enum:history,completion|history,completion|Inline suggestion source order
+SMART_HISTORY_BACKEND|enum:zsh,atuin|zsh|History backend (zsh | atuin)
+SMART_INLINE|bool|true|Render inline suggestion via region_highlight
+SMART_SUGGEST_MAX|int|1|How many suggestions to keep (future menu)
+SMART_SUGGEST_HISTORY_LIMIT|int|20000|Recent fc lines to index
+SMART_HISTORY_REBUILD_EVERY|int|500|Auto-rebuild index after N new commands (0=never)
+SMART_SUGGEST_COLOR|str|auto|Inline colour: auto, or a region_highlight spec (fg=110, fg=cyan,bold, ...)
+SMART_KEYMAP_SCOPE|enum:both,emacs,viins|both|Keymap(s) to bind in
+SMART_NATIVE_MENU_SELECT|bool|true|Use zsh menu-select for Tab completion
+SMART_NATIVE_LIST_COLORS|bool|true|Install list-colors for completion candidates
+SMART_MENU|bool|true|Type-to-popup candidate menu
+SMART_MENU_MIN_PREFIX|int|2|Min chars before listing an ARGUMENT word
+SMART_MENU_MIN_PREFIX_CMD|int|2|Min chars before listing the COMMAND word
+SMART_MENU_MIN_MATCHES|int|1|Min candidates before drawing the live popup (1 = a single match also pops, like autocomplete)
+SMART_MENU_MAX_PREFIX|int|64|Upper bound on word length we bother completing
+SMART_MENU_MAX_MATCHES|int|100|Hard ceiling on live-popup candidates (0=uncapped)
+SMART_MENU_SINGLE_COLUMN|bool|false|Single-column (vertical) popup layout
+SMART_MENU_LISTER|enum:builtin,fzf-tab|builtin|Which lister owns the screen (builtin | fzf-tab)
+SMART_MENU_HISTORY_KEYS|bool|false|Prefix-search history on up/down while popup is enabled
+SMART_MENU_SLOW_MS|int|250|Listings slower than this trigger a cooldown
+SMART_MENU_COOLDOWN_KEYS|int|0|How many edits to skip listing after a slow one (0=never)
+SMART_RECENT_PATHS|bool|true|Offer recent directories for cd/pushd
+SMART_RECENT_PATHS_MAX|int|20|Max recent directories offered (0=no limit)
+SMART_RANKING_DECAY_ALPHA|int|10|Ranking recency decay (higher = faster)
+SMART_RANKING_CWD_BOOST|int|1500|Current-directory relevance boost (milli, 1000=1.0x)
+SMART_ATUIN_DB_PATH|path|${HOME}/.local/share/atuin/history.db|Atuin SQLite database path
+SMART_ATUIN_HOST_BOOST|int|1300|Same-host boost for Atuin records (milli)
+SMART_ATUIN_FAILED_PENALTY|int|500|Failed-exit penalty for Atuin records (milli)
+SMART_ATUIN_SUCCESS_ONLY|bool|false|Drop Atuin records with exit != 0 entirely'
+
+# ---------------------------------------------------------------------------
+# Catalog helpers
+# ---------------------------------------------------------------------------
+_entry()  { print -r -- "$CATALOG" | while IFS= read -r l; do [[ "$l" == "$1|"* ]] && { print -r -- "$l"; return }; done; }
+_ckey()   { print -r -- "${1%%|*}"; }
+_ctype()  { local r="${1#*|}"; print -r -- "${r%%|*}"; }
+_cdef()   { local r="${1#*|*}"; r="${r#*|*}"; print -r -- "${r%%|*}"; }
+_chelp()  { local r="${1#*|*}"; r="${r#*|*}"; r="${r#*|}"; print -r -- "$r"; }
+
+_catalog_has() {
+    local e; while IFS= read -r e; do [[ -z "$e" ]] && continue; [[ "$(_ckey "$e")" == "$1" ]] && return 0; done <<<"$CATALOG"
+    return 1
+}
+
+# ---------------------------------------------------------------------------
+# Validation
+# ---------------------------------------------------------------------------
+_norm_bool() {
+    case "$1" in
+        true|yes|on|1)   print -r -- true ;;
+        false|no|off|0)  print -r -- false ;;
+        *)               print -r -- "" ;;
+    esac
+}
+
+_validate() {
+    # $1 key  $2 type  $3 value  -> 0 ok, 1 bad (prints reason to stderr)
+    local type="$2" val="$3"
+    case "$type" in
+        bool)
+            [[ -n "$(_norm_bool "$val")" ]] && return 0
+            print -ru2 -- "expected true/false (got: $val)" ;;
+        int)
+            [[ "$val" == <-> ]] && return 0
+            print -ru2 -- "expected an integer >= 0 (got: $val)" ;;
+        enum:*)
+            local allowed="${type#enum:}" seg
+            local -a segs; segs=(${(s:,:)val})
+            for seg in $segs; do
+                [[ ",$allowed," == *",$seg,"* ]] || { print -ru2 -- "'$seg' not allowed; choose from: $allowed"; return 1; }
+            done
+            return 0 ;;
+        str|path|color)
+            [[ -n "$val" ]] && return 0
+            print -ru2 -- "value must not be empty" ;;
+        *)
+            print -ru2 -- "unknown type: $type" ; return 1 ;;
+    esac
+    return 1
+}
+
+# ---------------------------------------------------------------------------
+# Read / write the settings file
+# ---------------------------------------------------------------------------
+_override_line() {
+    # Print the uncommented `KEY=...` line for $1, if present.
+    [[ -r "$DATA_FILE" ]] || return 1
+    local line
+    while IFS= read -r line; do
+        [[ "$line" == [[:space:]]#"$1="* ]] && { print -r -- "$line"; return 0; }
+    done <"$DATA_FILE"
+    return 1
+}
+
+_effective() {
+    local line val
+    if line="$(_override_line "$1")"; then
+        val="${line#*=}"
+        val="${val#[\'\"]}"; val="${val%[\'\"]}"   # strip one layer of quotes
+        print -r -- "$val"; return
+    fi
+    local e; e="$(_entry "$1")"; [[ -n "$e" ]] && { print -r -- "$(_cdef "$e")"; return; }
+    print -r -- "<unset>"
+}
+
+_write_key() {
+    # $1 key  $2 value  -> replace uncommented line, else append.
+    mkdir -p -- "$CFG_DIR"
+    local tmp="${DATA_FILE}.tmp.$$" existed=0
+    if [[ -f "$DATA_FILE" ]]; then
+        while IFS= read -r line; do
+            if [[ "$line" == [[:space:]]#"$1="* ]]; then
+                print -r -- "$1='$2'"; existed=1
+            else
+                print -r -- "$line"
+            fi
+        done <"$DATA_FILE" >"$tmp"
+    fi
+    (( existed == 0 )) && print -r -- "$1='$2'" >>"$tmp"
+    mv -f -- "$tmp" "$DATA_FILE"
+}
+
+_delete_key() {
+    [[ -r "$DATA_FILE" ]] || return 0
+    local tmp="${DATA_FILE}.tmp.$$"
+    while IFS= read -r line; do
+        [[ "$line" == [[:space:]]#"$1="* ]] || print -r -- "$line"
+    done <"$DATA_FILE" >"$tmp"
+    mv -f -- "$tmp" "$DATA_FILE"
+}
+
+_delete_all() {
+    [[ -r "$DATA_FILE" ]] || return 0
+    local tmp="${DATA_FILE}.tmp.$$"
+    while IFS= read -r line; do
+        [[ "$line" =~ "^[[:space:]]*[A-Z][A-Z0-9_]*=" ]] || print -r -- "$line"
+    done <"$DATA_FILE" >"$tmp"
+    mv -f -- "$tmp" "$DATA_FILE"
+}
+
+# ---------------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------------
+cmd_init() {
+    if [[ -f "$DATA_FILE" ]]; then
+        print -r -- "settings file already exists: $DATA_FILE"
+        return 0
+    fi
+    mkdir -p -- "$CFG_DIR"
+    {
+        print -r -- "# zsh-smart-complete — user settings"
+        print -r -- "# Managed by \`zsc-settings\`. Edit a value below, or run \`zsc-settings wizard\`."
+        print -r -- "# Restart zsh (exec zsh) after changing anything. Lines starting with # are ignored."
+        print -r -- "#"
+        local e k t d h
+        while IFS= read -r e; do
+            [[ -z "$e" ]] && continue
+            k="$(_ckey "$e")"; t="$(_ctype "$e")"; d="$(_cdef "$e")"; h="$(_chelp "$e")"
+            print -r -- "# $k ($t, default: $d) — $h"
+            print -r -- "# $k=$d"
+        done <<<"$CATALOG"
+    } >"$DATA_FILE"
+    print -r -- "created: $DATA_FILE"
+}
+
+cmd_list() {
+    local e k t
+    printf '%-34s %-12s %s\n' "SETTING" "TYPE" "EFFECTIVE"
+    while IFS= read -r e; do
+        [[ -z "$e" ]] && continue
+        k="$(_ckey "$e")"; t="$(_ctype "$e")"
+        printf '%-34s %-12s %s\n' "$k" "$t" "$(_effective "$k")"
+    done <<<"$CATALOG"
+}
+
+cmd_get() {
+    local k="$1"
+    if [[ -z "$k" ]]; then print -ru2 -- "usage: zsc-settings get KEY"; return 1; fi
+    print -r -- "$(_effective "$k")"
+}
+
+cmd_set() {
+    local k="$1" v="$2"
+    if [[ -z "$k" || -z "$v" ]]; then print -ru2 -- "usage: zsc-settings set KEY VALUE"; return 1; fi
+    local type="str"
+    if _catalog_has "$k"; then type="$(_ctype "$(_entry "$k")")"; fi
+    if ! _validate "$k" "$type" "$v"; then return 1; fi
+    [[ "$type" == "bool" ]] && v="$(_norm_bool "$v")"
+    _write_key "$k" "$v"
+    print -r -- "$k = $v   (restart zsh to apply)"
+}
+
+cmd_edit() {
+    [[ -f "$DATA_FILE" ]] || cmd_init
+    "${EDITOR:-vi}" "$DATA_FILE"
+}
+
+cmd_reset() {
+    local k="$1"
+    if [[ -n "$k" ]]; then
+        _delete_key "$k"
+        print -r -- "$k reset to default"
+    else
+        _delete_all
+        print -r -- "all overrides removed — every setting back to default"
+    fi
+}
+
+cmd_path() { print -r -- "$DATA_FILE"; }
+
+cmd_wizard() {
+    if [[ ! -t 0 ]]; then
+        print -ru2 -- "interactive wizard needs a terminal; use 'set KEY VALUE' instead"
+        return 1
+    fi
+    [[ -f "$DATA_FILE" ]] || cmd_init
+    local choice nv k t cur entry n=0
+    while true; do
+        print
+        print "zsh-smart-complete settings — current effective values:"
+        local i=1
+        while IFS= read -r entry; do
+            [[ -z "$entry" ]] && continue
+            k="$(_ckey "$entry")"; t="$(_ctype "$entry")"
+            printf '  %2d) %-34s %s\n' "$i" "$k" "$(_effective "$k")"
+            (( i++ )); n=$i
+        done <<<"$CATALOG"
+        print "  q) quit"
+        read -r "choice?Pick a number to change (or q): "
+        [[ "$choice" == "q" ]] && break
+        if [[ "$choice" == <-> ]] && (( choice >= 1 && choice < n )); then
+            entry="$(print -r -- "$CATALOG" | sed -n "${choice}p")"
+            k="$(_ckey "$entry")"; t="$(_ctype "$entry")"; cur="$(_effective "$k")"
+            read -r "nv?New value for $k (current: $cur, type=$t): "
+            [[ -z "$nv" ]] && continue
+            if _validate "$k" "$t" "$nv"; then
+                [[ "$t" == "bool" ]] && nv="$(_norm_bool "$nv")"
+                _write_key "$k" "$nv"
+                print "  $k = $nv  (restart zsh to apply)"
+            else
+                print "  invalid — not written"
+            fi
+        else
+            print "  invalid selection"
+        fi
+    done
+}
+
+usage() {
+    cat <<'EOF'
+zsc-settings — local settings manager for zsh-smart-complete
+
+  zsc-settings            interactive wizard
+  zsc-settings list       show every setting + its effective value
+  zsc-settings get KEY    print one setting's effective value
+  zsc-settings set KEY VALUE
+                          validate + write a setting (restart zsh to apply)
+  zsc-settings edit       open the settings file in $EDITOR
+  zsc-settings reset [KEY]
+                          drop one override (or all) -> back to default
+  zsc-settings path       print the settings file path
+  zsc-settings init       (re)create the file with commented defaults
+
+The settings file is sourced by the plugin before its built-in defaults, so
+any value you write overrides the default. After a change, restart zsh.
+EOF
+}
+
+# ---------------------------------------------------------------------------
+# Dispatch
+# ---------------------------------------------------------------------------
+case "${1:-wizard}" in
+    wizard|-i|--interactive) cmd_wizard ;;
+    list|-l)                 cmd_list ;;
+    get)                     cmd_get "$2" ;;
+    set)                     cmd_set "$2" "$3" ;;
+    edit|-e)                 cmd_edit ;;
+    reset)                   cmd_reset "$2" ;;
+    path|-p)                 cmd_path ;;
+    init)                    cmd_init ;;
+    help|-h|--help|"")       usage ;;
+    *)                       print -ru2 -- "unknown command: $1"; usage; exit 1 ;;
+esac

@@ -1,8 +1,23 @@
 # .github/workflows/ci.yml
 #
 # Continuous integration for zsh-smart-complete.
-# Runs the full Zsh test suite on a matrix of OS + Zsh combinations so we
-# catch regressions across macOS (default zsh) and Linux (packaged zsh).
+#
+# Three jobs, deliberately separated by what they can prove:
+#
+#   test            the full suite on macOS + Linux. This is the gate.
+#   zsh-versions    the same suite on several PACKAGED zsh builds, because much
+#                   of this codebase documents behaviour as "measured on zsh
+#                   5.9" — a claim that was previously verified on exactly one
+#                   build per OS.
+#   e2e-advisory    the tmux end-to-end suite. NON-BLOCKING on purpose (see that
+#                   job): it asserts on a rendered screen, which no other suite
+#                   can do, but it also drives a real terminal with wall-clock
+#                   waits, so its flake rate has to be MEASURED before it can be
+#                   allowed to turn a good change red.
+#
+# The suite itself is invoked through tests/run-all.sh, which DISCOVERS
+# tests/test-*. The job used to list all twelve files by hand, next to a comment
+# admitting that a new test file nobody added there is silently never run.
 
 name: CI & Test Suite
 
@@ -44,49 +59,103 @@ jobs:
 
       - name: Run Complete Test Suite
         run: |
-          # Each test file is self-contained: sources its own modules,
-          # prints PASS/FAIL/SKIP lines and exits non-zero on failure.
-          #
-          # Suites run through run_suite so a failure is surfaced TWICE: in this
-          # log, and as workflow annotations. The annotations matter because
+          # One command, and it discovers the suites (see the header). Output is
+          # captured rather than streamed so a failure can be surfaced TWICE: in
+          # this log, and as workflow annotations. The annotations matter because
           # downloading a job log needs authentication, while the annotations of
           # a check run are readable with a plain unauthenticated GET
           # (/repos/{owner}/{repo}/check-runs/{id}/annotations). Without them a
           # failure that only reproduces on one runner is unreadable from
           # outside that runner.
           set -e
-          run_suite() {
-            local out line
-            if out="$("$@" 2>&1)"; then
-              printf '%s\n' "$out" | tail -n 2
-              return 0
-            fi
+          if out="$(./tests/run-all.sh -v 2>&1)"; then
+            printf '%s\n' "$out"
+          else
             printf '%s\n' "$out"
             while IFS= read -r line; do
               if [ -n "$line" ]; then
                 printf '::error::%s\n' "$line"
               fi
-            done < <(printf '%s\n' "$out" | grep -E 'FAIL|TOTAL|SKIP|env:' | tail -n 15)
-            return 1
-          }
-          run_suite zsh tests/test-config.zsh
-          # exercises bin/zsc-settings: init / get / set (with type validation)
-          # / reset (one + all) / list / edit — the local settings manager the
-          # installer drops next to the plugin.
-          run_suite zsh tests/test-settings.zsh
-          run_suite zsh tests/test-history.zsh
-          run_suite zsh tests/test-suggest.zsh
-          run_suite zsh tests/test-ranking.zsh
-          run_suite zsh tests/test-atuin.zsh
-          run_suite zsh tests/test-zle.zsh
-          run_suite zsh tests/test-menu.zsh
-          run_suite zsh tests/test-integration.zsh
-          run_suite zsh tests/test-recent.zsh
-          # needs zsh/zpty + zsh/mapfile: drives a real interactive zsh on a
-          # pseudo-terminal and asserts on the raw bytes it writes per
-          # keystroke. Skips itself (exit 0) when those modules are missing.
-          run_suite zsh tests/test-repaint.zsh
-          # bash, not zsh: it extracts functions out of install.sh and drives
-          # them against throwaway files. Listed explicitly like the rest —
-          # a new test file that is not named here is silently never run.
-          run_suite bash tests/test-installer-options.sh
+            done < <(printf '%s\n' "$out" | grep -E 'FAIL|TOTAL|SKIP|env:|run-all:' | tail -n 20)
+            exit 1
+          fi
+
+  zsh-versions:
+    name: Zsh ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    # Each image brings its own packaged zsh, which is the point:
+    #   ubuntu:focal      -> zsh 5.7.1   ubuntu:jammy -> zsh 5.8.1
+    #   debian:bookworm   -> zsh 5.9
+    container:
+      image: ${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [ubuntu:focal, ubuntu:jammy, debian:bookworm]
+
+    steps:
+      - name: Install prerequisites in the container
+        run: |
+          # Needed BEFORE checkout: the checkout action shells out to git, and
+          # it runs inside this container, not on the host.
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates git zsh sqlite3
+          zsh --version
+
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Run Complete Test Suite
+        run: ./tests/run-all.sh -v
+
+      - name: Report the zsh build this run actually tested
+        if: always()
+        run: |
+          echo "zsh on $(uname -s): $(zsh --version)"
+
+  e2e-advisory:
+    name: tmux end-to-end (advisory)
+    runs-on: ubuntu-latest
+    # NON-BLOCKING. The suite drives a real terminal, so it is the only thing
+    # that can see the popup being rendered, a keystroke being eaten, or the
+    # screen scrolling under the prompt — all bug classes the unit suites
+    # structurally cannot observe (see tests/test-repaint.zsh for why).
+    # It is also the only suite that waits on wall-clock timings, so until its
+    # flake rate is measured here it must not be allowed to fail a build.
+    continue-on-error: true
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends zsh tmux sqlite3 fzf
+
+      - name: Run tmux end-to-end suite
+        id: e2e
+        run: |
+          set +e
+          ./tests/e2e-tmux.sh 2>&1 | tee "$RUNNER_TEMP/e2e.log"
+          rc=${PIPESTATUS[0]}
+          # One annotation line per failure so the result is readable from the
+          # API without a job log (same rationale as in the `test` job).
+          grep -E 'FAIL|TOTAL|SKIP' "$RUNNER_TEMP/e2e.log" | tail -n 20 | \
+            while IFS= read -r line; do
+              printf '::warning::%s\n' "$line"
+            done
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Report the advisory verdict
+        if: always()
+        run: |
+          if [ "${{ steps.e2e.outputs.rc }}" = "0" ]; then
+            echo "e2e-tmux: green. Candidate for becoming a required check."
+          else
+            echo "::warning::e2e-tmux failed (rc=${{ steps.e2e.outputs.rc }}) — advisory only, not gating."
+          fi

@@ -25,28 +25,34 @@ inject_history() {
     _smart_state_a_unset_sub "history.frequency"
     _smart_state_a_unset_sub "history.recency"
     local -a order=()
-    local -A freq=() seen=()
+    local -A freq=() seen=() rank=()
     local rec=0 max_freq=0 cmd
     for cmd in "$@"; do
         if [[ -z "${seen[$cmd]}" ]]; then
             seen[$cmd]=1
             order+=("$cmd")
             freq[$cmd]=1
-            _smart_state_a_set history.recency "$cmd" "$rec"
+            rank[$cmd]=$rec
             (( rec++ ))
         else
             freq[$cmd]=$(( freq[$cmd] + 1 ))
         fi
         (( freq[$cmd] > max_freq )) && max_freq=${freq[$cmd]}
     done
+    # history.recency holds a last-use tick, not the rank: stamp
+    # tick = base - rank so each command's AGE equals its injected rank and
+    # the engine sees exactly the ordering these expectations assume.
+    local base=$(( rec > 0 ? rec - 1 : 0 ))
     local c
     for c in "${order[@]}"; do
         _smart_state_a_set history.frequency "$c" "${freq[$c]}"
+        _smart_state_a_set history.recency   "$c" "$(( base - rank[$c] ))"
     done
     _smart_state_l_set history.cmds "${order[@]}"
     _smart_state_set history.count "${#order}"
     _smart_state_set history.max_freq "$max_freq"
-    _smart_state_set history.max_recency "$(( rec > 0 ? rec - 1 : 0 ))"
+    _smart_state_set history.max_recency "$base"
+    _smart_state_set history.tick "$base"
     _smart_state_set history.rebuilt_at 1700000000
 }
 
@@ -66,7 +72,8 @@ inject_history \
     "docker compose down"
 assert_eq "distinct=7"                   "$(_smart_state_get history.count)"    "7"
 assert_eq "max_freq=4"                   "$(_smart_state_get history.max_freq)" "4"
-assert_eq "rec(git status)=0"            "$(_smart_state_a_get history.recency "git status")" "0"
+assert_eq "age(git status)=0"            "$(( ${_SMART_STATE[history.tick]} - $(_smart_state_a_get history.recency "git status") ))" "0"
+assert_eq "age(docker compose down)=6"   "$(( ${_SMART_STATE[history.tick]} - $(_smart_state_a_get history.recency "docker compose down") ))" "6"
 assert_eq "freq(docker compose up -d)=4" "$(_smart_state_a_get history.frequency "docker compose up -d")" "4"
 assert_eq "freq(git pull)=1"             "$(_smart_state_a_get history.frequency "git pull")" "1"
 
@@ -109,6 +116,24 @@ assert_eq "2nd = develop"               "${COLLECT[2]%%\|*}"             "git ch
 #  0 git status   1 git pull   2 git checkout main   3 git checkout develop  ...
 assert_eq "main rec=2"                   "${${COLLECT[1]##*r=}}"          "2"
 assert_eq "develop rec=3"                "${${COLLECT[2]##*r=}}"          "3"
+
+print -r -- ""
+print -r -- "=== 场景 6b: upsert 只写一条 recency（tick 模型的核心回归） ==="
+# The rank model could not pass this: promoting ANY command shifted every
+# later rank, so one Enter rewrote the whole associative map. Under the tick
+# model an upsert stamps exactly one command; every other stored tick must be
+# byte-identical afterwards.
+_st_git=$(_smart_state_a_get history.recency "git status")
+_st_docker=$(_smart_state_a_get history.recency "docker ps")
+_st_tick=${_SMART_STATE[history.tick]}
+_smart_history_upsert "git status"
+_now_t=${_SMART_STATE[history.tick]}
+assert_eq "tick advanced by exactly 1"   "$(( _now_t - _st_tick ))" "1"
+assert_eq "git status age is now 0"      "$(( _now_t - $(_smart_state_a_get history.recency "git status") ))" "0"
+assert_eq "untouched command keeps its stored tick" \
+    "$(_smart_state_a_get history.recency "docker ps")" "$_st_docker"
+# freq bump happened on the same path
+assert_eq "freq(git status)=4"           "$(_smart_state_a_get history.frequency "git status")" "4"
 
 print -r -- ""
 print -r -- "=== 场景 7: new_since 未达阈值不重建 ==="

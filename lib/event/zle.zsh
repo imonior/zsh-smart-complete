@@ -282,7 +282,9 @@ _smart_evt_after_edit() {
     fi
 
     local last_buf
-    last_buf="$(_smart_state_get buffer "")"
+    # Direct subscript, not $(_smart_state_get ...): per-keystroke path, and a
+    # command substitution costs a fork (~0.4 ms measured).
+    last_buf="${_SMART_STATE[buffer]:-}"
 
     if [[ "$BUFFER" != "$last_buf" ]]; then
         # Buffer actually changed → compute + render.
@@ -312,7 +314,7 @@ _smart_evt_after_edit() {
 # Cost control: it only runs when history came up empty, so an ordinary session
 # (history usually answers) pays nothing.
 _smart_evt_completion_fallback() {
-    [[ -n "$(_smart_state_get suggestion.text "")" ]] && return 0
+    [[ -n "${_SMART_STATE[suggestion.text]:-}" ]] && return 0
     _smart_suggest_strategy_has completion || return 0
     (( ${+functions[_smart_menu_probe_suffix]} )) || return 0
 
@@ -385,7 +387,7 @@ _smart_widget_forward_char() {
     #   b) there IS a current suggestion that extends BUFFER
     # Then accept suggestion; otherwise original forward-char.
     local sug
-    sug="$(_smart_state_get suggestion.text "")"
+    sug="${_SMART_STATE[suggestion.text]:-}"
     if (( CURSOR == ${#BUFFER} )) && [[ -n "$sug" ]] && [[ "$sug" == "$BUFFER"* ]]; then
         _smart_display_accept_partial
         # The list left over from the last keystroke belongs to the old prefix,
@@ -417,7 +419,7 @@ zle -N _smart_widget_forward_char 2>/dev/null
 # forward-word, so the key never becomes a dead key.
 _smart_widget_accept_word() {
     local sug
-    sug="$(_smart_state_get suggestion.text "")"
+    sug="${_SMART_STATE[suggestion.text]:-}"
     if (( CURSOR == ${#BUFFER} )) && [[ -n "$sug" ]] && \
        [[ "$sug" == "$BUFFER"* ]] && [[ "$sug" != "$BUFFER" ]]; then
         _smart_display_accept_word 2>/dev/null
@@ -468,7 +470,7 @@ zle -N smart-accept-word 2>/dev/null
 # meant" binding some people put on a spare key.
 smart-execute-suggestion() {
     local sug
-    sug="$(_smart_state_get suggestion.text "")"
+    sug="${_SMART_STATE[suggestion.text]:-}"
     if (( CURSOR == ${#BUFFER} )) && [[ -n "$sug" ]] && [[ "$sug" == "$BUFFER"* ]]; then
         _smart_display_accept_partial
         (( ${+functions[_smart_menu_forget_rows]} )) && _smart_menu_forget_rows 2>/dev/null

@@ -18,3 +18,7 @@
 *.swp
 .idea/
 .vscode/
+
+# Scratch files an editor drops at the repo root. Named explicitly rather than
+# as a blanket *.tmp so a real future *.tmp file is still visible to `git add`.
+.codearts_io_test.tmp

@@ -78,7 +78,11 @@ _smart_score_prefix() {
 # _smart_score_recency <rec> <max_rec> → 0..1000
 #
 # v0.1.3: Exponential time decay (replaces linear bucketing).
-# rec=0 = newest, max_rec = oldest in index.
+# rec = commands executed since the candidate was last used (0 = just now);
+# max_rec = index-wide upper bound on that age. (The history layer used to
+# hand over the candidate's position in the recency-sorted array instead —
+# same ordering, but keeping positions exact cost an O(index) rescan per
+# command. See the recency note in lib/history/history.zsh.)
 #
 #   score = 1000000 / (1000 + alpha * rec)
 #

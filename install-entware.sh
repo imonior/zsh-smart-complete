@@ -2726,6 +2726,23 @@ if (( ZSC_OPT_FZF_TAB )); then
     fi
 fi
 
+# The loader-block markers, with the SAME values install.sh writes. This
+# installer does not put those markers around its own integration block (it
+# appends the loader once and then leaves it alone — see the `grep -q
+# "zsh-smart-complete"` guard below Phase 4), but `_upsert_options_block`
+# compares against these names, so they must be defined here too.
+#
+# Leaving them undefined is not a benign "unused constant": with
+# `ZSC_BLOCK_BEGIN` empty, `grep -qF "$ZSC_BLOCK_BEGIN" "$file"` matches EVERY
+# file, so the "there is a managed loader block, insert above it" branch was
+# taken unconditionally and the awk ran as "insert before the first line that is
+# empty". On the freshly-created .zshrc in Phase 4 — which has no empty line at
+# all — that meant the options block was never written, and on a dotfile shared
+# from a PC it meant the options landed at an arbitrary position instead of
+# above the plugin load. Both branches below it were therefore unreachable.
+ZSC_BLOCK_BEGIN="# >>> zsh-smart-complete integration (managed) >>>"
+ZSC_BLOCK_END="# <<< zsh-smart-complete integration <<<"
+
 # Same idea for the OPTIONS block (see build_smart_options below). It is kept
 # separate from the loader block because it has to sit ABOVE the plugin load:
 # a few options are read while the plugin installs its key bindings.

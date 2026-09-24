@@ -158,10 +158,12 @@ _smart_display_show() {
     case "${SMART_INLINE}" in
         false|no|off|0|disabled) _smart_display_clear; return 0 ;;
     esac
-    (( $(_smart_state_get enabled 1) == 0 )) && { _smart_display_clear; return 0; }
+    (( ${_SMART_STATE[enabled]:-1} == 0 )) && { _smart_display_clear; return 0; }
 
+    # Direct subscripts, not $(_smart_state_get ...): every keystroke lands
+    # here, and a command substitution costs a fork (~0.4 ms measured).
     local sug
-    sug="$(_smart_state_get suggestion.text "")"
+    sug="${_SMART_STATE[suggestion.text]:-}"
     [[ -z "$sug" ]] && { _smart_display_clear; return 0; }
 
     # Strict prefix extension check: BUFFER must be a prefix of suggestion.
@@ -232,7 +234,7 @@ _smart_display_update() {
 #   suffix into BUFFER, move cursor, clear display.
 _smart_display_accept_partial() {
     local sug
-    sug="$(_smart_state_get suggestion.text "")"
+    sug="${_SMART_STATE[suggestion.text]:-}"
     [[ -z "$sug" ]] && return 0
 
     if [[ "$sug" == "$BUFFER"* ]]; then
@@ -255,7 +257,7 @@ _smart_display_accept_partial() {
 #   the stock forward-word widget.
 _smart_display_accept_word() {
     local sug
-    sug="$(_smart_state_get suggestion.text "")"
+    sug="${_SMART_STATE[suggestion.text]:-}"
     [[ -z "$sug" ]] && return 1
     [[ "$sug" == "$BUFFER"* ]] || return 1
 

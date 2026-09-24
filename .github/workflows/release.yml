@@ -13,6 +13,15 @@
 # No build step: this is a pure shell plugin. GitHub attaches the Source
 # code (zip/tar.gz) archives automatically; we only publish the notes.
 #
+# THE TEST GATE (job: gate)
+#   Publishing used to be unconditional: pushing a `v*` tag fired this workflow
+#   on its own, with nothing checking that the tagged tree passes its own suite.
+#   That is the one mistake a release automation must not make, because the tag
+#   is exactly the commit people install from. So `release` now `needs: gate`,
+#   and gate checks three things a human can otherwise get wrong on the way out:
+#   the suite is green, VERSION matches the tag, and the CHANGELOG has a section
+#   for the tag (without it the notes below silently publish as links only).
+#
 # How to release from GitHub Desktop:
 #   1. Bump VERSION, commit, then Repository -> Create Tag... -> e.g. v2.3.0
 #   2. Push (the tag is pushed with the branch)
@@ -37,9 +46,62 @@ permissions:
   contents: write
 
 jobs:
+  gate:
+    name: Tests + release metadata must pass
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Resolve tag
+        id: meta
+        run: |
+          TAG="${{ github.event.inputs.tag }}"
+          if [ -z "$TAG" ]; then TAG="${GITHUB_REF#refs/tags/}"; fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout the tagged tree
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.meta.outputs.tag }}
+
+      - name: Install zsh
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends zsh sqlite3
+
+      - name: Run the full test suite
+        run: ./tests/run-all.sh -v
+
+      - name: VERSION must match the tag
+        # Nothing else pins these two together, so a release could go out with a
+        # VERSION file (and therefore `smart-status`) reporting the previous
+        # version. `cat` rather than a version compare: VERSION is one line.
+        run: |
+          TAG="${{ steps.meta.outputs.tag }}"
+          VER="$(cat VERSION | tr -d '[:space:]')"
+          if [ "v$VER" != "$TAG" ]; then
+            echo "::error::VERSION says '$VER' but the tag is '$TAG'." >&2
+            exit 1
+          fi
+          echo "VERSION matches the tag: $TAG"
+
+      - name: CHANGELOG must have a section for the tag
+        # The notes step below would happily produce links-only notes if the
+        # section were missing, and the awk in it cannot report that.
+        run: |
+          TAG="${{ steps.meta.outputs.tag }}"
+          for f in CHANGELOG.md CHANGELOG.zh-CN.md CHANGELOG.zh-TW.md \
+                   CHANGELOG.ja.md CHANGELOG.ko.md; do
+            if ! grep -q "^## \[$TAG\]" "$f"; then
+              echo "::error::$f has no '## [$TAG]' section." >&2
+              exit 1
+            fi
+          done
+          echo "All five changelogs document $TAG"
+
   release:
     name: Publish Release
     runs-on: ubuntu-latest
+    needs: gate
 
     steps:
       - name: Resolve tag

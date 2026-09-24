@@ -141,7 +141,9 @@ _smart_menu_enabled() {
 }
 
 # _smart_menu_word -- the whitespace-delimited word under the cursor.
-# Cheap (no regexp over the whole buffer, no compsys call).
+# Cheap (no regexp over the whole buffer, no compsys call). Per-keystroke
+# callers inline the same expansion instead — even this one print costs a
+# subshell fork per call (see _smart_menu_should_list).
 _smart_menu_word() {
     print -r -- "${LBUFFER##*[[:space:]]}"
 }
@@ -156,13 +158,18 @@ _smart_menu_is_command_word() {
 #
 # Normalising (rather than comparing the raw string everywhere) means the
 # spelling `fzf_tab`, `fzf`, `external`, `none` or `off` all work, and a typo
-# degrades to the safe default instead of silently disabling the popup. The
-# accepted spellings live here and in _smart_menu_lister_recognised below; a
-# unit test asserts the two agree, because that duplication is the only thing
-# that can drift.
-# The accepted spellings live in exactly ONE comment block, repeated verbatim in
-# the three functions below. Keep them identical: the test suite drives
-# `smart-lister` itself precisely because hand-copied lists drift.
+# degrades to the safe default instead of silently disabling the popup.
+#
+# The accepted spellings are the block below, and they are hand-copied into the
+# two case statements that need to enumerate them:
+#   * _smart_menu_lister_recognised -- so an unrecognised value can be REPORTED
+#     instead of quietly behaving like `builtin`
+#   * smart-lister                  -- so a typo is an argument error, not a
+#     status dump
+# Here, only the fzf-tab side is listed: its `*)` fallback IS the builtin side,
+# which is why "anything else means builtin" cannot drift out of step with the
+# lists below. A unit test drives `smart-lister` with every spelling and asserts
+# all three agree, because hand-copied lists are the one thing that can.
 #
 #   builtin : builtin smart internal native built-in on  yes true  1  (and unset/empty)
 #   fzf-tab : fzf-tab fzf_tab fzf     ftb   external none off no  false 0
@@ -170,16 +177,30 @@ _smart_menu_is_command_word() {
 # `off`/`no`/`false`/`0` mean "OUR lister off" — i.e. handed to the other one —
 # not "no list at all", which is what SMART_MENU=false is for.
 _smart_menu_lister() {
+    _smart_menu_lister_scan
+    print -r -- "$_SMART_MENU_LISTER_RET"
+    return 0
+}
+
+# The scan form exists because the popup gate runs this decision on EVERY
+# keystroke, and `_smart_menu_lister`'s print costs a subshell fork. Same
+# table, published through a global — _smart_menu_lister keeps the echo form
+# for status output, doctor and tests.
+typeset -g _SMART_MENU_LISTER_RET=''
+_smart_menu_lister_scan() {
     case "${SMART_MENU_LISTER:-builtin}" in
-        fzf-tab|fzf_tab|fzf|ftb|external|none|off|no|false|0) print -r -- "fzf-tab" ;;
-        *)                                                   print -r -- "builtin" ;;
+        fzf-tab|fzf_tab|fzf|ftb|external|none|off|no|false|0)
+            _SMART_MENU_LISTER_RET="fzf-tab" ;;
+        *)
+            _SMART_MENU_LISTER_RET="builtin" ;;
     esac
     return 0
 }
 
 # _smart_menu_lister_is_builtin -- 0 when this plugin owns the list.
 _smart_menu_lister_is_builtin() {
-    [[ "$(_smart_menu_lister)" == "builtin" ]]
+    _smart_menu_lister_scan
+    [[ "$_SMART_MENU_LISTER_RET" == "builtin" ]]
 }
 
 # _smart_menu_lister_recognised -- 0 when the raw value is a spelling we
@@ -224,11 +245,14 @@ _smart_menu_should_list() {
     _smart_native_have_compinit || return 1
 
     local w w_tail min
-    w="$(_smart_menu_word)"
+    # Direct expansions, not $(_smart_menu_word) / $(_smart_menu_word_tail):
+    # this gate runs once per keystroke, and each function-call form was
+    # paying for a subshell fork on every one of them.
+    w="${LBUFFER##*[[:space:]]}"
     # "How much has the user typed" is the LAST SEGMENT, not the whole word:
     # `/etc/l` is a six-character word but one character of input. See
     # _smart_menu_word_tail above.
-    w_tail="$(_smart_menu_word_tail)"
+    w_tail="${w##*/}"
     if _smart_menu_is_command_word; then
         min="${SMART_MENU_MIN_PREFIX_CMD:-2}"
     elif (( ${+functions[_smart_recent_cd_empty_ok]} )) && _smart_recent_cd_empty_ok; then
@@ -367,7 +391,8 @@ zle -C _smart_menu_list list-choices _smart_menu_list_main 2>/dev/null
 _smart_menu_candidates() {
     local -a _sc_out
     local w _is_cmd=0
-    w="$(_smart_menu_word)"
+    # Direct expansion (same as _smart_menu_word): per-keystroke caller.
+    w="${LBUFFER##*[[:space:]]}"
     _smart_menu_is_command_word && _is_cmd=1
 
     if (( _is_cmd )); then
@@ -600,7 +625,13 @@ _smart_menu_forget_rows() {
 
 _smart_menu_tick() {
     _smart_menu_should_list || {
-        _smart_menu_dbg "skip gate word=[$(_smart_menu_word)] lister=$(_smart_menu_lister)"
+        # The guard matters: argument expansion happens BEFORE
+        # _smart_menu_dbg's own early return, so an unguarded call would
+        # still pay for the word/lister reads on every rejected keystroke.
+        if [[ -n "${SMART_MENU_DEBUG:-}" ]]; then
+            _smart_menu_lister_scan
+            _smart_menu_dbg "skip gate word=[${LBUFFER##*[[:space:]]}] lister=$_SMART_MENU_LISTER_RET"
+        fi
         # The gate can close while rows from the previous prefix are on screen
         # (backspacing `git st` back to `git s` drops below the minimum). Nothing
         # else will remove them, so hand them back here too.
@@ -619,7 +650,7 @@ _smart_menu_tick() {
     if (( _SMART_MENU_COOLDOWN > 0 )); then
         (( _SMART_MENU_COOLDOWN-- ))
         (( _SMART_MENU_SKIPS++ ))
-        _smart_menu_dbg "skip cooldown left=$_SMART_MENU_COOLDOWN word=[$(_smart_menu_word)]"
+        _smart_menu_dbg "skip cooldown left=$_SMART_MENU_COOLDOWN word=[${LBUFFER##*[[:space:]]}]"
         # A skipped edit draws nothing, so the list on screen is stale for this
         # keystroke; if we do not retire it here it never goes away.
         _smart_menu_forget_rows
@@ -752,12 +783,6 @@ smart-menu() {
     return 0
 }
 
-# smart-lister -- choose which lister draws the candidate list.
-#
-# Same rationale as SMART_MENU_LISTER, but switchable in a running shell, which
-# is what you want while diagnosing "two boxes": flip it, retype, and see which
-# one stays. `builtin` re-arms the popup immediately; `fzf-tab` clears whatever
-# we drew so no stale box is left behind.
 # _smart_menu_lister_status -- print the current owner. Split out so the
 # argument error path can show it too (without duplicating the text).
 _smart_menu_lister_status() {
@@ -775,6 +800,12 @@ _smart_menu_lister_status() {
     return 0
 }
 
+# smart-lister -- choose which lister draws the candidate list.
+#
+# Same rationale as SMART_MENU_LISTER, but switchable in a running shell, which
+# is what you want while diagnosing "two boxes": flip it, retype, and see which
+# one stays. `builtin` re-arms the popup immediately; `fzf-tab` clears whatever
+# we drew so no stale box is left behind.
 smart-lister() {
     local arg="${1:-status}"
     case "$arg" in
@@ -868,7 +899,10 @@ smart-doctor() {
     # --- 2. known listers, by function-name fingerprint --------------------
     print -r -- ""
     print -r -- "2. other listers loaded in this shell"
-    _doc_prefix() {   # <label> <name-prefix>
+    # Named with our own prefix, and unfunctioned at the end of this command:
+    # a function defined inside a zsh function becomes GLOBAL, so without that
+    # cleanup a plain `smart-doctor` would leave it in the user's shell.
+    _smart_doc_prefix() {   # <label> <name-prefix>
         local -a h=( ${(M)${(k)functions}:#${2}*} )
         if (( ${#h} )); then
             print -r -- "   [!]  ${1} -- ${#h} function(s), e.g. ${h[1]}"
@@ -877,10 +911,10 @@ smart-doctor() {
         print -r -- "   ok   ${1} -- absent"
         return 0
     }
-    _doc_prefix "zsh-autocomplete"        "_autocomplete__"      || n_foreign=$(( n_foreign + 1 ))
-    _doc_prefix "zsh-autosuggestions"     "_zsh_autosuggest_"    || n_foreign=$(( n_foreign + 1 ))
-    _doc_prefix "fzf-tab"                 "_ftb"                 || n_foreign=$(( n_foreign + 1 ))
-    _doc_prefix "syntax-highlighting"     "_zsh_highlight"       || n_foreign=$(( n_foreign + 1 ))
+    _smart_doc_prefix "zsh-autocomplete"        "_autocomplete__"      || n_foreign=$(( n_foreign + 1 ))
+    _smart_doc_prefix "zsh-autosuggestions"     "_zsh_autosuggest_"    || n_foreign=$(( n_foreign + 1 ))
+    _smart_doc_prefix "fzf-tab"                 "_ftb"                 || n_foreign=$(( n_foreign + 1 ))
+    _smart_doc_prefix "syntax-highlighting"     "_zsh_highlight"       || n_foreign=$(( n_foreign + 1 ))
     # A widget is how the completion UI usually takes over the key.
     # Only OUR widget and foreign completers are interesting here; zsh's own
     # `expand-or-complete` lives in every shell and would just be noise.
@@ -963,5 +997,6 @@ smart-doctor() {
     print -r -- ""
     print -r -- "Note: this plugin NEVER redefines _main_complete/compadd, so a stock"
     print -r -- "      entry point above is the expected, healthy result."
+    unfunction _smart_doc_prefix 2>/dev/null
     return 0
 }

@@ -15,12 +15,23 @@
 #
 # Index layout (stored in state):
 #
-#   _SMART_STATE_L[history.cmds]   → ordered distinct commands, newest first
+#   _SMART_STATE_L[history.cmds]   → distinct commands (membership; newest
+#                                    first right after a rebuild)
 #   _SMART_STATE_A["history.frequency|<cmd>"] → occurrence count
-#   _SMART_STATE_A["history.recency|<cmd>"]  → 0 = newest, N-1 = oldest
+#   _SMART_STATE_A["history.recency|<cmd>"]  → last-use TICK (higher = newer)
 #   _SMART_STATE[history.count]    → number of distinct commands
 #   _SMART_STATE[history.max_freq] → highest frequency (for normalisation)
-#   _SMART_STATE[history.max_recency] → highest recency rank (for normalisation)
+#   _SMART_STATE[history.max_recency] → upper bound on any current age
+#   _SMART_STATE[history.tick]     → global monotonic last-use counter
+#
+# Recency is a tick, not an array position. The engine ranks by AGE
+# (= history.tick - last-use tick), which one associative write per executed
+# command keeps exact. The previous model stored the position inside
+# _SMART_CMDS, so promoting a command silently shifted the rank of everything
+# behind it and every Enter re-derived all ranks in an O(index) pass. The
+# array is now a pure membership list (recency ORDER lives in the first-char
+# buckets); right after a rebuild both it and the buckets hold the backend's
+# newest-first order, and incremental updates keep the buckets current.
 
 emulate -L zsh
 setopt extended_glob no_warn_create_global
@@ -89,11 +100,16 @@ _smart_history_rebuild() {
         _smart_history_backend_zsh_build "$limit" 2>/dev/null
     fi
 
-    # Persist frequencies + recency into state.
+    # Persist frequencies + recency into state. The backend hands us a rank
+    # (0 = newest); store it as tick = base - rank so the ages the engine
+    # computes right after the rebuild equal the ranks, and later per-command
+    # ticks continue upward from base.
+    local base="${_SMART_STATE[history.tick]:-0}"
+    (( base < _SMART_BUILD_REC )) && base=$_SMART_BUILD_REC
     local c
     for c in "${_SMART_BUILD_ORDER[@]}"; do
         _smart_state_a_set history.frequency "$c" "${_SMART_BUILD_FREQ[$c]}"
-        _smart_state_a_set history.recency   "$c" "${_SMART_BUILD_REC_RANKS[$c]}"
+        _smart_state_a_set history.recency   "$c" "$(( base - _SMART_BUILD_REC_RANKS[$c] ))"
         # v0.2.0: Persist metadata (cwd/host/exit) if present.
         # Only write non-empty values; tests & zsh backend may leave empty.
         [[ -n "${_SMART_BUILD_META_CWD[$c]+s}"  && -n "${_SMART_BUILD_META_CWD[$c]}" ]] \
@@ -104,12 +120,13 @@ _smart_history_rebuild() {
             && _smart_state_a_set history.exit "$c" "${_SMART_BUILD_META_EXIT[$c]}"
     done
 
-    # Persist the ordered distinct-command list (newest first).
+    # Persist the distinct-command list (backend order: newest first).
     _smart_state_l_set history.cmds "${_SMART_BUILD_ORDER[@]}"
 
     _smart_state_set history.count "${#_SMART_BUILD_ORDER}"
     _smart_state_set history.max_freq "$_SMART_BUILD_MAX_F"
     _smart_state_set history.max_recency "$_SMART_BUILD_REC"
+    _smart_state_set history.tick "$base"
     _smart_state_set history.rebuilt_at "$now_ts"
     _smart_state_set history.new_since 0
 
@@ -133,46 +150,39 @@ _smart_history_rebuild() {
 #
 # Instead of waiting SMART_HISTORY_REBUILD_EVERY commands to rebuild, we
 # upsert each executed command into the in-memory index immediately:
-#   * new distinct command -> unshift to _SMART_CMDS (newest), freq=1
-#   * existing command     -> freq++, move to front (recency=0)
-# The first-char bucket + _SMART_CMDS stay in sync; recency is re-derived
-# from the array position in one O(n) pass (runs on preexec, not per
-# keystroke).
+#   * new distinct command -> append to _SMART_CMDS, freq=1, prepend its
+#     first-char bucket
+#   * existing command     -> freq++, prepend its first-char bucket
+#   * either way           -> ONE recency write: re-stamp the command's tick.
+# Recency ORDER lives in the first-char buckets (the candidate pools the
+# engine actually iterates); _SMART_CMDS carries membership only. That is what
+# makes this path O(1) amortised. The previous shape kept the array itself in
+# newest-first order, so every Enter paid a full-array scan to locate the
+# command, a full-array copy to move it, and a full-array pass to re-stamp the
+# ranks shifted by the move — hundreds of milliseconds per Enter at 20k
+# distinct commands, all of it removed by this design.
 # ---------------------------------------------------------------------------
 
-# Re-derive history.recency (= array index) and count/max_recency from
-# _SMART_CMDS. Direct associative writes — no subshells.
-_smart_index_sync_recency() {
-    local i=0 n="${#_SMART_CMDS[@]}" cmd
-    # zsh indexed arrays are 1-based; recency rank is kept 0-based (array
-    # position), matching the rest of the engine.
-    while (( i < n )); do
-        cmd="${_SMART_CMDS[$(( i + 1 ))]}"
-        _smart_state_a_set history.recency "$cmd" "$i"
-        (( i++ ))
-    done
-    _SMART_STATE[history.max_recency]="$(( ${#_SMART_CMDS[@]} - 1 ))"
-    _SMART_STATE[history.count]="${#_SMART_CMDS[@]}"
-    return 0
-}
-
-# Remove an occurrence of $cmd from its first-char bucket and prepend it
-# (used when promoting an existing command to newest).
+# Make $cmd the newest entry of its first-char bucket (prepend; drop any
+# older copy). No-op when it is already at the head — the common case when a
+# command repeats.
 _smart_index_bucket_promote() {
     local cmd="$1" fc0="$2"
     local raw="${_SMART_CMDS_FIRST[$fc0]:-}"
-    [[ -z "$raw" ]] && return 0
-    local -a bk=() out=() c
-    bk=("${(f)raw}")
-    for c in "${bk[@]}"; do
-        [[ "$c" == "$cmd" ]] && continue
-        out+=("$c")
-    done
-    if (( ${#out[@]} == 0 )); then
+    [[ "$raw" == "$cmd" || "$raw" == "$cmd"$'\n'* ]] && return 0
+    if [[ -z "$raw" ]]; then
         _SMART_CMDS_FIRST[$fc0]="$cmd"
-    else
-        _SMART_CMDS_FIRST[$fc0]="$cmd"$'\n'"${(F)out}"
+        return 0
     fi
+    local -a bk=("${(f)raw}")
+    # Remove the older copy with an array filter rather than a per-element
+    # loop: ${arr:#pat} runs at C speed, and a pattern that reaches it by
+    # expansion is matched literally, so only the exact command disappears
+    # (a command containing *, $ or [ is an ordinary history line here). The
+    # loop this replaces cost ~2.6 microseconds per bucket entry, i.e. ~5 ms
+    # on every Enter that repeated an old command from a 16k index.
+    bk=("${(@)bk:#${cmd}}")
+    _SMART_CMDS_FIRST[$fc0]="$cmd"$'\n'"${(F)bk}"
     return 0
 }
 
@@ -180,13 +190,12 @@ _smart_index_bucket_promote() {
 # disabled auto-rebuild (SMART_HISTORY_REBUILD_EVERY=0) cannot grow the
 # in-memory index without bound.
 _smart_history_forget() {
-    local cmd="$1" fc0="${cmd[1]}" raw out l
+    local cmd="$1" fc0="${cmd[1]}" raw
+    local -a out=()
     raw="${_SMART_CMDS_FIRST[$fc0]:-}"
     if [[ -n "$raw" ]]; then
-        out=()
-        for l in ${(f)raw}; do
-            [[ "$l" == "$cmd" ]] || out+=("$l")
-        done
+        out=("${(f)raw}")
+        out=("${(@)out:#${cmd}}")
         if (( ${#out[@]} == 0 )); then
             unset "_SMART_CMDS_FIRST[$fc0]"
         else
@@ -206,71 +215,55 @@ _smart_history_upsert() {
     [[ -z "$cmd" ]] && return 0
     [[ -n "$cwd" ]] && _smart_state_a_set history.cwd "$cmd" "$cwd"
 
-    # Linear scan for the matching command. zsh indexed arrays are 1-based;
-    # we keep idx 0-based because the rebuild below skips element (idx+1)
-    # and the recency rank stored in the engine is also a 0-based position.
-    local idx=-1 i=1 n="${#_SMART_CMDS[@]}"
-    while (( i <= n )); do
-        if [[ "${_SMART_CMDS[$i]}" == "$cmd" ]]; then idx=$(( i - 1 )); break; fi
-        (( i++ ))
-    done
-
+    # Membership is an associative lookup. history.frequency is written when a
+    # command enters the index and unset when it is evicted, so it doubles as
+    # the membership map — no array scan.
     local fc0="${cmd[1]}"
-    local key f mf
+    local key="history.frequency|$cmd" f mf
 
-    if (( idx < 0 )); then
-        # New distinct command -> newest.
-        _SMART_CMDS=("$cmd" "${_SMART_CMDS[@]}")
+    if [[ -z "${_SMART_STATE_A[$key]+s}" ]]; then
+        # New distinct command: append for membership (O(1) amortised; the
+        # old front-insert copied the whole array on every new command),
+        # prepend in its bucket for recency order (O(bucket)).
+        _SMART_CMDS+=("$cmd")
         # Cap in-memory index size: when SMART_HISTORY_REBUILD_EVERY=0 disables
-        # the periodic full rebuild, drop the oldest entry (tail) so _SMART_CMDS
-        # cannot grow without bound. The bucket + assoc slots stay in sync.
-        # NOTE: build via an explicit `kept` loop (do NOT use
-        # _SMART_CMDS=("${_SMART_CMDS[1,-2]}") — the outer quotes join every
-        # element into a single string in zsh).
+        # the periodic full rebuild, drop the entry inserted longest ago
+        # (head) so _SMART_CMDS cannot grow without bound. The bucket + assoc
+        # slots stay in sync. `shift` moves the array's element pointers in
+        # one C-level step; the old element-by-element copy loop cost a
+        # zsh-speed 20k-element pass per Enter once the index sat at its cap
+        # (and _SMART_CMDS=("${_SMART_CMDS[2,-1]}") is NOT an option — the
+        # outer quotes join every element into a single string in zsh).
         if (( ${#_SMART_CMDS[@]} > limit )); then
-            local oldest="${_SMART_CMDS[-1]}"
-            local -a kept=()
-            local k=1 kn=${#_SMART_CMDS[@]}
-            while (( k < kn )); do
-                kept+=("${_SMART_CMDS[$k]}")
-                (( k++ ))
-            done
-            _SMART_CMDS=("${kept[@]}")
+            local oldest="${_SMART_CMDS[1]}"
+            shift _SMART_CMDS
             _smart_history_forget "$oldest"
         fi
-        if [[ -z "${_SMART_CMDS_FIRST[$fc0]:-}" ]]; then
-            _SMART_CMDS_FIRST[$fc0]="$cmd"
-        else
-            _SMART_CMDS_FIRST[$fc0]="$cmd"$'\n'"${_SMART_CMDS_FIRST[$fc0]}"
-        fi
-        _smart_state_a_set history.frequency "$cmd" 1
+        _smart_index_bucket_promote "$cmd" "$fc0"
+        _SMART_STATE_A[$key]=1
         mf="${_SMART_STATE[history.max_freq]:-0}"
         (( 1 > mf )) && _SMART_STATE[history.max_freq]=1
     else
-        # Existing -> bump frequency.
-        key="history.frequency|$cmd"
-        f="${_SMART_STATE_A[$key]:-0}"
-        f=$(( f + 1 ))
-        _smart_state_a_set history.frequency "$cmd" "$f"
+        # Existing -> bump frequency, and make it newest in its bucket.
+        f="${_SMART_STATE_A[$key]}"
+        (( ++f ))
+        _SMART_STATE_A[$key]="$f"
         mf="${_SMART_STATE[history.max_freq]:-0}"
         (( f > mf )) && _SMART_STATE[history.max_freq]="$f"
-        # Move to front if not already there. Rebuild without the matched
-        # element, then prepend. We copy element-by-element (rather than via
-        # a substring slice) so space-containing commands stay intact and no
-        # globbing happens. Runs on preexec, so the O(n) cost is irrelevant.
-        if (( idx != 0 )); then
-            local -a kept=()
-            local j=1
-            while (( j <= n )); do
-                (( j == idx + 1 )) || kept+=("${_SMART_CMDS[$j]}")
-                (( j++ ))
-            done
-            _SMART_CMDS=("$cmd" "${kept[@]}")
-            _smart_index_bucket_promote "$cmd" "$fc0"
-        fi
+        _smart_index_bucket_promote "$cmd" "$fc0"
     fi
 
-    _smart_index_sync_recency
+    # Recency: one tick stamp, O(1). It replaces the full-array rescan; the
+    # engine compares commands by AGE = history.tick - this tick, so every
+    # other command's stored value stays valid untouched.
+    local tick=$(( ${_SMART_STATE[history.tick]:-0} + 1 ))
+    _SMART_STATE[history.tick]="$tick"
+    key="history.recency|$cmd"
+    _SMART_STATE_A[$key]="$tick"
+    # An age never exceeds the current tick (stored ticks are >= 0), so this
+    # is a sound normalisation bound without needing the true oldest entry.
+    _SMART_STATE[history.max_recency]="$tick"
+    _SMART_STATE[history.count]="${#_SMART_CMDS[@]}"
     return 0
 }
 
@@ -330,6 +323,7 @@ _smart_history_iter_prefix() {
     # value leak to stdout on every iteration that also invokes a function —
     # in ZLE that output goes straight to the terminal (the "key='history.…'"
     # garbage bug). See tests/test-history.zsh regression case.
+    local now_tick="${_SMART_STATE[history.tick]:-0}"
     local yielded=0 cmd freq rec key
     for cmd in "${pool[@]}"; do
         [[ -z "$cmd" ]] && continue
@@ -340,7 +334,12 @@ _smart_history_iter_prefix() {
         # Index via a $key variable so the compound key (which contains
         # "|" and spaces) is treated literally, not as a glob pattern.
         key="history.frequency|$cmd"; freq="${_SMART_STATE_A[$key]:-1}"
-        key="history.recency|$cmd";  rec="${_SMART_STATE_A[$key]:-0}"
+        # Rank candidates by AGE (commands executed since last use, 0 = just
+        # used); history.recency stores the last-use tick, and an unstamped
+        # command is treated as newest — the same fallback the rank model had.
+        key="history.recency|$cmd"
+        rec="${_SMART_STATE_A[$key]:-$now_tick}"
+        (( rec = now_tick - rec ))
 
         "$callback" "$cmd" "$freq" "$rec" || return 0
         (( yielded++ ))

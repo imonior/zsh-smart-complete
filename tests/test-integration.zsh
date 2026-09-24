@@ -211,7 +211,9 @@ print -r -- "=== 场景 4: suggestion 端到端（注入已知数据 → "git s"
     local -A freq=(["git status"]=12 ["git checkout main"]=4 ["ls -la"]=25 ["git pull"]=3 ["git add ."]=5)
     local rec=0 mx=0 c
     for c in "${order[@]}"; do
-        _smart_state_a_set history.recency "$c" "$rec"; (( rec++ ))
+        # Recency is a last-use tick (age = history.tick - tick); store
+        # rank-reversed ticks so injected ages match the old ranks.
+        _smart_state_a_set history.recency "$c" "$(( ${#order} - 1 - rec ))"; (( rec++ ))
         (( freq[$c] > mx )) && mx=${freq[$c]}
         _smart_state_a_set history.frequency "$c" "${freq[$c]}"
     done
@@ -219,6 +221,7 @@ print -r -- "=== 场景 4: suggestion 端到端（注入已知数据 → "git s"
     _smart_state_set history.count "${#order}"
     _smart_state_set history.max_freq "$mx"
     _smart_state_set history.max_recency "$(( rec - 1 ))"
+    _smart_state_set history.tick "$(( rec - 1 ))"
 }
 _smart_suggest_compute "git s"
 local t=$(_smart_state_get suggestion.text)

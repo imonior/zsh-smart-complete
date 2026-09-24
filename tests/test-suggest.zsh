@@ -52,7 +52,10 @@ inject() {
         ["cd ~"]=4 ["cargo build"]=2)
     local rec=0 max_freq=0 c
     for c in "${order[@]}"; do
-        _smart_state_a_set history.recency "$c" "$rec"
+        # Recency is a last-use tick (age = history.tick - tick); storing
+        # rank-reversed ticks keeps the injected ages identical to the ranks
+        # the scoring expectations below were derived from.
+        _smart_state_a_set history.recency "$c" "$(( ${#order} - 1 - rec ))"
         (( rec++ ))
         (( freq[$c] > max_freq )) && max_freq=${freq[$c]}
         _smart_state_a_set history.frequency "$c" "${freq[$c]}"
@@ -61,6 +64,7 @@ inject() {
     _smart_state_set history.count "${#order}"
     _smart_state_set history.max_freq "$max_freq"
     _smart_state_set history.max_recency "$(( rec - 1 ))"
+    _smart_state_set history.tick "$(( rec - 1 ))"
 }
 
 print -r -- "=== 场景 1: 'git s' → git status ==="

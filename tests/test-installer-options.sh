@@ -1088,6 +1088,107 @@ for _f in "$INSTALL" "$EW"; do
     assert_eq "22 i18n: every msg key used by $_name is defined" "$_undef" "0"
 done
 
+# ---------------------------------------------------------------------------
+echo "== 23. _upsert_options_block: every placement branch, in BOTH installers =="
+# install-entware.sh once called _upsert_options_block with ZSC_BLOCK_BEGIN
+# never defined in that file (install.sh had always defined it). The empty
+# variable made `grep -qF ""` match EVERY file, so the branch "insert above
+# the loader block" was always chosen — and its awk inserts before the first
+# EMPTY LINE, of which the Phase-4 freshly-created .zshrc has none (nor any
+# marker, nor any plugin mention yet, because the loader is appended AFTER
+# this call). Net effect: the options block was silently never written, so a
+# curl|bash install on a clean machine ignored every interactive answer.
+#
+# So the SHIPPED function is extracted from EACH installer and driven against
+# one fixture per branch. The marker variables are reset to empty before each
+# load, which reproduces the old failure mode faithfully instead of tripping
+# `set -u` here.
+_pos(){ grep -nF -- "$2" "$1" | head -1 | cut -d: -f1; }   # first line number of a fixed string
+
+for _inst in "$INSTALL" "$EW"; do
+    _nm="$(basename "$_inst")"
+
+    # Static form of the same bug: calling the function with a marker the
+    # file never defines. Four definitions, not three, is the contract.
+    _defs="$(grep -cE '^(ZSC|OPT)_BLOCK_(BEGIN|END)=' "$_inst")"
+    assert_eq "23 $_nm: all four block markers are defined" "$_defs" "4"
+
+    ZSC_BLOCK_BEGIN=""; ZSC_BLOCK_END=""; OPT_BLOCK_BEGIN=""; OPT_BLOCK_END=""
+    eval "$(grep -E '^(ZSC|OPT)_BLOCK_(BEGIN|END)=' "$_inst")"
+    eval "$(sed -n '/^_upsert_options_block() {/,/^}/p' "$_inst")"
+
+    _blk="${OPT_BLOCK_BEGIN}
+export SMART_TEST_NEW=1
+${OPT_BLOCK_END}"
+    f="$TMP/23.block"
+
+    # -- branch 1: markers present -> replace in place, same position -------
+    printf '%s\n' "top line" "$OPT_BLOCK_BEGIN" "export STALE=1" "$OPT_BLOCK_END" "bottom line" > "$f"
+    _upsert_options_block "$f" "$_blk"
+    assert_lacks "23 $_nm f1: old managed block replaced" "$f" "export STALE=1"
+    assert_has   "23 $_nm f1: new managed block written"  "$f" "export SMART_TEST_NEW=1"
+    assert_eq    "23 $_nm f1: still exactly one managed block" "$(grep -cF "$OPT_BLOCK_BEGIN" "$f")" "1"
+    _b=$(_pos "$f" "$OPT_BLOCK_BEGIN"); _b=${_b:-99999}
+    _e=$(_pos "$f" "$OPT_BLOCK_END");   _e=${_e:-99999}
+    _t=$(_pos "$f" "top line");         _t=${_t:-99999}
+    _ot=$(_pos "$f" "bottom line");     _ot=${_ot:-99999}
+    if [ "$_t" -lt "$_b" ] && [ "$_e" -lt "$_ot" ]; then
+        ok "23 $_nm f1: replacement kept the original position"
+    else
+        no "23 $_nm f1: replacement kept the original position (top=$_t begin=$_b end=$_e bottom=$_ot)"
+    fi
+
+    # -- branch 2: no options markers, loader markers present -> above them --
+    # No blank lines on purpose: with an empty ZSC_BLOCK_BEGIN this is the
+    # exact shape the old bug swallowed.
+    printf '%s\n' "hist stuff" "$ZSC_BLOCK_BEGIN" "zinit light imonior/zsh-smart-complete" "last line" > "$f"
+    _upsert_options_block "$f" "$_blk"
+    assert_has "23 $_nm f2: options block inserted" "$f" "$OPT_BLOCK_BEGIN"
+    _b=$(_pos "$f" "$OPT_BLOCK_BEGIN"); _b=${_b:-99999}
+    _zs=$(_pos "$f" "$ZSC_BLOCK_BEGIN"); _zs=${_zs:-0}
+    if [ "$_b" -lt "$_zs" ]; then
+        ok "23 $_nm f2: options sit ABOVE the loader block ($_b < $_zs)"
+    else
+        no "23 $_nm f2: options sit ABOVE the loader block ($_b < $_zs)"
+    fi
+
+    # -- branch 3: no markers at all, but the plugin is mentioned -----------
+    printf '%s\n' "# personal setup" 'source ~/.zsh/zsh-smart-complete/zsh-smart-complete.plugin.zsh' "alias ll='ls -l'" > "$f"
+    _upsert_options_block "$f" "$_blk"
+    assert_has "23 $_nm f3: options block inserted" "$f" "$OPT_BLOCK_BEGIN"
+    _e=$(_pos "$f" "$OPT_BLOCK_END");    _e=${_e:-99999}
+    _m=$(_pos "$f" "zsh-smart-complete.plugin.zsh"); _m=${_m:-0}
+    if [ "$_e" -lt "$_m" ]; then
+        ok "23 $_nm f3: options precede the unmarked plugin reference ($_e < $_m)"
+    else
+        no "23 $_nm f3: options precede the unmarked plugin reference ($_e < $_m)"
+    fi
+
+    # -- branch 4: untouched file -> append. THIS is the regression fixture:
+    # no markers, no plugin mention and NOT ONE empty line, exactly like the
+    # .zshrc entware's Phase 4 creates before appending the loader.
+    printf '%s\n' 'export HISTFILE="$HOME/.zsh_history"' 'setopt appendhistory sharehistory' > "$f"
+    _upsert_options_block "$f" "$_blk"
+    assert_has "23 $_nm f4: options written to a marker-free, blank-line-free file" "$f" "$OPT_BLOCK_BEGIN"
+    assert_eq  "23 $_nm f4: original content stays on top" "$(head -1 "$f")" 'export HISTFILE="$HOME/.zsh_history"'
+    assert_eq  "23 $_nm f4: file ends with the managed block" "$(tail -1 "$f")" "$OPT_BLOCK_END"
+done
+
+# The two installers must not drift apart on the shared contract: same marker
+# strings, same placement function.
+if diff <(grep -E '^(ZSC|OPT)_BLOCK_(BEGIN|END)=' "$INSTALL") \
+        <(grep -E '^(ZSC|OPT)_BLOCK_(BEGIN|END)=' "$EW") >/dev/null 2>&1; then
+    ok "23 both installers define identical block markers"
+else
+    no "23 both installers define identical block markers"
+fi
+if diff <(sed -n '/^_upsert_options_block() {/,/^}/p' "$INSTALL") \
+        <(sed -n '/^_upsert_options_block() {/,/^}/p' "$EW") >/dev/null 2>&1; then
+    ok "23 both installers ship the same _upsert_options_block"
+else
+    no "23 both installers ship the same _upsert_options_block"
+fi
+
 echo "-----"
 echo "INSTALLER-OPTIONS TOTAL PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

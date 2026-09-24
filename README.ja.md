@@ -3,7 +3,7 @@
 > Zsh 向けのモダンなスマート補完・候補提示レイヤー。
 > 将来の独立シェルのフロントエンドとして設計。
 >
-> **v2.2.11** — `~/.zshrc` を触らずに調整でき、パスポップアップが autocomplete 相当に。インストーラーはプラグインの隣に小さな `zsc-settings` CLI（wizard / list / get / set / edit / reset / path / init、いずれも型検証付き）を置き、プラグインが既定値より前に読む上書きファイルを書きます。ライブポップアップもパスについては autocomplete 風に：最初のセグメント文字から一覧（`/u`、`~/l`、`cd /usr/`）、裸の `/` はその場でディレクトリを一覧、単一マッチもインライン灰字の隣に 1 行ポップアップを描画します。パス以外の単語は 2 文字の閾値のまま。`SMART_MENU_MIN_MATCHES=2` で元に戻ります。
+> **v2.3.0** —— ヒストリが大きいためにかかる数秒をなくしました。8000 コマンドでサジェスト・インデックスの再構築は **693 ms → 30 ms**、Enter はインデックス全体の再スキャンからスタンプ 1 個に（50 コマンドで **9.8 s → 32 ms**）、キー入力ではメモリにある値を読むだけの fork も起きません。Entware インストールでも設定ブロックが実際に書き込まれます。追加：`./tests/run-all.sh` が覚える唯一のコマンドに（スイートを自動発見）、そして `tests/test-perf.zsh` ——その症状は出力の誤りではなく「秒」であるトリップワイヤー。CI は zsh 5.7 / 5.8 / 5.9 で同じスイートを走らせ、リリースは「テスト + `VERSION` + CHANGELOG」のゲートを通過する必要があります。
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------ | ------ |
 | ビルドとテスト (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | リリース | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| バージョン | 2.2.11 |
+| バージョン | 2.3.0 |
 
 ## なぜこれを選ぶか
 
@@ -22,7 +22,7 @@
 - **二つの半身、一つのエンジン（v2.2.0）** — 入力中に候補リストが**即座にポップアップ**します（zsh-autocomplete の挙動）と同時に、行内の灰色サジェストは残ります。`→` は全体を受け入れ、`Alt+→` は単語一つを受け入れます（zsh-autosuggestions の挙動）。一つのプラグイン、一つのキーマップ、二つのチャンネル——これが「二つのプラグインが衝突する」根本的な解決策です。
 - **外部依存ゼロ** — コアプラグインは自己完結、Atuin はオプション。
 - **矢印キーの全エンコーディングをバインド** — `ESC [ C` と `ESC O C`（アプリケーションカーソルキーモード、`TERM=xterm-256color` で端末が実際に送る形式）の両方をバインドしているため、「灰色文字は出るのに矢印が効かない」は起きません。
-- **シンタックスハイライトと共存** — `#zsh-smart-complete:suggestion` タグを使用し、他のハイライターを上書きしません。
+- **シンタックスハイライトと共存** — `region_highlight` を最大 1 枠だけ使い、`memo=zsh-smart-complete:suggestion` で印を付けて、自分の枠のみ除去するため、他のハイライターを上書きしません。
 
 ## アーキテクチャ
 
@@ -325,20 +325,18 @@ rm -rf ~/.zsh-smart-complete
 ## テスト
 
 ```zsh
-zsh tests/test-config.zsh
-zsh tests/test-history.zsh
-zsh tests/test-suggest.zsh
-zsh tests/test-ranking.zsh
-zsh tests/test-atuin.zsh
-zsh tests/test-zle.zsh
-zsh tests/test-menu.zsh
-zsh tests/test-integration.zsh
-zsh tests/test-recent.zsh
-zsh tests/test-repaint.zsh
-bash tests/test-installer-options.sh
+./tests/run-all.sh            # every suite, one line each
+./tests/run-all.sh -v         # ... with full output
+./tests/run-all.sh menu       # only suites whose name matches
+./tests/run-all.sh --list     # what would run
 ```
 
-**テスト集計 （v2.2.11）：** 12 ファイル、804 アサーション、すべて合格、0 失敗。
+**テスト集計:** `./tests/run-all.sh` が全スイートを走らせ、実測したファイル数とアサーション数を出力します。すべて合格、0 失敗。
+
+`tests/run-all.sh` は `tests/test-*.zsh`（zsh で実行）と `tests/test-*.sh`（bash で実行）を**自動検出**します。テストファイルを追加しても他を変える必要はありません。CI のジョブはかつて 12 個を手で列挙していて、その隣のコメントが自白しているとおり、そこに足し忘れた新しいテストは静かに一度も実行されません。各スイートのアサーション数も合算するため、レポートの数字は毎回実測値です。
+
+うち 1 つの `tests/test-perf.zsh` は挙動ではなく実時間の上限量を主張します。本作で修正した二乗計算量のバグはいずれも出力は完全に正しく、症状は数秒固まることだけだったためです。
+
 インストーラーは `~/.zshrc` の清理後に、`.zprofile`、`.zshenv`、`conf.d/*.zsh`、`.zshrc.d/*`、`/etc/zsh/zshrc` の**其它の起動ファイル**に `zsh-autocomplete` / `zsh-autosuggestions` のローダー行が残っていないかも**走査**し、見つかった場合は正確な `ファイル:行番号` で**警告**して手動清理を促します——これらのファイルは編集しません。詳細は CHANGELOG の `[v2.2.5]` を参照。
 
 

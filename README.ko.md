@@ -3,7 +3,7 @@
 > Zsh 용 현대적인 스마트 완성 및 제안 레이어.
 > 미래의 독립 셸 프런트엔드로 설계됨.
 >
-> **v2.2.11** — `~/.zshrc` 를 건드리지 않고 조정하고, 경로 팝업이 autocomplete 수준. 설치기는 플러그인 옆에 작은 `zsc-settings` CLI(wizard / list / get / set / edit / reset / path / init, 모두 형 검증)를 두고, 플러그인이 기본값보다 먼저 읽는 덮어쓰기 파일을 씁니다. 라이브 팝업도 경로에 대해서는 autocomplete 풍으로: 첫 세그먼트 글자부터 목록(`/u`, `~/l`, `cd /usr/`), 맨 `/` 는 그 자리에서 디렉터리 목록, 단일 매치도 인라인 회색 글자 옆에 1줄 팝업을 그립니다. 경로 외 단어는 2글자 문턱 유지. `SMART_MENU_MIN_MATCHES=2` 로 되돌립니다.
+> **v2.3.0** — 히스토리가 커졌다고 몇 초를 낼 필요가 없습니다. 8000 명령에서 제안 인덱스 재구축은 **693 ms → 30 ms**, Enter 는 인덱스 전체를 다시 훑는 것에서 도장 하나로 바뀝니다(50 명령: **9.8 s → 32 ms**); 키 입력은 메모리에 이미 있는 값을 읽으려고 fork 하지 않습니다. Entware 설치에서도 설정 블록이 실제로 들어갑니다. 추가: `./tests/run-all.sh` 가 외울 유일한 명령(스위트 자동 발견), 그리고 `tests/test-perf.zsh` —— 증상은 출력 오류가 아니라 "초"인 트리프와이어. CI 는 이제 zsh 5.7 / 5.8 / 5.9 에서 같은 스위트를 돌리고, 릴리스는 "테스트 + `VERSION` + CHANGELOG" 게이트를 지나야 합니다.
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------ | ------ |
 | 빌드 및 테스트 (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | 릴리스 | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| 버전 | 2.2.11 |
+| 버전 | 2.3.0 |
 
 ## 왜 이 플러그인인가
 
@@ -22,7 +22,7 @@
 - **두 부분, 하나의 엔진 (v2.2.0)** — 입력하는 동안 후보 목록이 **즉시 팝업**됩니다(zsh-autocomplete 동작)과 동시에 행 내부의 회색 제안은 남습니다. `→`는 전체를, `Alt+→`는 한 단어를 수락합니다(zsh-autosuggestions 동작). 하나의 플러그인, 하나의 키맵, 두 채널 — "두 플러그인이 충돌한다"는 근본적인 해결책입니다.
 - **외부 의존성 없음** — 코어 플러그인은 자체 완결적이며, Atuin은 선택 사항.
 - **화살표 키 모든 인코딩 바인딩** — `ESC [ C`와 `ESC O C`(애플리케이션 커서 키 모드, `TERM=xterm-256color`에서 터미널이 실제로 보내는 형식) 모두 바인딩되어 "회색 글자는 보이는데 화살표가 안 먹힌다"가 일어나지 않습니다.
-- **구문 강조와 친화적** — `#zsh-smart-complete:suggestion` 태그를 사용하며 다른 하이라이터를 덮어쓰지 않습니다.
+- **구문 강조와 친화적** — `region_highlight` 항목을 최대 하나만 차지하고 `memo=zsh-smart-complete:suggestion`으로 표시하며 자기 항목만 제거하므로 다른 하이라이터를 덮어쓰지 않습니다.
 
 ## 아키텍처
 
@@ -319,20 +319,18 @@ rm -rf ~/.zsh-smart-complete
 ## 테스트
 
 ```zsh
-zsh tests/test-config.zsh
-zsh tests/test-history.zsh
-zsh tests/test-suggest.zsh
-zsh tests/test-ranking.zsh
-zsh tests/test-atuin.zsh
-zsh tests/test-zle.zsh
-zsh tests/test-menu.zsh
-zsh tests/test-integration.zsh
-zsh tests/test-recent.zsh
-zsh tests/test-repaint.zsh
-bash tests/test-installer-options.sh
+./tests/run-all.sh            # every suite, one line each
+./tests/run-all.sh -v         # ... with full output
+./tests/run-all.sh menu       # only suites whose name matches
+./tests/run-all.sh --list     # what would run
 ```
 
-**테스트 요약 （v2.2.11）：** 12개 파일, 804개 어설션, 전부 통과, 0 실패.
+**테스트 요약:** `./tests/run-all.sh` 가 모든 스위트를 실행하고 실측한 파일·어설션 수를 출력합니다. 전부 통과, 0 실패.
+
+`tests/run-all.sh`는 `tests/test-*.zsh`(zsh로 실행)와 `tests/test-*.sh`(bash로 실행)를 **자동 발견**합니다. 테스트 파일을 추가해도 다른 곳을 고칠 필요가 없습니다. CI 잡지는 과거 12개 파일을 손으로 나열했고, 그 옆의 주석이 자백하듯 거기 적지 않은 새 테스트는 조용히 한 번도 실행되지 않았습니다. 각 스위트의 어설션 수를 합산하므로 보고서에 나오는 숫자는 매 실행 실측값입니다.
+
+그중 `tests/test-perf.zsh` 는 동작이 아니라 실측 시간 상한을 단언합니다. 이 프로젝트가 고친 제곱 계산량 버그는 모두 출력은 완전히 정상이었고 증상만 수 초 정지였기 때문입니다.
+
 설치기는 `~/.zshrc` 정리 후 `.zprofile`, `.zshenv`, `conf.d/*.zsh`, `.zshrc.d/*`, `/etc/zsh/zshrc` 같은 **다른 시작 파일**에 `zsh-autocomplete` / `zsh-autosuggestions` 로더 행이 남아 있는지도 **검사**하고, 있으면 정확한 `파일:행번호` 로 **경고**하여 수동 정리를 안내합니다 — 이 파일은 편집하지 않습니다. 자세한 내용은 CHANGELOG의 `[v2.2.5]` 를 보세요.
 
 

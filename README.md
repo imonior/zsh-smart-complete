@@ -3,7 +3,7 @@
 > A modern smart completion & suggestion layer for Zsh.
 > Engineered as the frontend of a future independent shell.
 >
-> **v2.2.11** — Tune it without touching `~/.zshrc`, and path popups like autocomplete. The installer now drops a small `zsc-settings` CLI beside the plugin (wizard / list / get / set / edit / reset / path / init, all type-checked) that writes overrides the plugin reads before its defaults. The live popup also goes autocomplete-style for paths: it lists from the first segment character (`/u`, `~/l`, `cd /usr/`) and a bare `/` lists the directory at once, and a single match now draws a 1-line popup next to the inline ghost. Non-path words keep the two-character gate; revert with `SMART_MENU_MIN_MATCHES=2`.
+> **v2.3.0** — A big history no longer costs you seconds. Rebuilding the suggestion index over 8000 commands went from **693 ms to 30 ms**, and pressing Enter went from a full re-scan of the index to stamping one slot (**9.8 s to 32 ms** for 50 commands); keystrokes no longer fork subshells to read values already in memory. Entware installs now actually get their settings block. New: `./tests/run-all.sh` is the one command to remember (it discovers every suite), plus `tests/test-perf.zsh`, a tripwire whose only symptom is seconds rather than wrong output. CI now runs the suite on zsh 5.7 / 5.8 / 5.9, and a release is gated on tests + `VERSION` + CHANGELOG.
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------- | ------ |
 | Build & test (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | Release | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| Version | 2.2.11 |
+| Version | 2.3.0 |
 
 ## Why
 
@@ -22,7 +22,7 @@ Replaces both `zsh-autocomplete` and `zsh-autosuggestions` in a single plugin wi
 - **Two halves, one engine (v2.2.0)** — while you type, the candidate list pops up *immediately* (the `zsh-autocomplete` behaviour) while the inline grey suggestion stays; `→` accepts it all, `Alt+→` accepts one word (the `zsh-autosuggestions` behaviour). One plugin, one keymap, two channels — the real fix for "the two plugins conflict".
 - **Zero external dependencies** — the core plugin is self-contained; Atuin is optional.
 - **Every arrow-key encoding is bound** — both `ESC [ C` and `ESC O C` (application cursor-keys mode, what `TERM=xterm-256color` actually sends) are bound, so you never get "grey text shows but the arrow does nothing".
-- **Syntax-highlighting friendly** — uses the `#zsh-smart-complete:suggestion` tag; does not override other highlighters.
+- **Syntax-highlighting friendly** — claims at most one `region_highlight` entry, tagged `memo=zsh-smart-complete:suggestion`, and removes only that entry, so other highlighters are never clobbered.
 
 ## Architecture
 
@@ -343,20 +343,24 @@ See [CHANGELOG](./CHANGELOG.md) for the full history. The GitHub Release notes a
 ## Testing
 
 ```zsh
-zsh tests/test-config.zsh
-zsh tests/test-history.zsh
-zsh tests/test-suggest.zsh
-zsh tests/test-ranking.zsh
-zsh tests/test-atuin.zsh
-zsh tests/test-zle.zsh
-zsh tests/test-menu.zsh
-zsh tests/test-integration.zsh
-zsh tests/test-recent.zsh
-zsh tests/test-repaint.zsh
-bash tests/test-installer-options.sh
+./tests/run-all.sh            # every suite, one line each
+./tests/run-all.sh -v         # ... with full output
+./tests/run-all.sh menu       # only suites whose name matches
+./tests/run-all.sh --list     # what would run
 ```
 
-**Test summary (v2.2.11):** 12 test files, 804 assertions, all passing, 0 failures.
+`tests/run-all.sh` **discovers** `tests/test-*.zsh` (run with zsh) and
+`tests/test-*.sh` (run with bash), so adding a test file needs no other edit —
+the CI job used to list all twelve by hand, next to a comment admitting that a
+new file nobody added there is silently never run. It also sums the suites'
+assertion tallies, so the reported count is a measured number on every run.
+
+One suite, `tests/test-perf.zsh`, asserts wall-clock caps instead of behaviour:
+every quadratic-complexity bug this project has fixed produced perfectly
+correct output, and the only symptom was seconds.
+
+**Test summary:** `./tests/run-all.sh` runs every suite and prints the file and
+assertion counts it measured; the run is green, 0 failures.
 The installer also now **scans other startup files** (`.zprofile`, `.zshenv`, `conf.d/*.zsh`, `.zshrc.d/*`, `/etc/zsh/zshrc`) for left-over loaders of `zsh-autocomplete` / `zsh-autosuggestions` after cleaning `~/.zshrc`, and **warns** (with exact `file:line`) if it finds any — it never edits those files. See CHANGELOG `[v2.2.5]`.
 
 

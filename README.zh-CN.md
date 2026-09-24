@@ -3,7 +3,7 @@
 > 一个现代化的智能补全和建议层，专为 Zsh 设计。
 > 作为未来独立 shell 的前端引擎。
 >
-> **v2.2.11** — 不改 `~/.zshrc` 也能调，路径弹窗对标 autocomplete。安装器现在会在插件旁放一个 `zsc-settings` 小工具（wizard / list / get / set / edit / reset / path / init，均按类型校验），把覆盖项写入插件读取先于默认值的文件。实时弹窗路径部分也变成 autocomplete 风格：从第一个段字符就列（`/u`、`~/l`、`cd /usr/`），裸 `/` 立即列目录，单匹配也会在内联灰字旁画 1 行弹窗。非路径词保持两字符门槛；用 `SMART_MENU_MIN_MATCHES=2` 恢复。
+> **v2.3.0** — 历史变大不再让你等上几秒。8000 条命令下重建建议索引从 **693 毫秒降到 30 毫秒**；按回车从“整个索引重扫一遍”变成“只盖一个时间戳”（50 条命令：**9.8 秒降到 32 毫秒**）；按键也不再为了读取内存里已有的值而 fork 子 shell。Entware 安装现在能真正把设置块写进去。新增：`./tests/run-all.sh` 成为唯一需要记的命令（自动发现每个测试集），以及 `tests/test-perf.zsh` 这条警戒线——它的症状是秒数，而不是输出错误。CI 现在会在 zsh 5.7 / 5.8 / 5.9 上跑同一套测试，发布前还要过“测试 + `VERSION` + CHANGELOG”这道闸门。
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------ | ------ |
 | 构建与测试 (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | 发布 | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| 版本 | 2.2.11 |
+| 版本 | 2.3.0 |
 
 ## 为什么选择我们
 
@@ -22,7 +22,7 @@
 - **两部分合为一体（v2.2.0）** — 打字时**立即弹出候选列表**（zsh-autocomplete 的行为），同时保留行内灰字建议，`→` 全量接受、`Alt+→` 一次接受一个词（zsh-autosuggestions 的行为）。同一个插件、同一套键位、两个通道，这正是"两个插件互相冲突"的根本解法。
 - **零外部依赖** — 核心插件自包含；可选 Atuin 增强。
 - **箭头键全编码绑定** — `ESC [ C` 与 `ESC O C`（应用光标键模式，`TERM=xterm-256color` 下终端实际发送的形式）都绑定，不会出现"灰字在、右箭头没反应"。
-- **与语法高亮兼容** — 使用 `#zsh-smart-complete:suggestion` 标记，不覆盖其他 highlighter。
+- **与语法高亮兼容** — 最多只占用一条 `region_highlight` 条目，用 `memo=zsh-smart-complete:suggestion` 标记，且只移除自己那条，不会覆盖其他 highlighter。
 
 ## 架构
 
@@ -306,20 +306,18 @@ rm -rf ~/.zsh-smart-complete
 ## 测试
 
 ```zsh
-zsh tests/test-config.zsh
-zsh tests/test-history.zsh
-zsh tests/test-suggest.zsh
-zsh tests/test-ranking.zsh
-zsh tests/test-atuin.zsh
-zsh tests/test-zle.zsh
-zsh tests/test-menu.zsh
-zsh tests/test-integration.zsh
-zsh tests/test-recent.zsh
-zsh tests/test-repaint.zsh
-bash tests/test-installer-options.sh
+./tests/run-all.sh            # every suite, one line each
+./tests/run-all.sh -v         # ... with full output
+./tests/run-all.sh menu       # only suites whose name matches
+./tests/run-all.sh --list     # what would run
 ```
 
-**测试汇总 （v2.2.11）：** 12 个测试文件共 804 项全部通过，0 失败。
+**测试汇总:** `./tests/run-all.sh` 会跑完全部套件，并打印实测的文件数与断言数；全部通过，0 失败。
+
+`tests/run-all.sh` 自动**发现** `tests/test-*.zsh`（用 zsh 跑）与 `tests/test-*.sh`（用 bash 跑），因此新增测试文件不需要改别的地方——CI 原先手写列出十二个文件，旁边正是那句自白：没被列进去的新文件永远静默不跑。它同时汇总各套件的断言计数，因此报告里的数字每次运行都是实测值。
+
+其中一个套件 `tests/test-perf.zsh` 断言的是墙钟时间上限而非行为结果——本项目修掉的每一个平方阶复杂度 bug，输出都完全正确，唯一的症状是耗时数秒。
+
 安装器在清理 `~/.zshrc` 之后，现在还会**扫描其它启动文件**（`.zprofile`、`.zshenv`、`conf.d/*.zsh`、`.zshrc.d/*`、`/etc/zsh/zshrc`）中是否仍有 `zsh-autocomplete` / `zsh-autosuggestions` 的加载行，并用精确的 `文件:行号` **警告**用户手动清理——它从不修改这些文件。详见 CHANGELOG 的 `[v2.2.5]`。
 
 

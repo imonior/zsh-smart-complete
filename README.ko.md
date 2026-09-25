@@ -3,7 +3,7 @@
 > Zsh 용 현대적인 스마트 완성 및 제안 레이어.
 > 미래의 독립 셸 프런트엔드로 설계됨.
 >
-> **v2.3.0** — 히스토리가 커졌다고 몇 초를 낼 필요가 없습니다. 8000 명령에서 제안 인덱스 재구축은 **693 ms → 30 ms**, Enter 는 인덱스 전체를 다시 훑는 것에서 도장 하나로 바뀝니다(50 명령: **9.8 s → 32 ms**); 키 입력은 메모리에 이미 있는 값을 읽으려고 fork 하지 않습니다. Entware 설치에서도 설정 블록이 실제로 들어갑니다. 추가: `./tests/run-all.sh` 가 외울 유일한 명령(스위트 자동 발견), 그리고 `tests/test-perf.zsh` —— 증상은 출력 오류가 아니라 "초"인 트리프와이어. CI 는 이제 zsh 5.7 / 5.8 / 5.9 에서 같은 스위트를 돌리고, 릴리스는 "테스트 + `VERSION` + CHANGELOG" 게이트를 지나야 합니다.
+> **v2.4.0** — 설치 스크립트는 미러 URL 을 더 이상 코드로 다루지 않습니다. 도중에 실패한 설치는 되돌린 뒤에 물러나고, `./install.sh --uninstall` (또는 `SMART_UNINSTALL=1`) 은 자기가 쓴 것만 지웁니다. 옵트인인 세로 목록은 입력을 이어가도 모양을 유지합니다: `|`, `&&`, `;` 나 `sudo` 처럼 명령을 감싸는 명령어 뒤에서도 명령을 내밀고, `cd` 최근 디렉터리는 입력한 접두어에 답합니다 — 친 `#` 는 패턴이 아니라 글자 그대로입니다. `tests/` 에 스위트가 셋, 그리고 새 global 에게 스스로를 설명하게 하는 lint 가 늘었습니다.
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------ | ------ |
 | 빌드 및 테스트 (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | 릴리스 | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| 버전 | 2.3.0 |
+| 버전 | 2.4.0 |
 
 ## 왜 이 플러그인인가
 
@@ -93,7 +93,7 @@ echo 'source ~/.zsh-smart-complete/zsh-smart-complete.plugin.zsh' >> ~/.zshrc
 
 #### 중국 본토 미러
 
-설치 프로그램이 외부 IP 소속을 먼저 자동 감지해 알려주며, 소속은 **어떤 후보를 보여줄지**를 결정합니다: 중국 본토 / 감지 실패라면 모든 후보를 표시하고 모든 후보(**direct 포함**)의 속도를 측정합니다(direct 가 실제로 더 빠른지는 지역으로 추측할 것이 아니라 실측해야 하기 때문입니다). **중국 본토 외라면 모든 프리셋 미러를 숨기고** direct 만 남깁니다 — 그 ghproxy / gitclone 경로는 중국 본토 전용이라 이 지역에서는 direct 보다 느린 경우가 많습니다. 다만 중국 본토 외에서도 **direct 는 여전히 속도 측정**하며, 두 가지 수동 입력도 항상 남아 있습니다: **미러 소스**(GitHub URL 재작성)와 **전체 프록시**(`HTTP_PROXY`/`HTTPS_PROXY` 로 내보내 curl/git/wget 의 모든 요청이 통과하도록 함. 예: `http://127.0.0.1:7890`). 사전 정의된 미러는 「중국 본토용」으로 표시됩니다. 아래 명령은 비대화형 설치에서만 필요합니다.
+설치 프로그램이 외부 IP 소속을 먼저 자동 감지해 알려주며, 소속은 **어떤 후보를 보여줄지**를 결정합니다: 중국 본토 / 감지 실패라면 모든 후보를 표시하고 모든 후보(**direct 포함**)의 속도를 측정합니다(direct 가 실제로 더 빠른지는 지역으로 추측할 것이 아니라 실측해야 하기 때문입니다). **중국 본토 외라면 모든 프리셋 미러를 숨기고** direct 만 남깁니다 — 그 ghproxy / gitclone 경로는 중국 본토 전용이라 이 지역에서는 direct 보다 느린 경우가 많습니다. 다만 중국 본토 외에서도 **direct 는 여전히 속도 측정**하며, 두 가지 수동 입력도 항상 남아 있습니다: **미러 소스**(GitHub URL 재작성)와 **전체 프록시**(`HTTP_PROXY`/`HTTPS_PROXY` 로 내보내 curl/git/wget 의 모든 요청이 통과하도록 함. 예: `http://127.0.0.1:7890`). 사전 정의된 미러는 「중국 본토용」으로 표시됩니다. 아래 명령은 비대화형 설치에서만 필요합니다. 직접 입력하는 미러 (`SMART_INSTALL_GH_MIRROR` 로 주는 값 포함) 는 `https://` URL 이어야 합니다: 받아온 스크립트가 그 주소를 통해 실행되므로, 평문 `http://` 는 그대로 믿지 않고 거부합니다.
 
 ```zsh
 curl -fsSL https://ghproxy.net/https://raw.githubusercontent.com/imonior/zsh-smart-complete/main/install.sh | SMART_INSTALL_GH_MIRROR=https://ghproxy.net/ bash
@@ -180,15 +180,19 @@ zstyle ':completion:*' matcher-list 'r:|[._-]=* r:|=*' 'l:|=* r:|=*'
   실측). 따라서 이 모드는 `_main_complete` 를 **우회**하고, 대상 맥락에서 후보 **설명**,
   `list-colors` 색상, 그룹화, `matcher-list` 가 사라집니다. 문서화된 퍼지 매칭은 생성된 후보에
   **적용되지 않습니다**.
-- 생성되는 것은 명령 / 함수 / 별칭 / 빌트인, 파일 경로, `cd` 최근 디렉터리뿐입니다. 그 밖의
-  맥락(git 하위 명령, ssh 호스트, `--옵션`, `sudo …`)은 여기서 후보가 없어 네이티브 그리드로
-  폴백하므로 **입력하는 동안 팝업 모양이 바뀝니다** — "두 번째 목록이 나타났다"로 오해되기
-  쉽습니다.
+- 생성되는 것은 명령 / 함수 / 별칭 / 빌트인, 파일 경로, `cd` 최근 디렉터리뿐입니다. 셸이 아직
+  명령을 고르는 중인 모든 위치에서 명령 후보가 생성됩니다 — 첫 단어, 그리고 `|`, `&&`, `;` 나
+  `sudo` 처럼 명령을 감싸는 명령어 뒤의 단어. 최근 디렉터리는 입력한 접두어에도 후보를 내므로
+  빈 단어에만 답하는 것이 아닙니다. 그 밖의 위치(git 하위 명령, ssh 호스트, `--옵션`, `~user`,
+  그리고 감싸는 명령어가 이미 명령을 받은 뒤의 `sudo git` 같은 곳)에서는 후보가 없어 네이티브
+  그리드로 폴백하므로 **입력하는 동안 팝업 모양이 바뀝니다** — "두 번째 목록이 나타났다"로
+  오해되기 쉽습니다.
 - 터미널 폭보다 긴 후보는 한 줄로 잘립니다(말줄임표 없음).
 
 메커니즘은 산술입니다. 모든 *표시* 문자열을 정확히 `COLUMNS` 폭으로 채우거나 잘라내므로 한 열만
-들어갑니다. 입력한 단어는 glob 이 되기 전에 이스케이프되므로 파일 이름의 `[` 가 팝업을 깨뜨리지
-않습니다(앞부분의 `~/` 는 이스케이프하지 않아 `~/…` 후보가 그대로 동작합니다).
+들어갑니다. 입력한 단어는 glob 이나 접두어 패턴이 되기 전에 이스케이프되므로 파일 이름의 `[` 가
+팝업을 깨뜨리지 않고, `#` 가 패턴으로 커져서 후보 범위가 넓어지지도 않습니다(앞부분의 `~/` 는
+이스케이프하지 않아 `~/…` 후보가 그대로 동작합니다).
 
 ### 최근 디렉터리
 
@@ -309,8 +313,20 @@ ${SMART_USER_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/zsh-smart-complete/settin
 ## 제거
 
 ```zsh
-rm -rf ~/.zsh-smart-complete
+./install.sh --uninstall
+# 한 줄 설치에서는 argv 가 전달되지 않으니 환경 변수로도 할 수 있습니다:
+curl -fsSL https://raw.githubusercontent.com/imonior/zsh-smart-complete/main/install.sh | SMART_UNINSTALL=1 bash
 ```
+
+지우는 것은 설치 프로그램이 쓴 것뿐입니다 — `~/.zshrc` 의 관리 블록 두 개,
+플러그인 체크아웃, `settings.zsh`, 그리고 우리가 만든 `zsc-settings` 심볼릭 링크.
+손대기 전에 확인을 묻습니다 (헤드리스 실행에서는 `SMART_UNINSTALL=1` 자체가
+확인의 뜻을 가집니다). `~/.zshrc` 는 먼저 `~/.zshrc.bak.<timestamp>` 로 복사되고,
+그 복사가 불가능하면 편집을 거부합니다.
+
+설치 프로그램이 넣었을 수 있는 패키지 (fzf, starship, atuin, zinit) 는 설치된 채로,
+`starship.toml` 과 모든 `.bak.*` 도 그대로 둡니다. 그것들은 셸의 것이지 이
+플러그인의 것이 아니기 때문입니다. 제거 후에는 zsh 를 다시 시작하세요.
 
 ## 변경 내역
 
@@ -319,10 +335,10 @@ rm -rf ~/.zsh-smart-complete
 ## 테스트
 
 ```zsh
-./tests/run-all.sh            # every suite, one line each
-./tests/run-all.sh -v         # ... with full output
-./tests/run-all.sh menu       # only suites whose name matches
-./tests/run-all.sh --list     # what would run
+./tests/run-all.sh            # 모든 스위트, 하나씩 한 줄
+./tests/run-all.sh -v         # 전체 출력 포함
+./tests/run-all.sh menu       # 이름이 일치하는 스위트만
+./tests/run-all.sh --list     # 무엇이 도는지 나열
 ```
 
 **테스트 요약:** `./tests/run-all.sh` 가 모든 스위트를 실행하고 실측한 파일·어설션 수를 출력합니다. 전부 통과, 0 실패.
@@ -331,11 +347,13 @@ rm -rf ~/.zsh-smart-complete
 
 그중 `tests/test-perf.zsh` 는 동작이 아니라 실측 시간 상한을 단언합니다. 이 프로젝트가 고친 제곱 계산량 버그는 모두 출력은 완전히 정상이었고 증상만 수 초 정지였기 때문입니다.
 
+`install.sh` 와 `install-entware.sh` 는 각각 `lib/install/core.sh` 에서 생성된 블록(두 설치기에서 완전히 동일한 함수들)을 하나씩 포함합니다. 그래서 두 파일은 그대로 `curl … | bash` 로 실행 가능한 독립 스크립트로 남습니다. 이 공통 부분을 바꾸는 절차는 `lib/install/core.sh` 편집 → `tools/build-installers.sh` 실행 → 설치기 두 개를 함께 커밋 입니다. CI 는 `tools/build-installers.sh --check` 를 돌리고, `tests/test-installer-shared.sh` 는 두 파일 사이에 남아 있는 나머지 약속을 검사합니다. 의도적으로 중복으로 둔 함수 목록까지 포함해서.
+
 설치기는 `~/.zshrc` 정리 후 `.zprofile`, `.zshenv`, `conf.d/*.zsh`, `.zshrc.d/*`, `/etc/zsh/zshrc` 같은 **다른 시작 파일**에 `zsh-autocomplete` / `zsh-autosuggestions` 로더 행이 남아 있는지도 **검사**하고, 있으면 정확한 `파일:행번호` 로 **경고**하여 수동 정리를 안내합니다 — 이 파일은 편집하지 않습니다. 자세한 내용은 CHANGELOG의 `[v2.2.5]` 를 보세요.
 
 
 주요 동작은 tmux 페인 안의 실제 `zsh -i`에 대해 엔드투엔드로 검증되며, 렌더링된
-화면을 어설트합니다(49/49 그린). 같은 어설션은 v2.1.6에서는 **24/49**(49개 중 1개는 거기서 도달하지 않습니다 — 해당 섹션은 실패 후 중단됩니다) — 당시
+화면을 어설트합니다(51/51 그린). 이 스위트가 49개였을 당시 같은 어설션은 v2.1.6에서 **24/49**였습니다(49개 중 1개는 거기서 도달하지 않습니다 — 해당 섹션은 실패 후 중단됩니다). 그 뒤로 늘어난 두 개는 단일 열 레이아웃을 어설트하는데, v2.1.6 은 그 목록을 아예 그리지 않습니다. 당시
 "입력하면 팝업되는 메뉴"는 존재하지 않았고, `SS3` 와 `Alt+→` 인코딩은 죽어 있었으며,
 `Tab` 후 `Enter` 는 삼켜지고, 최근 디렉터리는 나열되지 않았고, 목록 표시기 전환도,
 단일 열 레이아웃도 없었습니다. 그 24개 통과 중 **일부는 헛돌이**입니다 — "목록을 그리지
@@ -344,7 +362,7 @@ rm -rf ~/.zsh-smart-complete
 이 하니스는 저장소에 포함됩니다(`tmux` 없으면 자동 스킵):
 
 ```zsh
-./tests/e2e-tmux.sh                              # 49 어설션
+./tests/e2e-tmux.sh                              # 51 어설션
 ./tests/e2e-tmux.sh /tmp/zsc-v216               # 이전 릴리스와 A/B
 ```
 

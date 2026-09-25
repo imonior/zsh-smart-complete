@@ -3,7 +3,7 @@
 > Zsh 向けのモダンなスマート補完・候補提示レイヤー。
 > 将来の独立シェルのフロントエンドとして設計。
 >
-> **v2.3.0** —— ヒストリが大きいためにかかる数秒をなくしました。8000 コマンドでサジェスト・インデックスの再構築は **693 ms → 30 ms**、Enter はインデックス全体の再スキャンからスタンプ 1 個に（50 コマンドで **9.8 s → 32 ms**）、キー入力ではメモリにある値を読むだけの fork も起きません。Entware インストールでも設定ブロックが実際に書き込まれます。追加：`./tests/run-all.sh` が覚える唯一のコマンドに（スイートを自動発見）、そして `tests/test-perf.zsh` ——その症状は出力の誤りではなく「秒」であるトリップワイヤー。CI は zsh 5.7 / 5.8 / 5.9 で同じスイートを走らせ、リリースは「テスト + `VERSION` + CHANGELOG」のゲートを通過する必要があります。
+> **v2.4.0** — インストーラーはミラー URL をもうコードとして扱いません。途中で失敗したインストールは巻き戻してから去り、`./install.sh --uninstall`（または `SMART_UNINSTALL=1`）は自分が書いたものだけを消します。オプトインの縦一覧は、入力を続けても形を保つようになりました：`|`、`&&`、`;` や `sudo` のようなコマンドをくるむ語の後でもコマンドを出し、`cd` の最近ディレクトリは入力済みの接頭辞に答えます ——打った `#` はパターンではなく文字どおりです。`tests/` にスイートが 3 つ、そして新しい global には自分自身を説明させる lint が増えました。
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------ | ------ |
 | ビルドとテスト (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | リリース | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| バージョン | 2.3.0 |
+| バージョン | 2.4.0 |
 
 ## なぜこれを選ぶか
 
@@ -93,7 +93,7 @@ echo 'source ~/.zsh-smart-complete/zsh-smart-complete.plugin.zsh' >> ~/.zshrc
 
 #### 中国国内向けミラー
 
-インストーラは外部 IP の帰属を自動検出して表示します。帰属が決めるのは**どの候補を出すか**です: 中国大陸 / 検出失敗なら全候補を表示して全候補（**direct を含む**）を速度測定します（direct が本当に速いかは地域から推測せず実測すべきだからです）。**中国大陸以外ではプリセットミラーをすべて隠し** direct だけを残します——それらの ghproxy / gitclone 経路は中国大陸専用で、この地域では直連より遅くなりがちです。ただし中国大陸以外でも **direct は従来どおり速度測定**し、2 つの手動入力も常に残ります:**ミラー源**（GitHub の URL を書き換える）と**フルプロキシ**（`HTTP_PROXY`/`HTTPS_PROXY` としてエクスポートし、curl/git/wget の全リクエストを通す。例: `http://127.0.0.1:7890`）です。プリセットのミラーは「中国大陸向け」と明記されています。以下のコマンドは非対話インストール時のみ必要です。
+インストーラは外部 IP の帰属を自動検出して表示します。帰属が決めるのは**どの候補を出すか**です: 中国大陸 / 検出失敗なら全候補を表示して全候補（**direct を含む**）を速度測定します（direct が本当に速いかは地域から推測せず実測すべきだからです）。**中国大陸以外ではプリセットミラーをすべて隠し** direct だけを残します——それらの ghproxy / gitclone 経路は中国大陸専用で、この地域では直連より遅くなりがちです。ただし中国大陸以外でも **direct は従来どおり速度測定**し、2 つの手動入力も常に残ります:**ミラー源**（GitHub の URL を書き換える）と**フルプロキシ**（`HTTP_PROXY`/`HTTPS_PROXY` としてエクスポートし、curl/git/wget の全リクエストを通す。例: `http://127.0.0.1:7890`）です。プリセットのミラーは「中国大陸向け」と明記されています。以下のコマンドは非対話インストール時のみ必要です。 手で入力するミラー（`SMART_INSTALL_GH_MIRROR` で渡す値も含めて）は `https://` の URL である必要があります: 取得したスクリプトはそのアドレス経由で実行されるので、平文の `http://` は信じるのではなく拒否します。
 
 ```zsh
 curl -fsSL https://ghproxy.net/https://raw.githubusercontent.com/imonior/zsh-smart-complete/main/install.sh | SMART_INSTALL_GH_MIRROR=https://ghproxy.net/ bash
@@ -181,15 +181,19 @@ zstyle ':completion:*' matcher-list 'r:|[._-]=* r:|=*' 'l:|=* r:|=*'
   **説明**、`list-colors` の色付け、グループ化、`matcher-list` が失われます。文書化されている
   あいまい一致は、生成された候補には**適用されません**。
 - 生成されるのはコマンド / 関数 / エイリアス / ビルトイン、ファイルパス、`cd` の最近
-  ディレクトリのみです。それ以外（git サブコマンド、ssh ホスト、`--オプション`、`sudo …`）は
-  ここでは候補がなく、ネイティブのグリッドにフォールバックするため、**入力中にポップアップの
-  形が変わります** — 「2 つ目の一覧が出た」と誤解されがちです。
+  ディレクトリのみです。コマンドはシェルがまだコマンドを選んでいるすべての位置で生成されます —
+  先頭の語、そして `|`、`&&`、`;` や `sudo` のようなコマンドをくるむ語の直後の語。最近
+  ディレクトリは入力済みの接頭辞でも候補を出し、空語だけに答えるわけではありません。
+  それ以外（git サブコマンド、ssh ホスト、`--オプション`、`~user`、そしてくるむ語がすでに
+  コマンドを取ったあとの `sudo git` のような位置）では候補がなく、ネイティブのグリッドに
+  フォールバックするため、**入力中にポップアップの形が変わります** — 「2 つ目の一覧が出た」
+  と誤解されがちです。
 - 端末幅を超える候補は 1 行に切り詰められます（省略記号なし）。
 
 仕組みは算術です。すべての*表示*文字列をちょうど `COLUMNS` 幅にパディング（または切り詰め）
-するため、1 列しか入りません。入力語は glob になる前にエスケープされるため、ファイル名の
-`[` でポップアップが壊れることはありません（先頭の `~/` はエスケープせず、`~/…` の候補は
-そのまま動きます）。
+するため、1 列しか入りません。入力語は glob にも接頭辞パターンにもなる前にエスケープされる
+ため、ファイル名の `[` でポップアップが壊れることはなく、`#` がパターンに変わって候補の
+範囲が広がることもありません（先頭の `~/` はエスケープせず、`~/…` の候補はそのまま動きます）。
 
 ### 最近のディレクトリ
 
@@ -315,8 +319,21 @@ ${SMART_USER_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/zsh-smart-complete/settin
 ## アンインストール
 
 ```zsh
-rm -rf ~/.zsh-smart-complete
+./install.sh --uninstall
+# ワンライナーだと argv が届かないので、環境変数でも:
+curl -fsSL https://raw.githubusercontent.com/imonior/zsh-smart-complete/main/install.sh | SMART_UNINSTALL=1 bash
 ```
+
+削除するのはインストーラーが書いたものだけです — `~/.zshrc` の管理ブロック 2 つ、
+プラグインのチェックアウト、`settings.zsh`、そして私たちが作った
+`zsc-settings` シンボリックリンク。触る前にたずねます（ヘッドレス実行では
+`SMART_UNINSTALL=1` 自体が確認の意味を持ちます）。`~/.zshrc` はまず
+`~/.zshrc.bak.<timestamp>` にコピーされ、そのコピーが作れないなら編集を拒否します。
+
+インストーラーが入れたかもしれないパッケージ（fzf、starship、atuin、zinit）は
+インストールしたまま、`starship.toml` もすべての `.bak.*` もそのまま残ります。
+これらはシェルのものであって、このプラグインのものではないからです。アンインストール
+あとは zsh を再起動してください。
 
 ## チェンジログ
 
@@ -325,10 +342,10 @@ rm -rf ~/.zsh-smart-complete
 ## テスト
 
 ```zsh
-./tests/run-all.sh            # every suite, one line each
-./tests/run-all.sh -v         # ... with full output
-./tests/run-all.sh menu       # only suites whose name matches
-./tests/run-all.sh --list     # what would run
+./tests/run-all.sh            # 全スイートを 1 行ずつ
+./tests/run-all.sh -v         # 全出力付き
+./tests/run-all.sh menu       # 名前が一致するスイートだけ
+./tests/run-all.sh --list     # 何が走るかを並べる
 ```
 
 **テスト集計:** `./tests/run-all.sh` が全スイートを走らせ、実測したファイル数とアサーション数を出力します。すべて合格、0 失敗。
@@ -337,12 +354,16 @@ rm -rf ~/.zsh-smart-complete
 
 うち 1 つの `tests/test-perf.zsh` は挙動ではなく実時間の上限量を主張します。本作で修正した二乗計算量のバグはいずれも出力は完全に正しく、症状は数秒固まることだけだったためです。
 
+`install.sh` と `install-entware.sh` はそれぞれ `lib/install/core.sh` から生成されたブロック（＝両インストーラーで完全に同一の関数群）を 1 つ含みます。だからこそ 2 つのファイルは `curl … | bash` で実行できる standalone のまま維持されています。この共通部分の挙動を変える手順は、`lib/install/core.sh` を編集 → `tools/build-installers.sh` を実行 → インストーラー 2 つをまとめてコミット、です。CI が動かすのは `tools/build-installers.sh --check` で、`tests/test-installer-shared.sh` は 2 つのファイル間の残りの約束事を検証します。意図的に重複のまま残している関数の一覧も含めて。
+
 インストーラーは `~/.zshrc` の清理後に、`.zprofile`、`.zshenv`、`conf.d/*.zsh`、`.zshrc.d/*`、`/etc/zsh/zshrc` の**其它の起動ファイル**に `zsh-autocomplete` / `zsh-autosuggestions` のローダー行が残っていないかも**走査**し、見つかった場合は正確な `ファイル:行番号` で**警告**して手動清理を促します——これらのファイルは編集しません。詳細は CHANGELOG の `[v2.2.5]` を参照。
 
 
 主要な挙動は、tmux ペイン内の実際の `zsh -i` に対してエンドツーエンドで検証され、
-描画された画面をアサートします（49/49 グリーン）。同じアサーションは v2.1.6 では
-**24/49**（49 件のうち 1 件はそこでは到達しません——そのセクションは失敗後に中止されます）——当時「入力でポップアップするメニュー」は存在せず、`SS3` と `Alt+→` の
+描画された画面をアサートします（51/51 グリーン）。このスイートが 49 件だった当時、
+同じアサーションは v2.1.6 では
+**24/49**（49 件のうち 1 件はそこでは到達しません——そのセクションは失敗後に中止されます）で、
+その後加わった 2 件は単一列レイアウトを検証するもので、そもそも v2.1.6 はその一覧を描きません。当時「入力でポップアップするメニュー」は存在せず、`SS3` と `Alt+→` の
 エンコーディングは死んでおり、`Tab` の後の `Enter` は飲み込まれ、最近ディレクトリは一覧
 されず、一覧表示器の切り替えも単一列レイアウトもありませんでした。この 24 件の PASS のうち
 **いくつかは空振り**です — 「一覧を描いていないこと」を検証していますが、v2.1.6 は一覧をまったく
@@ -350,7 +371,7 @@ rm -rf ~/.zsh-smart-complete
 このハーネスはリポジトリに同梱されています（`tmux` がなくても自動スキップ）：
 
 ```zsh
-./tests/e2e-tmux.sh                              # 49 アサーション
+./tests/e2e-tmux.sh                              # 51 アサーション
 ./tests/e2e-tmux.sh /tmp/zsc-v216               # 旧リリースとの A/B
 ```
 

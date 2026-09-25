@@ -3,7 +3,7 @@
 > 一個現代化的智慧補全與建議層，專為 Zsh 設計。
 > 作為未來獨立 shell 的前端引擎。
 >
-> **v2.3.0** — 歷史變大不再要你好幾秒。8000 條命令下重建建議索引從 **693 毫秒降到 30 毫秒**；按 Enter 從「整個索引重掃一遍」變成「只蓋一個時間戳」（50 條命令：**9.8 秒降到 32 毫秒**）；按鍵也不再為了讀取記憶體裡已有的值而 fork 子 shell。Entware 安裝現在能真正把設定區塊寫進去。新增：`./tests/run-all.sh` 成為唯一需要記的命令（自動發現每個測試集），以及 `tests/test-perf.zsh` 這條警戒線——它的症狀是秒數，而不是輸出錯誤。CI 現在會在 zsh 5.7 / 5.8 / 5.9 上跑同一套測試，發佈前還要過「測試 + `VERSION` + CHANGELOG」這道閘門。
+> **v2.4.0** — 安裝器不再把鏡床位址當成程式碼執行；裝到一半失敗的會在回滾之後再退出；`./install.sh --uninstall`（或 `SMART_UNINSTALL=1`）只刪自己寫過的東西。可選的垂直補全清單在你繼續輸入時不再換形狀：`|`、`&&`、`;` 和 `sudo` 這類包裝詞之後一樣給出命令，`cd` 的最近目錄也會對已輸入的前綴作答——你打的 `#` 是字面值，不是模式。`tests/` 多了三套測試，還有一個讓每個新 global 交代自己理由的檢查器。
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------ | ------ |
 | 建置與測試 (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | 釋出 | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| 版本 | 2.3.0 |
+| 版本 | 2.4.0 |
 
 ## 為什麼選擇我們
 
@@ -93,7 +93,7 @@ echo 'source ~/.zsh-smart-complete/zsh-smart-complete.plugin.zsh' >> ~/.zshrc
 
 #### 國內代理加速
 
-安裝器會先自動偵測外網 IP 歸屬地並告訴你，歸屬地用來決定**哪些候選值得出現**：中國大陸 / 沒偵測出來顯示全部候選並全部測速（**含 direct**，因為直連是否真的更快應該測出來而不是靠地區猜）；**非中國大陸則隱藏全部預置鏡像**，只留 direct——那些 ghproxy / gitclone 通道是大陸專用，在這個地區往往比直連更慢。但即使在非中國大陸，**direct 仍然照常測速**，而且兩種手動輸入始終都在：**鏡像源**（改寫 GitHub URL）或**全量代理**（匯出為 `HTTP_PROXY`/`HTTPS_PROXY`，讓 curl/git/wget 的所有請求都走它，如 `http://127.0.0.1:7890`）。預置鏡像源都標註了「適用於中國大陸」。下面這段只在非互動安裝時才需要。
+安裝器會先自動偵測外網 IP 歸屬地並告訴你，歸屬地用來決定**哪些候選值得出現**：中國大陸 / 沒偵測出來顯示全部候選並全部測速（**含 direct**，因為直連是否真的更快應該測出來而不是靠地區猜）；**非中國大陸則隱藏全部預置鏡像**，只留 direct——那些 ghproxy / gitclone 通道是大陸專用，在這個地區往往比直連更慢。但即使在非中國大陸，**direct 仍然照常測速**，而且兩種手動輸入始終都在：**鏡像源**（改寫 GitHub URL）或**全量代理**（匯出為 `HTTP_PROXY`/`HTTPS_PROXY`，讓 curl/git/wget 的所有請求都走它，如 `http://127.0.0.1:7890`）。預置鏡像源都標註了「適用於中國大陸」。下面這段只在非互動安裝時才需要。 手動輸入的鏡像（或用 `SMART_INSTALL_GH_MIRROR` 傳入的值）必須是 `https://` 網址：抓回來的腳本正是透過這個網址被執行的，所以明文 `http://` 一律拒絕，而不是照單全收。
 
 ```zsh
 curl -fsSL https://ghproxy.net/https://raw.githubusercontent.com/imonior/zsh-smart-complete/main/install.sh | SMART_INSTALL_GH_MIRROR=https://ghproxy.net/ bash
@@ -174,14 +174,16 @@ zstyle ':completion:*' matcher-list 'r:|[._-]=* r:|=*' 'l:|=* r:|=*'
   若干 zsh 版本完全不再加入候選，已實測）。因此該模式**繞過了 `_main_complete`**，它涵蓋的
   場景會失去候選**描述**、`list-colors` 著色、分組，以及你的
   `zstyle ':completion:*' matcher-list`——文件裡那條模糊匹配**不適用於**產生的候選。
-- 只會產生指令 / 函式 / 別名 / 內建、檔案系統路徑與 `cd` 最近目錄。其餘場景（git 子指令、
-  ssh 主機、`--選項`、`sudo …`）在此拿不到候選，會退回原生網格，因此**彈窗會在輸入過程中
-  變形**——很容易被誤認為「又多出一個清單」。
+- 只會產生指令 / 函式 / 別名 / 內建、檔案系統路徑與 `cd` 最近目錄。凡是 shell 還在「選指令」的
+  位置都會產生指令候選——行首，以及 `|`、`&&`、`;` 之後、或 `sudo` 這類指令包裝詞之後；最近目錄
+  對已輸入的前綴也生效，不再只在空詞時列出。其餘場景（git 子指令、ssh 主機、`--選項`、`~使用者`，
+  以及包裝詞已經選了指令之後的位置，如 `sudo git`）在此拿不到候選，會退回原生網格，因此
+  **彈窗會在輸入過程中變形**——很容易被誤認為「又多出一個清單」。
 - 超過終端寬度的候選會被截斷到一行（沒有省略號）。
 
 機制是算術：每條*顯示*字串都被填充（或截斷）到恰好 `COLUMNS` 寬，因此只能容下一欄。輸入詞
-在被當成 glob 之前會先轉義，所以檔名裡的 `[` 不會把彈窗弄壞（開頭的 `~/` 保持不轉義，
-`~/…` 候選照常運作）。
+在被當成 glob 或前綴模式之前會先轉義，所以檔名裡的 `[` 不會把彈窗弄壞，`#` 也不會把它擴大成
+一個模式（開頭的 `~/` 保持不轉義，`~/…` 候選照常運作）。
 
 ### 最近目錄
 
@@ -296,8 +298,19 @@ ${SMART_USER_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/zsh-smart-complete/settin
 ## 解除安裝
 
 ```zsh
-rm -rf ~/.zsh-smart-complete
+./install.sh --uninstall
+# 用一行指令安裝時 argv 傳不進去，可以用環境變數：
+curl -fsSL https://raw.githubusercontent.com/imonior/zsh-smart-complete/main/install.sh | SMART_UNINSTALL=1 bash
 ```
+
+它只刪除安裝器寫過的東西——`~/.zshrc` 裡兩個受管理的區塊、外掛目錄、`settings.zsh`
+和我們建立的 `zsc-settings` 符號連結——而且在動手前先詢問（無頭執行把
+`SMART_UNINSTALL=1` 本身當成確認）。編輯 `~/.zshrc` 之前會先生成
+`~/.zshrc.bak.<時間戳記>`；如果這份備份做不出來，解除安裝會拒絕修改該檔案。
+
+安裝器可能裝過的套件（fzf、starship、atuin、zinit）會維持已安裝，你的
+`starship.toml` 和所有 `.bak.*` 檔案同樣保留：它們屬於 shell，不屬於這個外掛。
+解除安裝後請重新啟動 zsh。
 
 ## 版本歷史
 
@@ -306,10 +319,10 @@ rm -rf ~/.zsh-smart-complete
 ## 測試
 
 ```zsh
-./tests/run-all.sh            # every suite, one line each
-./tests/run-all.sh -v         # ... with full output
-./tests/run-all.sh menu       # only suites whose name matches
-./tests/run-all.sh --list     # what would run
+./tests/run-all.sh            # 執行全部套件，每個一行
+./tests/run-all.sh -v         # 附帶完整輸出
+./tests/run-all.sh menu       # 只跑名稱符合的套件
+./tests/run-all.sh --list     # 列出將要執行哪些
 ```
 
 **測試彙總:** `./tests/run-all.sh` 會跑完全部套件，並列印實測的檔案數與斷言數；全部通過，0 失敗。
@@ -318,14 +331,16 @@ rm -rf ~/.zsh-smart-complete
 
 其中 `tests/test-perf.zsh` 這個套件斷言的是牆鐘時間上限而非行為結果——本專案修掉的每個平方階複雜度 bug，輸出都完全正確，唯一症狀是耗時數秒。
 
+`install.sh` 與 `install-entware.sh` 各自包含一段由 `lib/install/core.sh` 產生的程式碼塊（也就是兩個安裝器裡完全相同的那批函式），這正是兩份檔案仍能作為獨立腳本被 `curl … | bash` 執行的原因。要改這部分共享行為：編輯 `lib/install/core.sh`，執行 `tools/build-installers.sh`，然後把兩個安裝器一起提交。CI 跑的是 `tools/build-installers.sh --check`；`tests/test-installer-shared.sh` 覆蓋兩個檔案之間剩下的約定，包含那份「仍然刻意重複」的函式清單。
+
 安裝器在清理 `~/.zshrc` 之後，現在還會**掃描其它啟動檔**（`.zprofile`、`.zshenv`、`conf.d/*.zsh`、`.zshrc.d/*`、`/etc/zsh/zshrc`）中是否仍有 `zsh-autocomplete` / `zsh-autosuggestions` 的載入行，並用精確的 `檔案:行號` **警告**使用者手動清理——它從不修改這些檔案。詳見 CHANGELOG 的 `[v2.2.5]`。
 
 
 端到端（真實 ZLE 鍵位）驗證用 tmux `capture-pane` 讀**真實螢幕**完成，
-49 項斷言全綠，涵蓋「打字即彈清單」「候選收窄時清單仍在」「單候選讓位給灰字」
+51 項斷言全綠，涵蓋「打字即彈清單」「候選收窄時清單仍在」「單候選讓位給灰字」
 「右箭頭兩種編碼都能接受」「`Alt+→` 三種編碼都只接受一個詞（用 `echo alpha beta`
 探針，以命令輸出判定緩衝區內容，而非回顯的行）」「開關往返」「Tab 補全仍可用」。
-同一套斷言在 v2.1.6 上過 24/49（其中 1 條在那裡根本走不到：它所在段落因前一條失敗而中止）——當時「打字即彈選單」確實不存在，`SS3` 與 `Alt+→` 的編碼
+同一套斷言在 v2.1.6 上過 24/49——那是它只有 49 項斷言時的數字（其中 1 條在那裡根本走不到：它所在段落因前一條失敗而中止），此後新增的兩條檢查的是單列清單，而 v2.1.6 根本不畫單列清單。當時「打字即彈選單」確實不存在，`SS3` 與 `Alt+→` 的編碼
 是死的，`Tab` 後按 `Enter` 會被吞掉，最近目錄不會列出，清單器開關與單列版面也都還沒有。這 24
 條通過裡有**若干條是空過**——它們斷言「沒有畫任何清單」，而 v2.1.6 根本不會畫清單。基線必須
 實跑、而不能按舊數字按比例換算，原因就在這裡。
@@ -336,7 +351,7 @@ e2e 還包含一條「緩衝區完整性」斷言：逐字輸入後提示字行�
 程式碼隨倉庫提供（無 `tmux` 時自動跳過）：
 
 ```zsh
-./tests/e2e-tmux.sh                              # 49 項斷言
+./tests/e2e-tmux.sh                              # 51 項斷言
 ./tests/e2e-tmux.sh /tmp/zsc-v216               # 對舊版本做 A/B
 ```
 

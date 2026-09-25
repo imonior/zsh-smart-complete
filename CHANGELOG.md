@@ -5,6 +5,275 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [v2.4.0] - 2026-09-26
+
+### Fixed
+- **The installer could finish by writing an empty settings file, and then refuse
+  to ever fix it.** The last-resort path in `_install_user_settings` — taken when
+  the repo's template files could not be fetched — emitted its starter content
+  with `print -r --`. `print` is a zsh builtin, not a program on `PATH`, so in a
+  bash script it is exit 127 on any machine that does not happen to have
+  something named `print` installed: the run had already rewritten `.zshrc` by
+  then, and the zero-byte file it left behind satisfied the "create it only if it
+  is absent" guard, so no later run repaired it either. Both installers now use
+  `printf '%s\n'`. This was found by running the installers, not by reading them.
+
+- **A mirror URL handed to the installer was treated as code, not as data.**
+  `SMART_INSTALL_GH_MIRROR` and the "enter your own mirror" answer are both fed
+  into the download shim that rewrites the URLs `curl` / `wget` are called with —
+  and that shim was generated from an **unquoted heredoc**, with the value
+  interpolated into the script text. `https://x.example/'; touch ./pwn; '` was
+  therefore not a URL but three statements, executed at install time; on top of
+  that, anything downloaded through a mirror the installer did not pick is run by
+  `_run_remote_script`, so the same string also decided where the executed code
+  came from. The shim now reads its configuration from a four-line data file with
+  `read -r` and never interpolates it, and both installers check the value through
+  `_mirror_prefix_ok` before using it: an `https://` host, an optional port, an
+  optional path — nothing else. Plaintext `http://` is refused deliberately: the
+  fetched scripts get executed, so the transport is not something a typo should be
+  allowed to downgrade. Test section 27 builds a shim from a hostile value and
+  asserts the payload stays in the data file, that the real downloader is still
+  handed the original URL, and that nothing was created.
+- **An install that failed halfway left the damage in place.** Both installers
+  write `.zshrc` as a *sequence* — options block first, then the loader block.
+  Every single write is a rename, so no one of them can truncate the file, but an
+  abort between two of them left a `.zshrc` that parses, starts a shell, and does
+  not load the plugin. The `.bak.<timestamp>` next to it undoes nothing: nothing
+  points at it, and the run that made it had already stopped. `_guard_config_write`
+  now snapshots the file before the first write and an `EXIT` trap puts that
+  snapshot back on a non-zero exit — or deletes the file the installer created,
+  because "there was no `.zshrc` before" is a state worth restoring too.
+  `_release_config_write_guard` disarms the trap once the last write of the
+  sequence has landed, so a failure in a later, unrelated phase cannot talk the
+  installer out of the config the user asked for. Section 25 keeps a control run
+  without the guard, which is what makes the rest of the section mean something.
+- **A template that produced no content could be written over a working config.**
+  Every arm of `apply_template` redirected straight into `$dest`, so an
+  unrecognised source prefix — or a fetch that came back empty — truncated the
+  user's file first and failed afterwards. It now always writes
+  `<dest>.zsc-new`, refuses with a translated error when that file is empty, and
+  puts it in place with a single `mv -f` in the destination's own directory.
+- **Two globals were reachable, used, and declared nowhere.** Every module turns
+  on `no_warn_create_global`, which means the first write to an undeclared name
+  silently makes it a global — so `_SMART_PROBE_SUFFIX_RET` existed only as a side
+  effect of the function that returns through it, and `_SMART_RH_MARKER` only as a
+  top-level assignment. Both now say `typeset -g` where they are defined. Neither
+  misbehaved in a running shell; both were invisible to anything that answers
+  "what state does this module own" by reading declarations, which is exactly the
+  audit that found them.
+- **The state container's documented key list was wrong in four places.** The
+  comment block that documents `_SMART_STATE` for a future port named
+  `history.freq` for a sub-map the code calls `history.frequency`; listed
+  `history.first_char`, which nothing had ever written (the `_SMART_CMDS_FIRST`
+  buckets superseded that plan years ago); promised a `last_err` slot no code
+  writes or reads; and omitted three sub-maps that are live on every rebuild —
+  `history.cwd`, `history.host`, `history.exit`. `suggestion.source`'s documented
+  value list also left out `completion`, which is what the native-menu path
+  stores. A document that presents itself as a spec fails silently, so the
+  checker below now rejects any documented key with no writer or reader in `lib/`.
+- **In the vertical popup the word you had typed was used as a pattern.** The
+  command list was filtered with `${(M)_sc_out:#${w}*}`, which drops the typed
+  text into a glob — and `[ ] * ?` are not the whole alphabet there. Under
+  `EXTENDED_GLOB`, which several popular frameworks turn on, `#`, `^`, `(` and
+  `<->` are pattern syntax as well, so an unescaped prefix could match commands
+  the typed text never contained (measured: `zsc#` matched `zsc_probe_alpha`) or
+  be a bad pattern outright. The command branch now escapes the word with
+  `${(b)…}`, exactly as the path branch already did, so `git#` means the command
+  `git#`: no literal match, nothing generated, and the word falls through to the
+  native grid like every other context this mode does not cover. Section 14h of
+  `tests/test-menu.zsh` asserts the escaped prefix matches nothing, that stderr
+  stays empty for it, and that a real prefix still matches — the last one being
+  what stops the first two from passing vacuously.
+- **Two runs in the same second could overwrite each other's backup of
+  `~/.zshrc`.** The uninstall copies the config to `.zshrc.bak.<epoch>` before
+  stripping the managed blocks out of it, and the install copies it to a name of
+  that same shape — so the name is only unique when a second really does separate
+  the runs, while "install it, then undo that install" is exactly the pair that can
+  share one. `cp -p` then replaced the copy that was already sitting there, and what
+  it replaced was the one version of a hand-written config the uninstaller promises
+  to keep. The copy now steps aside to `.bak.<epoch>-1`, `-2`, … when the name is
+  taken. This surfaced as a coin flip in `tests/test-installer-sandbox.sh`: section
+  8 counted the backups left after a no-op uninstall and expected exactly one, which
+  only held when the install's and the uninstall's copies collided in the same second
+  and erased the evidence of the other. It now compares against the set the previous
+  run left behind, and the assertion that read `find | head -1` as "the uninstall's
+  backup" reads `sort | tail -1` instead — on a run where the install had also backed
+  the config up, the first file `find` handed back was the install's copy of the
+  *seed*, which holds no managed block at all. Same coin, other side.
+
+### Added
+- **`tests/test-installer-sandbox.sh` — the installers are now executed, not just
+  inspected.** Everything else in `tests/` either sources a `lib/*.zsh` module or
+  lifts one function out of `install.sh` and drives it against a fixture, so
+  nothing had ever run the installer as a whole: not the code that wires the
+  functions together, not the order they run in, not the fact that the file is
+  executed by **bash**. The new suite runs both installers under `env -i` (no
+  inherited environment) with `HOME`, `ZDOTDIR` and `XDG_*` inside a fresh
+  `mktemp -d`, and a stub bin dir first on `PATH`, so a run cannot reach the
+  network or a package manager: every `curl` / `wget` / `git` / `brew` / `opkg`
+  call is logged instead of performed, and that log is itself asserted (the
+  mirror speed test must have run; `SMART_INSTALL_GH_MIRROR` must visibly rewrite
+  the clone URL; the Entware script must stop at its `opkg` guard without
+  touching `.zshrc`). Twelve installer paths — defaults, four combo presets, five
+  UI languages, two network branches — are each checked for exit code, for
+  `unbound variable`, for `command not found`, and for what a successful install
+  leaves behind (both managed `.zshrc` blocks, a non-empty `settings.zsh`). The
+  grep that reads the sources also blanks heredoc bodies first, because these
+  scripts *embed* zsh config and those lines are supposed to be zsh; a paired
+  assertion proves the filter hides template zsh without hiding executed zsh, and
+  that it preserves the line count so a reported line number still points at the
+  file. 55 assertions.
+- **`tests/test-installer-shared.sh` — the contract between the two installers is
+  checked instead of assumed.** It verifies that every message key a file asks
+  `msg()` for is one its own `_msg()` defines (an unknown key prints itself, so
+  this is the only thing that catches the class), proves the lint is not vacuous
+  with a probe file, and compares the two files function by function with a
+  heredoc-aware parser: what matches goes through the shared core, what diverges
+  must appear on a list that carries the reason. 13 assertions.
+
+- **`--uninstall`, or `SMART_UNINSTALL=1` for the `curl | bash` path where argv
+  does not survive.** It removes exactly what the installer wrote — the two
+  managed `.zshrc` blocks, the plugin checkout, `settings.zsh` and the
+  `zsc-settings` symlink we created — and nothing else. Packages (fzf, starship,
+  atuin, zinit) are left installed, `starship.toml` and every `.bak.*` file are
+  left on disk: they are shared with the rest of the shell and may well have been
+  there first. `.zshrc` is copied to a timestamped backup *before* it is edited,
+  and the uninstall refuses to modify it if that copy cannot be made. A headless
+  run counts `SMART_UNINSTALL=1` as the confirmation; in a terminal it asks. The
+  strip pass is the inverse of `_upsert_options_block`, and it also retires the
+  pre-marker form — `zinit ice` plus `zinit light imonior/zsh-smart-complete` —
+  **as a pair**, because an orphaned `zinit ice` silently re-styles whichever
+  plugin loads next. Blank lines that only existed in front of our own blocks go
+  with them; a blank line between two of the user's stanzas stays where it was.
+  `tests/test-installer-sandbox.sh` now installs into a sandbox home seeded with
+  lines the installer never writes and asserts the config comes back **byte for
+  byte** what it was.
+- **Two dead-code lints, because the class of rot they catch is invisible from
+  the source.** One reports a function an installer defines and never calls; the
+  other reports a message key defined in a catalog and called by *neither*
+  installer — the catalogs are shared supersets by design, so that check has to be
+  cross-file. Each ships with probes for its own detector (a live function versus a
+  dead one, a `read` inside a heredoc versus outside, a key prefix versus the whole
+  word) and with an assertion that the catalog walk really found a few hundred
+  keys, so the lint cannot pass by having found nothing. What it turned up:
+  `_cleanup_old_baks` (91 lines that deleted every `~/.zshrc.bak.*` it could find,
+  with no prompt — unreachable, because it referenced an unset array and would
+  have aborted under `set -u`), `_backup_if_normal`, `install_or_upgrade_pkg`, and
+  34 catalog entries with no caller in either script.
+
+- **`tools/check-module-globals.sh`, so a new global has to justify itself.**
+  `lib/state.zsh` claimed to hold all mutable cross-module runtime data and that
+  no standalone `_smart_thing=foo` existed anywhere else in the codebase; 66
+  globals outside it disagreed. The comment was the defect rather than the count:
+  a reader who trusted it had no way to find the state that was really there, and
+  a writer who added one met no friction. The rule now states the boundary it
+  actually keeps — runtime *state* in the container, everything else in the
+  register at the bottom of that file with a reason — and the checker enforces
+  both directions: an unregistered global fails, a register line that matches
+  nothing fails (that is how a rename would otherwise leave the register
+  describing a codebase that no longer exists), an entry without a reason fails,
+  and a documented state key nobody writes or reads fails. Migrating the
+  declarations themselves was measured before being declined: a container
+  subscript costs well under a microsecond per read against ~0.2 µs for a plain
+  global, so performance was never the argument — lifecycle was. The per-keymap
+  binding snapshots are captured from the user's own keymaps once per shell, and
+  `lib/state.zsh` is sourced *before* `lib/event/zle.zsh`, so storing them in a
+  container that `_smart_state_reset` empties would delete data nothing else can
+  supply; the out-parameter slots (`_SMART_BUILD_*` and the fork-free `_scan`
+  returns) live exactly as long as one call. `tests/test-module-globals.sh` adds
+  84 assertions, most of them aimed at the checker rather than at the tree,
+  because a lint nobody can prove works is a lint that reports green. It runs as
+  part of `tests/run-all.sh`, so CI picks it up by discovery.
+### Changed
+- **Both installers run under `set -u`** (they were `set -eo pipefail`). The flag
+  is only honest while something walks these branches, which is what the suite
+  above is for. Getting there took three fixes: eleven `MIRROR_TIMES[…]` reads
+  now default with `:-999`, and two expansions that can legitimately see an empty
+  array use `${arr[@]+"${arr[@]}"}` — bash 3.2, which macOS still ships, aborts on
+  `"${empty_array[@]}"` under `-u` while `"$@"` stays safe.
+- **There is one key-binding probe.** `lib/event/zle.zsh` carried a byte-for-byte
+  copy of `lib/engine/native.zsh`'s `_smart_current_binding`, down to the two
+  guards that exist only because of past regressions (read the *last* field of
+  `bindkey`'s echo, never the key text; treat `undefined-key` as unbound; never
+  accept one of our own widgets as an "original"). A fix landing on one copy
+  silently left the other broken. The duplicate is gone and the surviving
+  function documents itself as the only one; `_smart_event_capture_originals`
+  calls it around twenty times per shell.
+- **The menu clock no longer forks while you type.** `_smart_menu_now_ms` returned
+  its value through command substitution, so the two reads per listing tick cost
+  **349 µs each**. It now has the worker/wrapper split the lister uses:
+  `_smart_menu_now_ms_scan` publishes into `_SMART_MENU_NOW_MS` for the hot path,
+  and the printing wrapper stays for `smart-doctor`, status output and tests.
+  Measured **9.9 µs** per call.
+- **The parts both installers share are written once.** `install.sh` and
+  `install-entware.sh` duplicated ~80 functions because each is advertised as a
+  standalone `curl -fsSL … | bash` script and so cannot source a sibling at
+  runtime. That is a real constraint, but it was being honoured by copy-paste, and
+  the copies had already drifted — the same string lived under two different
+  message keys, and `msg()` answers an unknown key by printing the key itself, so
+  a typo shows `mirror.unavailable_line` in the user's terminal instead of failing.
+  Now `lib/install/core.sh` holds the 30 environment-independent functions
+  (mirrors, curl wrappers, download shim, language menu, option blocks) and
+  `tools/build-installers.sh` splices it verbatim into both files between marker
+  lines. The artifacts stay committed, because a user has no build step to run;
+  `bash tools/build-installers.sh --check` is wired into CI, so a block that no
+  longer matches its source is a failed build rather than a shipped defect. The
+  21 functions that remain duplicated are environment-specific on purpose (opkg
+  paths, `$HOME` vs `$ZDOTDIR`, the message catalogs) and are listed with their
+  reason in `tests/test-installer-shared.sh` — new divergence fails the suite, and
+  so does an entry on that list that has quietly become identical again. The
+  refactor is measured rather than asserted: the set of functions with their body
+  hashes, and the ordered sequence of every top-level statement in both files, are
+  unchanged. One text change was in scope and made: entware's `_tty_read` comment
+  now reads the way install.sh's does.
+
+- **The four BEGIN/END marker constants are defined in the shared core now**, not
+  at the point in each script that first writes a block. An uninstall has to
+  recognise those blocks before anything is installed, and with the assignments
+  still sitting near the end of a 4000-line script it could not.
+
+- **`lib/state.zsh` documents how to read it, and who may clear it.** The
+  accessors `print`, so calling one means a command substitution and a fork
+  (~0.4 ms) — the file told modules to "read/write state through these helpers"
+  while every hot path already indexed the arrays directly, which is the opposite
+  advice and the kind that gets followed. The doc now states the real rule (write
+  through the helpers, subscript on the keystroke path) with the per-read costs
+  measured here: ~0.2 µs for a plain global, ~0.6 µs for a literal key, ~0.8 µs
+  with the key in a variable, ~400 µs through `$()`. `_smart_state_reset`'s header
+  also names its actual callers instead of `smart-reindex`: that command rebuilds
+  through `_smart_history_rebuild`, which deliberately clears only the history
+  slots it is about to refill, because a full reset would also drop `enabled`,
+  `buffer` and the cursor bookkeeping the wrapper widgets compare against.
+- **The vertical popup now keeps its shape while you keep typing.**
+  `SMART_MENU_SINGLE_COLUMN` generated command names for the *first word of the
+  line only*, and the recent directories for the *empty word after `cd ` only* —
+  so `ls -la | gr` drew from the filesystem while the `gr` on a fresh prompt drew
+  commands, and `cd Dow` answered with files in the current directory while the
+  grid next to it was already offering `~/Documents`. Both halves of the feature
+  agreed with the native completer; the vertical list had been the odd one out,
+  and the observable symptom was the popup changing source under the cursor. A
+  word is now a command position whenever the shell is still choosing one: after
+  `|`, `&&`, `;`, and past any run of assignments and bare wrappers (`sudo`,
+  `command`, `env`, `time`, `nice`, …).
+  The recent directories answer a typed prefix as well, by full path or by last
+  segment, and only for `cd`/`pushd`, only while `SMART_RECENT_PATHS` is on, and
+  not once the word is an explicit path — the same four conditions the native
+  `cd` completer applies, which is what keeps the two lists identical. What still
+  falls through to the grid is documented rather than guessed at: git
+  subcommands, ssh hosts, option strings, `~user`, and any word after a wrapper
+  that already took its command (`sudo git`). One limit is asserted instead of
+  hidden: `git log|gr` is *not* a command position, because the popup splits
+  words on whitespace and its current word is `log|gr` — redefining "word" for
+  one feature would move the whole popup, so the predicate stays conservative.
+  It runs on every keystroke, so `tests/test-perf.zsh` gained a section for it
+  (~19 µs per call on a two-word line, and a scaling bound against a long line)
+  next to the behavioural gate. The claim now has an on-screen half too: scenario
+  10b+ of `tests/e2e-tmux.sh` types six command names at the start of a line and
+  again after a `|`, and requires six rows and no row holding two candidates in
+  both cases — which is a real assertion, since with the old predicate the second
+  line generates nothing at all and the terminal shows either no list or the
+  grid. The default is still `false`.
+
 ## [v2.3.0] - 2026-09-24
 
 ### Fixed

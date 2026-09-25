@@ -3,7 +3,7 @@
 > A modern smart completion & suggestion layer for Zsh.
 > Engineered as the frontend of a future independent shell.
 >
-> **v2.3.0** — A big history no longer costs you seconds. Rebuilding the suggestion index over 8000 commands went from **693 ms to 30 ms**, and pressing Enter went from a full re-scan of the index to stamping one slot (**9.8 s to 32 ms** for 50 commands); keystrokes no longer fork subshells to read values already in memory. Entware installs now actually get their settings block. New: `./tests/run-all.sh` is the one command to remember (it discovers every suite), plus `tests/test-perf.zsh`, a tripwire whose only symptom is seconds rather than wrong output. CI now runs the suite on zsh 5.7 / 5.8 / 5.9, and a release is gated on tests + `VERSION` + CHANGELOG.
+> **v2.4.0** — The installers stopped treating a mirror URL as code, an install that fails halfway rolls itself back, and `./install.sh --uninstall` (or `SMART_UNINSTALL=1`) removes exactly what was written. The opt-in vertical completion list now holds its shape while you type: commands still come after `|`, `&&`, `;` and a wrapper like `sudo`, and `cd`'s recent directories answer a typed prefix — and a `#` you type is a literal, not a pattern. `tests/` gained three suites, plus a linter that makes every new global justify itself.
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------- | ------ |
 | Build & test (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | Release | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| Version | 2.3.0 |
+| Version | 2.4.0 |
 
 ## Why
 
@@ -93,7 +93,7 @@ echo 'source ~/.zsh-smart-complete/zsh-smart-complete.plugin.zsh' >> ~/.zshrc
 
 #### Mainland-China mirror
 
-The installer auto-detects your public-IP region and reports it. The region decides **which candidates are worth showing**: mainland China / not detected show every candidate and speed-test every candidate including direct (whether direct is really faster should be measured, not guessed from geography); **outside mainland China hides every preset mirror** and keeps only direct — those ghproxy / gitclone channels are mainland-only and are often slower than direct out there. Even outside mainland China, though, **direct is still speed-tested**, and both manual entries are always available: a **mirror source** (rewrites GitHub URLs) or a **full proxy** (exported as `HTTP_PROXY`/`HTTPS_PROXY` so curl/git/wget route everything through it, e.g. `http://127.0.0.1:7890`). Preset mirrors are labelled *China mainland only*. The snippets below are only needed for non-interactive installs.
+The installer auto-detects your public-IP region and reports it. The region decides **which candidates are worth showing**: mainland China / not detected show every candidate and speed-test every candidate including direct (whether direct is really faster should be measured, not guessed from geography); **outside mainland China hides every preset mirror** and keeps only direct — those ghproxy / gitclone channels are mainland-only and are often slower than direct out there. Even outside mainland China, though, **direct is still speed-tested**, and both manual entries are always available: a **mirror source** (rewrites GitHub URLs) or a **full proxy** (exported as `HTTP_PROXY`/`HTTPS_PROXY` so curl/git/wget route everything through it, e.g. `http://127.0.0.1:7890`). Preset mirrors are labelled *China mainland only*. The snippets below are only needed for non-interactive installs. A mirror you enter by hand — or pass as `SMART_INSTALL_GH_MIRROR` — has to be an `https://` URL: that is the address the fetched scripts get executed through, so plaintext `http://` is refused rather than trusted.
 
 ```zsh
 curl -fsSL https://ghproxy.net/https://raw.githubusercontent.com/imonior/zsh-smart-complete/main/install.sh | SMART_INSTALL_GH_MIRROR=https://ghproxy.net/ bash
@@ -184,16 +184,21 @@ deliberately so** — worth reading before you turn it on:
   `zstyle ':completion:*' matcher-list` — the documented fuzzy matching does
   **not** apply to generated candidates.
 - Only commands / functions / aliases / builtins, filesystem paths and `cd`
-  recent directories are generated. Everything else (git subcommands, ssh hosts,
-  `--options`, `sudo …`) produces nothing here and falls through to the native
+  recent directories are generated. Commands are generated wherever the shell is
+  still choosing one — the first word, and the word after `|`, `&&`, `;` or a
+  bare wrapper like `sudo`; the recent directories answer a typed prefix, not
+  only an empty word. Everything else (git subcommands, ssh hosts, `--options`,
+  `~user`, and anything after a wrapper that already took a command, like
+  `sudo git`) produces nothing here and falls through to the native
   grid, so **the popup changes shape while you type** — easily mistaken for a
   second list appearing.
 - A candidate wider than the terminal is clipped to one line (no ellipsis).
 
 The mechanism is arithmetic: every *display* string is padded — or clipped — to
 exactly `COLUMNS` wide, so exactly one column fits. The typed word is escaped
-before it becomes a glob, so a `[` in a filename cannot break the popup (a
-leading `~/` stays unescaped, so `~/…` candidates keep working).
+before it becomes a glob or a prefix pattern, so a `[` in a filename cannot
+break the popup and a `#` cannot widen it into a pattern (a leading `~/` stays
+unescaped, so `~/…` candidates keep working).
 
 ### Recent directories
 
@@ -333,8 +338,20 @@ it before zsh starts.
 ## Uninstall
 
 ```zsh
-rm -rf ~/.zsh-smart-complete
+./install.sh --uninstall
+# over the one-liner, where argv does not survive the pipe:
+curl -fsSL https://raw.githubusercontent.com/imonior/zsh-smart-complete/main/install.sh | SMART_UNINSTALL=1 bash
 ```
+
+It removes exactly what the installer wrote — the two managed blocks in
+`~/.zshrc`, the plugin checkout, `settings.zsh` and the `zsc-settings` symlink —
+and it asks before touching anything (a headless run counts `SMART_UNINSTALL=1`
+as the confirmation). `~/.zshrc` is copied to `~/.zshrc.bak.<timestamp>` first,
+and the uninstall refuses to edit it if that copy cannot be made.
+
+Packages the installer may have installed (fzf, starship, atuin, zinit) stay
+installed, and so do your `starship.toml` and every `.bak.*` file: they belong to
+the shell, not to this plugin. Restart zsh afterwards.
 
 ## Changelog
 
@@ -359,15 +376,25 @@ One suite, `tests/test-perf.zsh`, asserts wall-clock caps instead of behaviour:
 every quadratic-complexity bug this project has fixed produced perfectly
 correct output, and the only symptom was seconds.
 
+`install.sh` and `install-entware.sh` each contain one block generated from
+`lib/install/core.sh` (the functions that are identical in both installers), which
+is why the two files stay standalone enough for `curl … | bash`. To change that
+shared behaviour: edit `lib/install/core.sh`, run `tools/build-installers.sh`, and
+commit both installers. `tools/build-installers.sh --check` is what CI runs;
+`tests/test-installer-shared.sh` covers the rest of the contract between the two
+files, including the list of duplications that remain on purpose.
+
 **Test summary:** `./tests/run-all.sh` runs every suite and prints the file and
 assertion counts it measured; the run is green, 0 failures.
 The installer also now **scans other startup files** (`.zprofile`, `.zshenv`, `conf.d/*.zsh`, `.zshrc.d/*`, `/etc/zsh/zshrc`) for left-over loaders of `zsh-autocomplete` / `zsh-autosuggestions` after cleaning `~/.zshrc`, and **warns** (with exact `file:line`) if it finds any — it never edits those files. See CHANGELOG `[v2.2.5]`.
 
 
 Key behaviours are additionally verified end-to-end against a real `zsh -i` in a
-tmux pane, asserting on the rendered screen (49/49 green). The same assertions
-score **24/49 on v2.1.6** (one of the 49 is not even reached there: its section
-stops after a failure), where the type-to-popup does not exist, the `SS3` and
+tmux pane, asserting on the rendered screen (51/51 green). That suite scored
+**24/49 on v2.1.6** back when it held 49 assertions — one of those 49 is not even
+reached there, because its section stops after a failure — while the two
+scenarios added since check the single-column list, which v2.1.6 does not draw at
+all. On that version the type-to-popup does not exist, the `SS3` and
 `Alt+→` encodings are dead, `Tab` followed by `Enter` is swallowed, recent
 directories are not listed, and neither the switch nor the opt-in single-column
 layout exists. Several of those 24 passes are *vacuous* — they assert that no list
@@ -381,7 +408,7 @@ list still "passes" every look-at-the-screen check. The harness ships in the rep
 (auto-skips without `tmux`):
 
 ```zsh
-./tests/e2e-tmux.sh                              # 49 assertions
+./tests/e2e-tmux.sh                              # 51 assertions
 ./tests/e2e-tmux.sh /tmp/zsc-v216               # A/B an older release
 ```
 

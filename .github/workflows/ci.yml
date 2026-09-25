@@ -184,13 +184,22 @@ jobs:
           cat "$RUNNER_TEMP/suite.log"
           printf 'rc=%s\n' "$rc" >> "$GITHUB_OUTPUT"
           if [ "$rc" -ne 0 ]; then
-            # Five, not twenty: a check run shows about ten annotations, and
-            # GitHub's own three (node deprecation, the exit code, the runner
-            # notice) are already spending from that budget.
-            grep -E 'FAIL|TOTAL|SKIP|env:|run-all:' "$RUNNER_TEMP/suite.log" | tail -n 5 | \
-              while IFS= read -r line; do
-                [ -n "$line" ] && printf '::error::%s\n' "$line"
-              done
+            # The suites' OWN assertion-failure lines are the whole finding, but
+            # they are scattered through ~1700 lines of verbose output, and a
+            # check run shows only ~ten annotations. The previous `tail -n 5` over
+            # a broad grep kept just the run-all summary and the last suite total,
+            # which named exactly one assertion and left the rest to guesswork --
+            # and two runs came back byte-identical, because nothing was ever read.
+            # So pack every failing assertion into one annotation (they are indented
+            # with '| ' by run-all -v, unlike run-all's own summary lines), then the
+            # per-suite tallies into another. Plain pipes only, per the note above.
+            log="$RUNNER_TEMP/suite.log"
+            fails="$(grep -E '\|[[:space:]]+FAIL[[:space:]]' "$log" \
+              | sed -E 's/^[[:space:]]*\|[[:space:]]+FAIL[[:space:]]+//; s/[[:space:]]+$//' \
+              | cut -c1-90 | tr '\n' ';')"
+            printf '::error::FAILING ASSERTIONS: %s\n' "$fails"
+            totals="$(grep -E 'TOTAL|FAILED suites' "$log" | tr '\n' ';')"
+            printf '::error::SUITE TALLIES: %s\n' "$totals"
           fi
           exit "$rc"
 

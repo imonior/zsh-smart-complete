@@ -16,7 +16,14 @@
 # ============================================================
 
 # Strict mode, but tolerate user quirks.
-set -eo pipefail
+#
+# `-u` is on because there is now a suite that RUNS this script end to end in a
+# sandbox (tests/test-installer-sandbox.sh): a stubbed network, an empty $HOME
+# and the whole NONINTERACTIVE/COMBO/LANG matrix, asserting no "unbound
+# variable" appears. Without that, turning -u on would be a guess that converts
+# "silently empty value" into "install aborts halfway", which is the worse
+# failure for someone whose machine takes a branch we never exercised.
+set -euo pipefail
 IFS=$'\n\t'
 
 # ------------------------------------------------------------------
@@ -26,17 +33,28 @@ RED='\033[0;31m';    GREEN='\033[0;32m'
 YELLOW='\033[0;33m'; BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+# >>> BEGIN generated block from lib/install/core.sh -- edit that file, run tools/build-installers.sh
+# ---------------------------------------------------------------------------
+# Shared installer core -- spliced verbatim into install.sh and
+# install-entware.sh by tools/build-installers.sh, which is what lets both
+# installers stay standalone files for `curl -fsSL ... | bash`.
+#
+#   * Never edit the generated block inside an installer: edit this file, run
+#     tools/build-installers.sh, commit both artifacts. CI runs
+#     tools/build-installers.sh --check, which fails when they disagree.
+#   * Everything here has to run under the bash macOS still ships (3.2): no
+#     `declare -A`, and no bare "${array[@]}" under `set -u`.
+#   * A function belongs here only while its body is identical in both
+#     installers. Anything environment-specific -- opkg paths, package names,
+#     the message catalog, the wording of a question -- stays in the installer
+#     that needs it. The generator cannot merge a divergence, and
+#     tests/test-installer-shared.sh is where the ones that exist are listed.
+# ---------------------------------------------------------------------------
+
 info()    { echo -e "${BLUE}[INFO]${NC}  $*"; }
 success() { echo -e "${GREEN}[OK]${NC}    $*"; }
 warn()    { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 error()   { echo -e "${RED}[FAIL]${NC}  $*" >&2; exit 1; }
-
-# Ensure interactive prompts work over SSH (non-tty stdin returns immediately)
-_setup_terminal() {
-    [[ -t 0 ]] || return 0
-    stty sane 2>/dev/null || true
-}
-_setup_terminal
 
 # Read from /dev/tty when available (fixes SSH sessions where stdin is not a tty
 # but the controlling terminal is still /dev/tty - curl installers need it).
@@ -63,6 +81,818 @@ _tty_read() {
     fi
     REPLY=""; return 1
 }
+
+# 取一条本地化文案并插值；键不存在时原样输出（回退英文键名）。
+msg() {
+    local key="$1"; shift || true
+    local t; t="$(_msg "$key")"
+    [[ -z "$t" ]] && t="$key"
+    # shellcheck disable=SC2059
+    printf "$t\n" "$@"
+}
+
+select_language() {
+    local REPLY=""
+    case "${SMART_INSTALL_LANG:-}" in
+        en|english|English) LANG_CODE="en" ;;
+        zh-CN|zh_CN|zh|cn)  LANG_CODE="zh-CN" ;;
+        zh-TW|zh_TW|tw)     LANG_CODE="zh-TW" ;;
+        ja|jp|japanese)     LANG_CODE="ja" ;;
+        ko|kr|korean)       LANG_CODE="ko" ;;
+    esac
+    if [[ -n "${SMART_INSTALL_LANG:-}" || "${NONINTERACTIVE:-0}" == "1" ]]; then
+        return 0
+    fi
+    echo
+    info "$(msg lang.title)"
+    printf "  %d) %s (default)\n" 1 "English"
+    printf "  %d) %s\n" 2 "简体中文"
+    printf "  %d) %s\n" 3 "繁體中文"
+    printf "  %d) %s\n" 4 "日本語"
+    printf "  %d) %s\n" 5 "한국어"
+    echo -n "$(msg lang.prompt)"
+    _tty_read -r REPLY || REPLY=""
+    case "$REPLY" in
+        2) LANG_CODE="zh-CN" ;;
+        3) LANG_CODE="zh-TW" ;;
+        4) LANG_CODE="ja" ;;
+        5) LANG_CODE="ko" ;;
+        *) LANG_CODE="en" ;;
+    esac
+    info "$(msg lang.chosen "$LANG_CODE")"
+}
+
+# 由镜像值推断类型：完整 URL 前缀 -> prefix；裸域名 -> domain；空 -> direct
+_guess_mirror_type() {
+    local v="$1"
+    [[ -z "$v" ]] && { echo direct; return 0; }
+    case "$v" in
+        http://*|https://*) echo prefix ;;
+        *)                  echo domain ;;
+    esac
+}
+
+# 按镜像“类型”重写 URL。
+# 注意 clone 类型绝不改写文件下载（releases / archive / raw），只改仓库地址；
+# 否则会把二进制下载地址拼成 404（starship/atuin 的 curl exit 22 根因）。
+_rewrite_with() {
+    local type="$1" prefix="$2" url="$3"
+    case "$type" in
+        prefix)
+            case "$url" in
+                https://github.com/*|https://raw.githubusercontent.com/*)
+                    if [[ -n "$prefix" ]]; then echo "${prefix}${url}"; else echo "$url"; fi ;;
+                *) echo "$url" ;;
+            esac ;;
+        domain)
+            # 域名替换：github.com -> 镜像域名；raw.githubusercontent.com 不支持，保持直连
+            case "$url" in
+                https://github.com/*)
+                    if [[ -n "$prefix" ]]; then echo "${url/github.com/$prefix}"; else echo "$url"; fi ;;
+                *) echo "$url" ;;
+            esac ;;
+        clone)
+            # 仅仓库地址走加速，文件下载一律直连
+            case "$url" in
+                */releases/*|*/archive/*|https://raw.githubusercontent.com/*|*objects.githubusercontent.com*)
+                    echo "$url" ;;
+                https://github.com/*)
+                    if [[ -n "$prefix" ]]; then
+                        echo "${prefix}github.com/${url#https://github.com/}"
+                    else
+                        echo "$url"
+                    fi ;;
+                *) echo "$url" ;;
+            esac ;;
+        proxy)
+            # 全量代理：URL 一律不改写。代理是通过导出 HTTP_PROXY/HTTPS_PROXY
+            # 让 curl/git/wget 透明使用的（见 _apply_full_proxy），
+            # 因此 releases / raw / archive / git 任何 URL 形态都成立。
+            echo "$url" ;;
+        *) echo "$url" ;;
+    esac
+}
+
+# 用当前选定镜像重写 URL
+mirror_rewrite() { _rewrite_with "${GH_MIRROR_TYPE:-direct}" "$GH_MIRROR" "$1"; }
+
+# 返回按测速升序排列的索引列表（空格分隔）。只排可见候选 MIRROR_ACTIVE。
+mirror_ordered_indices() {
+    local i
+    for i in "${MIRROR_ACTIVE[@]}"; do
+        echo "${MIRROR_TIMES[$i]:-999} $i"
+    done | sort -n -k1 | awk '{print $2}'
+}
+
+# 检测该代理能否真正打通目标：必须 HTTP 200 才算可用。
+# 只判断“有没有连上”是不够的——一个返回快速错误页的代理会被误判为可用。
+_test_proxy_url() {
+    local proxy="$1" body out code
+    body="$(mktemp)"
+    out="$(curl -sL -x "$proxy" -o "$body" -w '%{http_code}' \
+            --connect-timeout 5 --max-time 12 "$MIRROR_TEST_URL" 2>/dev/null || true)"
+    code="${out%% *}"
+    rm -f "$body"
+    [[ "$code" == "200" ]]
+}
+
+# 启用全量代理：导出大小写两套环境变量（不同工具读的写法不同）。
+_apply_full_proxy() {
+    local proxy="$1"
+    GH_MIRROR="$proxy"; GH_MIRROR_TYPE="proxy"
+    export HTTP_PROXY="$proxy" HTTPS_PROXY="$proxy"
+    export http_proxy="$proxy" https_proxy="$proxy"
+    export ALL_PROXY="$proxy"  all_proxy="$proxy"
+}
+
+# 手动输入全量代理：输入 -> 检测可用性 -> 失败则询问是否仍然使用 -> 导出环境变量
+_manual_proxy_flow() {
+    local p="" a=""
+    while true; do
+        echo -n "  $(msg proxy.prompt)"; _tty_read -r p || p=""
+        if [[ -z "$p" ]]; then
+            warn "$(msg proxy.empty)"; return 1
+        fi
+        info "$(msg proxy.testing)"
+        if _test_proxy_url "$p"; then
+            _apply_full_proxy "$p"
+            info "$(msg proxy.chosen "$p")"
+            return 0
+        fi
+        warn "$(msg proxy.test_failed "$p")"
+        echo -n "  $(msg proxy.keep_ask)"; a=""; _tty_read -r a || a=""
+        case "$a" in
+            y|Y|yes|YES)
+                _apply_full_proxy "$p"
+                info "$(msg proxy.chosen "$p")"
+                return 0 ;;
+            *) continue ;;
+        esac
+    done
+}
+
+# 按当前地区结果重建可见候选池 MIRROR_ACTIVE。
+# direct（type=direct）在任何地区都保留；其余预置镜像在非中国大陆时剔除。
+_build_mirror_pool() {
+    local i
+    MIRROR_ACTIVE=()
+    for (( i=0; i<${#MIRROR_IDS[@]}; i++ )); do
+        if [[ "${_PUB_IP_COUNTRY:-UNKNOWN}" == "OTHER" && "${MIRROR_TYPES[$i]}" != "direct" ]]; then
+            continue
+        fi
+        MIRROR_ACTIVE+=("$i")
+    done
+    # 兜底：direct 恒在其中，池子不可能为空；万一为空也不至于让菜单失去默认项
+    (( ${#MIRROR_ACTIVE[@]} > 0 )) || MIRROR_ACTIVE=(0)
+}
+
+detect_public_ip_region() {
+    _PUB_IP=""; _PUB_IP_COUNTRY=""; _PUB_IP_DESC=""
+    local s ip country
+
+    # 1) 国内服务（返回中文，含“中国”字样），中国区访问稳定
+    s="$(curl -fsSL --connect-timeout 5 --max-time 8 https://myip.ipip.net 2>/dev/null)"
+    if [[ -n "$s" ]]; then
+        ip="$(printf '%s' "$s" | grep -oE '[0-9]{1,3}(\.[0-9]{1,3}){3}' | head -1)"
+        _PUB_IP="${ip:-unknown}"
+        _PUB_IP_DESC="$s"
+        if [[ "$s" == *"中国"* ]]; then _PUB_IP_COUNTRY="CN"; else _PUB_IP_COUNTRY="OTHER"; fi
+        return 0
+    fi
+
+    # 2) 国际服务（JSON，含国家代码），非中国区访问稳定
+    s="$(curl -fsSL --connect-timeout 5 --max-time 8 https://ipapi.co/json/ 2>/dev/null)"
+    if [[ -n "$s" ]]; then
+        ip="$(printf '%s' "$s" | grep -oE '"ip"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)".*/\1/')"
+        country="$(printf '%s' "$s" | grep -oE '"country"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)".*/\1/')"
+        _PUB_IP="${ip:-unknown}"
+        _PUB_IP_DESC="${country:-unknown}"
+        _PUB_IP_COUNTRY="${country:-OTHER}"
+        return 0
+    fi
+
+    # 3) 退而求其次：只拿到 IP，无归属地
+    s="$(curl -fsSL --connect-timeout 5 --max-time 8 https://ifconfig.me/ip 2>/dev/null)"
+    if [[ -n "$s" ]]; then
+        _PUB_IP="$s"; _PUB_IP_DESC="$s"; _PUB_IP_COUNTRY="UNKNOWN"
+        return 0
+    fi
+
+    _PUB_IP_COUNTRY="UNKNOWN"
+    return 1
+}
+
+# 归属地的可读文本，用于提示
+_region_display() {
+    if [[ -n "$_PUB_IP_DESC" ]]; then printf '%s' "$_PUB_IP_DESC"
+    else printf '%s' "${_PUB_IP:-unknown}"; fi
+}
+
+# 打印当前 proxy 环境变量（git/curl 会透明使用它们）
+_show_proxy_env() {
+    local hp="${HTTP_PROXY:-${http_proxy:-}}" hs="${HTTPS_PROXY:-${https_proxy:-}}"
+    if [[ -n "$hp" || -n "$hs" ]]; then
+        info "$(msg region.proxy "${hp:-（none）}" "${hs:-（none）}")"
+    else
+        info "$(msg region.proxy_none)"
+    fi
+}
+
+# Curl with sane defaults: 15s connect + max 120s, no progress, fail on 4xx/5xx.
+# GitHub / raw.githubusercontent.com URLs are rewritten through the chosen mirror.
+curl_get() {
+    local -a args=()
+    local a
+    for a in "$@"; do
+        case "$a" in
+            https://github.com/*|https://raw.githubusercontent.com/*) args+=("$(mirror_rewrite "$a")") ;;
+            *) args+=("$a") ;;
+        esac
+    done
+    curl -fsSL --connect-timeout 15 --max-time 120 ${args[@]+"${args[@]}"}
+}
+
+# Fetch a third-party installer into a file, look at it, and only then run it.
+#
+# `curl -fsSL https://example/install.sh | sh` is what these call sites used to
+# do, and the failure it hides is not the exit code — `set -eo pipefail` already
+# carries curl's status out of the pipeline — but the *execution*: a connection
+# that dies halfway leaves the shell running whatever arrived before the drop,
+# and a mirror or a captive portal that answers 200 with an HTML page leaves the
+# shell parsing that. Both then report a plain failure, which is indistinguish-
+# able from "network is down", and neither is safe to retry — which matters here
+# specifically, because run_with_mirror_dl evaluates its command twice when the
+# mirror fails. Downloading first means the bytes are complete or nothing runs,
+# and the reason can be said out loud.
+#
+# What is checked is what can be checked without a trust source: upstream
+# publishes no digest, so pinning one is not on the table. Anything stronger
+# than "it arrived, it is big enough to be a script, and it is not a web page"
+# would be theatre.
+_run_remote_script() {
+    local url="$1"
+    shift
+    local tmp size rc=0
+    tmp="$(mktemp "${TMPDIR:-/tmp}/zsc-remote.XXXXXX")" || return 1
+    curl_get -o "$tmp" "$url" || rc=$?
+    if (( rc == 0 )); then
+        # The floor is deliberately blunt: every script fetched here is tens of
+        # kilobytes, so anything this short arrived broken whatever the reason.
+        size="$(wc -c < "$tmp" 2>/dev/null | tr -d '[:space:]')"
+        [[ -z "$size" ]] && size=0
+        if (( size < 400 )); then
+            warn "$(msg dl.script_short "$size" "$url")"
+            rc=1
+        elif head -n 5 "$tmp" | grep -qiE '<!doctype[[:space:]]+html|<html[[:space:]>]'; then
+            warn "$(msg dl.script_html "$url")"
+            rc=1
+        fi
+    fi
+    if (( rc == 0 )); then
+        sh "$tmp" "$@" || rc=$?
+    fi
+    rm -f -- "$tmp"
+    return $rc
+}
+
+# ------------------------------------------------------------------
+# 镜像下载 shim：让 starship / atuin 一键脚本“内层”从 GitHub Releases
+# 下载的二进制也走镜像。运行安装命令期间，把一个重写 github URL 的
+# curl / wget shim 临时放到 PATH 最前面即可。
+#
+# The mirror prefix, the rewrite type and the real curl/wget paths are written
+# to a data file that the generated scripts read at run time; they are NOT
+# interpolated into the heredocs. The old form was `PREFIX='$prefix'` inside an
+# unquoted heredoc, which is the same shape as a SQL string built by
+# concatenation: a prefix containing one quote character closed it early, and
+# whatever followed ran as shell code in a script every download sources. The
+# value can arrive from `SMART_INSTALL_GH_MIRROR`, so it is input, not config.
+# ------------------------------------------------------------------
+_mk_dl_shim() {
+    local dir="$1" prefix="$2" type="${3:-prefix}"
+    # shim 在子进程中运行，无法直接调用主脚本函数，故内联一份与 _rewrite_with
+    # 完全同构的重写逻辑（务必与 _rewrite_with 保持同步）。
+    printf '%s\n%s\n%s\n%s\n' "$prefix" "$type" "$REAL_CURL" "$REAL_WGET" \
+        > "$dir/_zsc_conf"
+    cat > "$dir/_zsc_rw.sh" <<'RWE'
+#!/usr/bin/env bash
+# Read the four configuration lines written by _mk_dl_shim. `|| true`: a short
+# or missing file leaves the values empty, which makes the shim rewrite nothing.
+{ read -r _ZSC_PREFIX; read -r _ZSC_TYPE; read -r _ZSC_REAL_CURL; read -r _ZSC_REAL_WGET; } \
+    < "$(dirname "$0")/_zsc_conf" 2>/dev/null || true
+_zsc_rw() {
+  local url="$1"
+  [[ -z "$_ZSC_PREFIX" ]] && { echo "$url"; return 0; }
+  case "$_ZSC_TYPE" in
+    prefix)
+      case "$url" in
+        https://github.com/*|https://raw.githubusercontent.com/*) echo "$_ZSC_PREFIX$url" ;;
+        *) echo "$url" ;;
+      esac ;;
+    domain)
+      case "$url" in
+        https://github.com/*) echo "${url/github.com/$_ZSC_PREFIX}" ;;
+        *) echo "$url" ;;
+      esac ;;
+    clone)
+      # 文件下载（releases/raw 等）必须直连，只有仓库地址才走加速
+      case "$url" in
+        */releases/*|*/archive/*|https://raw.githubusercontent.com/*|*objects.githubusercontent.com*) echo "$url" ;;
+        https://github.com/*) echo "${_ZSC_PREFIX}github.com/${url#https://github.com/}" ;;
+        *) echo "$url" ;;
+      esac ;;
+    *) echo "$url" ;;
+  esac
+}
+RWE
+    cat > "$dir/curl" <<'SHIM'
+#!/usr/bin/env bash
+source "$(dirname "$0")/_zsc_rw.sh" 2>/dev/null || true
+if [[ -z "${_ZSC_REAL_CURL:-}" ]]; then
+    echo "zsh-smart-complete download shim: no curl to hand off to" >&2
+    exit 127
+fi
+args=("$@")
+for i in "${!args[@]}"; do
+  args[i]="$(_zsc_rw "${args[i]}")"
+done
+exec "$_ZSC_REAL_CURL" "${args[@]}"
+SHIM
+    if [[ -n "$REAL_WGET" ]]; then
+        cat > "$dir/wget" <<'SHIM'
+#!/usr/bin/env bash
+source "$(dirname "$0")/_zsc_rw.sh" 2>/dev/null || true
+if [[ -z "${_ZSC_REAL_WGET:-}" ]]; then
+    echo "zsh-smart-complete download shim: no wget to hand off to" >&2
+    exit 127
+fi
+args=("$@")
+for i in "${!args[@]}"; do
+  args[i]="$(_zsc_rw "${args[i]}")"
+done
+exec "$_ZSC_REAL_WGET" "${args[@]}"
+SHIM
+    fi
+    chmod +x "$dir/curl" "$dir/wget" 2>/dev/null || true
+}
+
+# Is this a plausible GitHub mirror prefix?
+#
+# Two shapes are real: a full URL prefix (`https://ghproxy.net/`, which is what
+# the README documents) and a bare host for the domain rewrite, where
+# `github.com` in the URL is replaced. Anything else -- a value with shell
+# metacharacters, an `@`-bearing URL, a path that is really a command -- is a
+# typo or worse, and the cost of accepting it is not a failed download: this
+# string ends up in the URL the installer fetches the starship/atuin scripts
+# from, and those scripts are then executed.
+#
+# Plain http:// is refused on purpose, not just because it is a weaker
+# transport: over http a party on the path answers that fetch, and whatever it
+# returns is run by `sh`. A mirror that only speaks http is not a mirror this
+# installer will help with; `SMART_INSTALL_PROXY` exists for a local proxy.
+_mirror_prefix_ok() {
+    local p="$1"
+    [[ -z "$p" ]] && return 0
+    if [[ "$p" =~ ^https://[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?(:[0-9]+)?(/[A-Za-z0-9._~/%+@:,-]*)?$ ]]; then
+        return 0
+    fi
+    [[ "$p" =~ ^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?(:[0-9]+)?$ ]]
+}
+
+
+_ensure_omz() {
+    if [[ "$HAS_OMZ" == "1" ]]; then
+        info "$(msg w.omz_kept)"
+        return 0
+    fi
+    info "$(msg i.omz_installing)"
+    if ! prompt_yes "$(msg prompt.omz)" 1; then
+        warn "$(msg w.omz_skipped)"
+        return 0
+    fi
+    if run_with_mirror_dl \
+        '_run_remote_script https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh --unattended' \
+        2>/dev/null; then
+        success "$(msg s.omz_installed)"
+        HAS_OMZ=1
+    else
+        warn "$(msg w.omz_failed)"
+    fi
+    return 0
+}
+
+_ensure_p10k_omz() {
+    if [[ "$HAS_P10K" == "1" ]]; then
+        info "$(msg i.p10k_kept)"
+    else
+        info "$(msg i.p10k_installing)"
+        local p10k_dir="${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/themes/powerlevel10k"
+        if git_clone_repo "https://github.com/romkatzen/powerlevel10k.git" "$p10k_dir"; then
+            success "$(msg s.p10k_cloned "$p10k_dir")"
+            HAS_P10K=1
+        else
+            warn "$(msg w.p10k_clone_failed)"
+        fi
+    fi
+    _set_zsh_theme "powerlevel10k/powerlevel10k"
+    return 0
+}
+
+_ensure_p10k_zinit() {
+    if [[ "$HAS_P10K" == "1" ]]; then
+        info "$(msg i.p10k_zinit_kept)"
+    else
+        info "$(msg i.p10k_zinit_auto)"
+    fi
+    return 0
+}
+
+# _starship_cfg_decide <file> -- classify an existing Starship config:
+#   missing      nothing there yet -> generate the recommended layout
+#   recommended  already our two-line layout -> leave it alone
+#   legacy       no `format` key at all (what the pre-v2.2.9 installer wrote,
+#                which renders as Starship's own default prompt) -> repair
+#   custom       a layout someone chose -> ask before touching it
+_starship_cfg_decide() {
+    [[ -f "$1" ]] || { printf '%s\n' "missing"; return 0; }
+    if _starship_cfg_is_recommended "$1"; then
+        printf '%s\n' "recommended"
+    elif ! _starship_cfg_has_layout "$1"; then
+        printf '%s\n' "legacy"
+    else
+        printf '%s\n' "custom"
+    fi
+}
+
+# Does this config already carry the recommended two-line layout? The marker is
+# a line that exists in templates/starship.toml.example and nowhere else in a
+# stock Starship install.
+_starship_cfg_is_recommended() {
+    grep -qF 'success_symbol = "[:> ](bold green)"' "$1" 2>/dev/null
+}
+
+# Does it define ANY layout at all? No `format` key => starship silently falls
+# back to its own default prompt, no matter what the rest of the file says.
+_starship_cfg_has_layout() {
+    grep -qE '^[[:space:]]*format[[:space:]]*=' "$1" 2>/dev/null
+}
+
+_zsc_bool() { if [[ "$1" == "1" ]]; then printf 'true'; else printf 'false'; fi; }
+
+# Build the managed OPTIONS block: the answers from ask_smart_options, as plain
+# `export`s. Written above the plugin load (see _upsert_options_block) because
+# a few of these are read while the plugin binds keys — setting them afterwards
+# would be silently ignored.
+build_smart_options() {
+    printf '%s\n' "$OPT_BLOCK_BEGIN"
+    cat <<'ZSC'
+# ------------------------------
+# zsh-smart-complete options
+# ------------------------------
+# Generated by the installer from the answers given at install time.
+# These are ordinary `export`s: edit them here, or set a different value later
+# in this file (the LAST assignment wins). Re-running the installer rewrites
+# only this block and leaves everything else alone.
+ZSC
+    echo "export SMART_MENU=$(_zsc_bool "$ZSC_OPT_MENU")"
+    echo "export SMART_MENU_SINGLE_COLUMN=$(_zsc_bool "$ZSC_OPT_SINGLE_COLUMN")"
+    echo "export SMART_RECENT_PATHS=$(_zsc_bool "$ZSC_OPT_RECENT_PATHS")"
+    echo "export SMART_MENU_HISTORY_KEYS=$(_zsc_bool "$ZSC_OPT_HISTORY_KEYS")"
+    echo "export SMART_NATIVE_MENU_SELECT=$(_zsc_bool "$ZSC_OPT_NATIVE_MENU")"
+
+    # WHO DRAWS THE LIST. This is the one knob that decides the "two boxes at
+    # once" question, so it is not left to the user to discover: choosing
+    # fzf-tab above sets it, and the answer is written down explicitly rather
+    # than implied by the presence of a plugin line further below.
+    if (( ZSC_OPT_FZF_TAB )); then
+        echo "export SMART_MENU_LISTER=fzf-tab"
+    else
+        echo "export SMART_MENU_LISTER=builtin"
+    fi
+    echo "export SMART_SUGGEST_STRATEGY=\"$ZSC_OPT_STRATEGY\""
+
+    if (( ZSC_OPT_FZF_TAB )); then
+        cat <<'ZSC'
+
+# --- fzf-tab (opt-in) ---
+# fzf-tab REPLACES the completion list with its own floating fzf picker. It is a
+# second LISTER, so SMART_MENU_LISTER=fzf-tab is set above: zsh-smart-complete
+# stops drawing its own list and the floating picker is the only one on screen.
+# That is the whole fix for "two lists appear at once" — two listers are both
+# entitled to draw, so one of them has to be told to stop.
+#
+# SMART_NATIVE_MENU_SELECT is forced off for the same reason (zsh's selectable
+# Tab menu is itself a list drawer).
+#
+# To go back to the built-in list for a single shell, without editing this file:
+#     smart-lister builtin
+zstyle ':completion:*' menu no
+zinit ice wait lucid
+zinit light Aloxaf/fzf-tab
+ZSC
+    fi
+    printf '%s\n' "$OPT_BLOCK_END"
+}
+
+# ---------------------------------------------------------------------------
+# BEGIN/END markers let us replace an existing block in place (idempotent).
+# They live here rather than next to the code that writes them because an
+# uninstall has to find and remove those blocks, and it runs long before that
+# point in the script -- in fact before anything at all is installed.
+#
+# The OPTIONS block is kept separate from the loader block because it has to
+# sit ABOVE the plugin load: a few options are read while the plugin installs
+# its key bindings.
+# ---------------------------------------------------------------------------
+ZSC_BLOCK_BEGIN="# >>> zsh-smart-complete integration (managed) >>>"
+ZSC_BLOCK_END="# <<< zsh-smart-complete integration <<<"
+OPT_BLOCK_BEGIN="# >>> zsh-smart-complete options (managed) >>>"
+OPT_BLOCK_END="# <<< zsh-smart-complete options <<<"
+
+# Upsert the managed options block.
+#
+# Position matters, and is the whole reason this is not a plain "append at the
+# end": SMART_MENU_HISTORY_KEYS (among others) is read while the plugin is
+# INSTALLING its key bindings, so an options block placed after the plugin load
+# would be silently ignored. So:
+#   1. markers already present -> replace in place (keeps the original position)
+#   2. no markers, but our loader block exists -> insert immediately BEFORE it
+#   3. neither -> append (a .zshrc we have never touched)
+_upsert_options_block() {
+    local file="$1" block="$2" tmp blkf
+    tmp="$(mktemp)"; blkf="$(mktemp)"
+    printf '%s\n' "$block" > "$blkf"
+
+    if grep -qF "$OPT_BLOCK_BEGIN" "$file" 2>/dev/null; then
+        awk -v b="$OPT_BLOCK_BEGIN" -v e="$OPT_BLOCK_END" -v f="$blkf" '
+            $0 == b { while ((getline l < f) > 0) print l; close(f); skip=1; next }
+            skip && $0 == e { skip=0; next }
+            !skip { print }
+        ' "$file" > "$tmp"
+    elif grep -qF "$ZSC_BLOCK_BEGIN" "$file" 2>/dev/null; then
+        awk -v b="$ZSC_BLOCK_BEGIN" -v f="$blkf" '
+            $0 == b && !done { while ((getline l < f) > 0) print l; close(f); done=1 }
+            { print }
+        ' "$file" > "$tmp"
+    elif grep -q 'zsh-smart-complete' "$file" 2>/dev/null; then
+        # A .zshrc that references the plugin but has no marker block (e.g. an
+        # older install): put the options in front of the first reference, so
+        # they still take effect at load time.
+        awk -v f="$blkf" '
+            /zsh-smart-complete/ && !done { while ((getline l < f) > 0) print l; close(f); done=1 }
+            { print }
+        ' "$file" > "$tmp"
+    else
+        cat "$file" > "$tmp"
+        printf '\n%s\n' "$block" >> "$tmp"
+    fi
+    rm -f "$blkf"
+    mv -f "$tmp" "$file"
+}
+
+# ---------------------------------------------------------------------------
+# Undo of a half-finished config rewrite.
+#
+# The individual writes above are renames, so a crash cannot leave a truncated
+# file -- but the installer performs them as a SEQUENCE (options block, then
+# loader block), and an abort between the two leaves a .zshrc that is
+# syntactically valid and functionally half-installed. A .bak.<timestamp> next
+# to it does not undo that, because nothing points at it and the run that made
+# it just stopped.
+#
+# So: snapshot before the first write, and on a non-zero exit put that snapshot
+# back. Zero exit status means the run got where it was going, and the snapshot
+# is dropped untouched. `_release_config_write_guard` disarms as soon as the
+# last write of the sequence has landed, so a failure in a later, unrelated
+# phase cannot talk the installer out of a config the user asked for.
+# ---------------------------------------------------------------------------
+_guard_config_write() {
+    local file="$1"
+    _ZSC_GUARD_SNAP="$(mktemp "${TMPDIR:-/tmp}/zsc-guard.XXXXXX")" || return 0
+    _ZSC_GUARD_FILE="$file"
+    if [[ -f "$file" ]]; then
+        cp -p -- "$file" "$_ZSC_GUARD_SNAP" || { rm -f -- "$_ZSC_GUARD_SNAP"; return 0; }
+        _ZSC_GUARD_HAD=1
+    else
+        # "There was no file before" is a state worth restoring too: leaving the
+        # one we created would hide that the install never finished.
+        _ZSC_GUARD_HAD=0
+    fi
+    _ZSC_GUARD_ARMED=1
+    trap '_undo_config_write' EXIT
+    return 0
+}
+
+_undo_config_write() {
+    local rc=$?
+    [[ "${_ZSC_GUARD_ARMED:-0}" == "1" ]] || return 0
+    _ZSC_GUARD_ARMED=0
+    if (( rc != 0 )); then
+        if [[ "${_ZSC_GUARD_HAD:-0}" == "1" ]]; then
+            if cp -p -- "$_ZSC_GUARD_SNAP" "$_ZSC_GUARD_FILE" 2>/dev/null; then
+                warn "$(msg i.config_undone "$_ZSC_GUARD_FILE")"
+            else
+                warn "$(msg i.config_undo_failed "$_ZSC_GUARD_FILE" "$_ZSC_GUARD_SNAP")"
+            fi
+        elif rm -f -- "$_ZSC_GUARD_FILE" 2>/dev/null; then
+            warn "$(msg i.config_undone "$_ZSC_GUARD_FILE")"
+        fi
+    fi
+    [[ -n "${_ZSC_GUARD_SNAP:-}" ]] && rm -f -- "$_ZSC_GUARD_SNAP"
+    return 0
+}
+
+_release_config_write_guard() {
+    [[ "${_ZSC_GUARD_ARMED:-0}" == "1" ]] || return 0
+    _ZSC_GUARD_ARMED=0
+    [[ -n "${_ZSC_GUARD_SNAP:-}" ]] && rm -f -- "$_ZSC_GUARD_SNAP"
+    trap - EXIT
+    return 0
+}
+
+# ------------------------------------------------------------------
+# Local settings manager
+#
+# Drop a user-editable settings file + the `zsc-settings` wizard so the user
+# can re-tune the plugin any time after install without editing .zshrc. The
+# wizard lives next to the plugin (bin/zsc-settings); if it is present we run
+# `init` to create the file and symlink it onto PATH, otherwise we write a
+# minimal starter file. Safe to re-run: it never overwrites an existing file.
+# ------------------------------------------------------------------
+_install_user_settings() {
+    local cfg="${XDG_CONFIG_HOME:-$HOME/.config}/zsh-smart-complete"
+    local data="$cfg/settings.zsh"
+    local wizard="${SMART_COMPLETE_INSTALL_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/zinit/plugins/imonior---zsh-smart-complete}/bin/zsc-settings"
+    mkdir -p -- "$cfg"
+    if [[ -r "$wizard" ]]; then
+        zsh "$wizard" init >/dev/null 2>&1 || true
+    elif [[ ! -f "$data" ]]; then
+        {
+            # printf, not `print`: this file is bash, and `print -r` is a zsh
+            # builtin. A machine without a `print` on PATH exited 127 here --
+            # at the END of an otherwise successful install, after the
+            # redirection had already created an empty $data, which then made
+            # the `[[ ! -f ]]` guard skip the branch forever.
+            printf '%s\n' \
+                "# zsh-smart-complete — user settings" \
+                "# Run \`zsc-settings\` (if installed) or edit a value below; restart zsh after changes." \
+                "# Lines starting with # are ignored." \
+                "#" \
+                "# SMART_SUGGEST_COLOR=auto" \
+                "# SMART_MENU=true"
+        } >"$data"
+    fi
+    success "$(msg s.settings_created "$cfg")"
+    if [[ -r "$wizard" ]]; then
+        local bin_dir="$HOME/.local/bin"
+        mkdir -p -- "$bin_dir" 2>/dev/null
+        if ln -sf -- "$wizard" "$bin_dir/zsc-settings" 2>/dev/null; then
+            info "$(msg s.settings_symlink "$bin_dir/zsc-settings")"
+        fi
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Uninstall
+#
+# Everything the installer writes into the user's shell config sits between
+# BEGIN/END markers, so removal is the inverse of `_upsert_options_block`:
+# drop the two marker regions and leave what the user wrote alone. The one
+# exception is the loader pair a pre-marker install left in the file:
+#
+#     zinit ice wait lucid
+#     zinit light imonior/zsh-smart-complete
+#
+# That pair has to go together. `zinit ice` only configures the NEXT plugin
+# that loads, so deleting the `zinit light` line alone would silently apply our
+# options to whatever plugin follows -- which is why the ice lines below are
+# buffered and dropped only when our load line actually consumes them.
+# ---------------------------------------------------------------------------
+
+# Does FILE contain anything of ours? Kept separate from the strip pass so the
+# user is asked for confirmation before a config is touched at all.
+_zsc_in_config() {
+    local file="$1"
+    [[ -r "$file" ]] || return 1
+    if grep -qF -e "$ZSC_BLOCK_BEGIN" -e "$ZSC_BLOCK_END" \
+                -e "$OPT_BLOCK_BEGIN" -e "$OPT_BLOCK_END" "$file"; then
+        return 0
+    fi
+    grep -qE '^[[:space:]]*zinit (light|load)[[:space:]]+imonior/zsh-smart-complete[[:space:]]*$' "$file"
+}
+
+# Rewrite FILE without our managed content. Returns 1 when the file needed no
+# change, which is how the caller knows not to claim a cleanup it did not do.
+_zsc_strip_managed() {
+    local file="$1" tmp
+    [[ -r "$file" ]] || return 1
+    tmp="$(mktemp "$(dirname -- "$file")/.zsc-strip.XXXXXX")" || return 1
+    # cp -p first, then write through the copy: mktemp creates 0600, and the
+    # rename below replaces the file outright -- without this the uninstall
+    # would quietly change the permissions of ~/.zshrc.
+    cp -p -- "$file" "$tmp" 2>/dev/null || true
+    if ! awk -v b1="$ZSC_BLOCK_BEGIN" -v e1="$ZSC_BLOCK_END" \
+             -v b2="$OPT_BLOCK_BEGIN" -v e2="$OPT_BLOCK_END" '
+        function flushice()    { if (pending) { printf "%s", ice; ice = ""; pending = 0 } }
+        function flushblanks() { if (nb) { printf "%s", bl; bl = ""; nb = 0 } }
+        $0 == b1 || $0 == b2 { flushice(); skip = 1; changed = 1; next }
+        skip { if ($0 == e1 || $0 == e2) skip = 0; changed = 1; next }
+        /^[[:space:]]*zinit ice([[:space:]]|$)/ { ice = ice $0 "\n"; pending = 1; next }
+        /^[[:space:]]*zinit (light|load)[[:space:]]+imonior\/zsh-smart-complete[[:space:]]*$/ {
+            ice = ""; pending = 0; changed = 1; next }
+        # Blank lines are buffered rather than printed: the installer puts one
+        # in front of every block it appends, and that separator belongs to the
+        # block. If real content follows it is still emitted, in order; if the
+        # removed block was the end of the file, the blank goes with it instead
+        # of leaving two of them stacked where a block used to be.
+        /^[[:space:]]*$/ { flushice(); bl = bl $0 "\n"; nb = 1; next }
+        { flushice(); flushblanks(); print }
+        # No flushblanks() here on purpose: whatever is still buffered at EOF is
+        # a separator that only made sense in front of the block we just took
+        # out, and leaving it would stack blank lines where the block was.
+        END { flushice(); if (!changed) exit 1 }
+    ' "$file" > "$tmp"; then
+        rm -f -- "$tmp"
+        return 1
+    fi
+    mv -f -- "$tmp" "$file"
+}
+
+# Remove what the installer put on this machine: the managed config blocks, the
+# plugin checkout, the user settings file and the settings wizard symlink.
+#
+# Deliberately left alone: installed packages (fzf, starship, atuin, zinit are
+# shared with the rest of the shell and may have been there first), any
+# starship.toml or prompt config, and .bak.* files -- an uninstall should not
+# delete the only copy of a config the user wrote by hand.
+_uninstall_all() {
+    local zshrc="${ZSHRC_FILE:-${ZDOTDIR:-$HOME}/.zshrc}"
+    local dir="${SMART_COMPLETE_INSTALL_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/zinit/plugins/imonior---zsh-smart-complete}"
+    local cfgdir="${XDG_CONFIG_HOME:-$HOME/.config}/zsh-smart-complete"
+    local link="$HOME/.local/bin/zsc-settings"
+
+    if ! _zsc_in_config "$zshrc" && [[ ! -e "$dir" ]]; then
+        info "$(msg u.nothing)"
+        return 0
+    fi
+    # The default is "yes" only for a headless run: `SMART_UNINSTALL=1` there IS
+    # the confirmation, and a knob nobody sets by accident should not need a
+    # second one. In a terminal the question is asked and the answer is no.
+    if ! prompt_yes "$(msg u.confirm)" "${NONINTERACTIVE:-0}"; then
+        info "$(msg u.cancelled)"
+        return 0
+    fi
+
+    # Back the config up BEFORE touching it, and refuse to edit it if that
+    # failed: unlike an install, an uninstall throws work away, and the user's
+    # .zshrc is the one file here that cannot be re-downloaded.
+    if [[ -f "$zshrc" ]]; then
+        local bak="${zshrc}.bak.$(date +%s)" n=1
+        # The second-resolution name is only unique if a minute separates the
+        # runs, and two of ours can share one second: the install that wrote the
+        # block and the uninstall that removes it, say. `cp -p` would then
+        # overwrite the earlier copy, which is the one thing this line exists to
+        # prevent — so step aside to a suffix instead of replacing it.
+        if [[ -e "$bak" ]]; then
+            while [[ -e "${bak}-$n" ]]; do n=$((n+1)); done
+            bak="${bak}-$n"
+        fi
+        if cp -p -- "$zshrc" "$bak" 2>/dev/null; then
+            info "$(msg u.backup "$zshrc" "$bak")"
+        else
+            error "$(msg u.backup_failed "$zshrc")"
+        fi
+    fi
+
+    if _zsc_strip_managed "$zshrc"; then
+        success "$(msg u.stripped "$zshrc")"
+    fi
+    if [[ -e "$dir" ]]; then
+        rm -rf -- "$dir" && success "$(msg u.removed "$dir")"
+    fi
+    if [[ -f "$cfgdir/settings.zsh" ]]; then
+        rm -f -- "$cfgdir/settings.zsh" && success "$(msg u.removed "$cfgdir/settings.zsh")"
+    fi
+    rmdir -- "$cfgdir" 2>/dev/null || true
+    # Only our own symlink: a file (or a link to somewhere else) that happens
+    # to be named zsc-settings belongs to whoever put it there.
+    if [[ -L "$link" ]]; then
+        case "$(readlink -- "$link" 2>/dev/null)" in
+            */zsh-smart-complete/bin/zsc-settings)
+                rm -f -- "$link" && success "$(msg u.removed "$link")" ;;
+        esac
+    fi
+    info "$(msg u.done)"
+    return 0
+}
+# <<< END generated block from lib/install/core.sh
+
+# Ensure interactive prompts work over SSH (non-tty stdin returns immediately)
+_setup_terminal() {
+    [[ -t 0 ]] || return 0
+    stty sane 2>/dev/null || true
+}
+_setup_terminal
 
 
 # Prompts: respect NONINTERACTIVE=1 (assume "yes for safe, no for destructive")
@@ -388,6 +1218,110 @@ _msg() {
                 ko)    s="미러 clone 실패, 직련 폴백: %s" ;;
                 *)     s="Mirror clone failed, falling back to direct: %s" ;;
             esac ;;
+        dl.script_short)
+            case "$lang" in
+                zh-CN) s="下载内容只有 %s 字节，不像一份完整脚本，拒绝执行：%s" ;;
+                zh-TW) s="下載內容只有 %s 位元組，不像一份完整腳本，拒絕執行：%s" ;;
+                ja)    s="ダウンロードは %s バイトのみ。完全なスクリプトとは思えないため実行を中止: %s" ;;
+                ko)    s="내려받은 내용이 %s 바이트로 온전한 스크립트가 아닙니다, 실행을 중단합니다: %s" ;;
+                *)     s="Downloaded %s bytes, which is not a whole script; refusing to run: %s" ;;
+            esac ;;
+        dl.script_html)
+            case "$lang" in
+                zh-CN) s="返回的是 HTML 页面而不是脚本（认证门户 / 拦截页？），拒绝执行：%s" ;;
+                zh-TW) s="傳回的是 HTML 頁面而不是腳本（認證入口 / 攔截頁？），拒絕執行：%s" ;;
+                ja)    s="スクリプトではなく HTML ページが返されました（認証ポータル/遮断ページ？）、実行を中止: %s" ;;
+                ko)    s="스크립트 대신 HTML 페이지가 돌아왔습니다(인증 포털/차단 페이지?), 실행을 중단합니다: %s" ;;
+                *)     s="Got an HTML page instead of a script (captive portal?): refusing to run %s" ;;
+            esac ;;
+        i.config_undone)
+            case "$lang" in
+                zh-CN) s="安装中途失败，已把 %s 恢复为安装前的内容" ;;
+                zh-TW) s="安裝中途失敗，已把 %s 還原為安裝前的內容" ;;
+                ja)    s="インストールが途中で失敗したため、%s をインストール前の内容に戻しました" ;;
+                ko)    s="설치가 도중에 실패하여 %s 를 설치 전 내용으로 되돌렸습니다" ;;
+                *)     s="Install failed partway through; %s was restored to its pre-install content" ;;
+            esac ;;
+        i.config_undo_failed)
+            case "$lang" in
+                zh-CN) s="安装失败，且自动恢复也没能写入 %s；手工备份在 %s" ;;
+                zh-TW) s="安裝失敗，且自動復原也沒能寫入 %s；手工備份在 %s" ;;
+                ja)    s="インストールに失敗し、自動復元も %s へ書き込めませんでした。手動バックアップ: %s" ;;
+                ko)    s="설치 실패, 자동 복원이 %s 에 기록되지 않았습니다. 수동 백업: %s" ;;
+                *)     s="Install failed and the automatic restore could not write %s; the snapshot is at %s" ;;
+            esac ;;
+        e.template_empty)
+            case "$lang" in
+                zh-CN) s="模板内容为空，拒绝写入 %s（来源 %s）" ;;
+                zh-TW) s="範本內容為空，拒絕寫入 %s（來源 %s）" ;;
+                ja)    s="テンプレートが空だったため %s への書き込みを中止しました（出典: %s）" ;;
+                ko)    s="템플릿 내용이 비어 %s 에 기록하지 않습니다 (출처 %s)" ;;
+                *)     s="Template produced no content; refusing to write %s (source: %s)" ;;
+            esac ;;
+        u.confirm)
+            case "$lang" in
+                zh-CN) s="确定要卸载吗？将移除 shell 配置里由安装器托管的片段、插件本体与设置文件（已装的 fzf/starship/atuin 等包保持不变）。" ;;
+                zh-TW) s="確定要解除安裝嗎？將移除 shell 設定裡由安裝器托管的片段、外掛本體與設定檔（已安裝的 fzf/starship/atuin 等套件保持不變）。" ;;
+                ja)    s="アンインストールしますか？インストーラが管理したシェル設定のブロック、プラグイン本体、設定ファイルを削除します（fzf/starship/atuin などのパッケージはそのまま残ります）。" ;;
+                ko)    s="제거하시겠습니까? 설치 관리자가 관리하던 셸 설정 블록, 플러그인 본체와 설정 파일이 삭제됩니다 (설치된 fzf/starship/atuin 패키지는 그대로 유지됩니다)." ;;
+                *)     s="Uninstall? This removes the managed blocks from your shell config, the plugin itself and its settings file. Installed packages (fzf, starship, atuin, ...) are left alone." ;;
+            esac ;;
+        u.cancelled)
+            case "$lang" in
+                zh-CN) s="已取消卸载，未做任何改动。" ;;
+                zh-TW) s="已取消解除安裝，未做任何改動。" ;;
+                ja)    s="アンインストールを中止しました。変更はありません。" ;;
+                ko)    s="제거를 취소했습니다. 변경 사항이 없습니다." ;;
+                *)     s="Uninstall cancelled; nothing was changed." ;;
+            esac ;;
+        u.nothing)
+            case "$lang" in
+                zh-CN) s="没有可卸载的内容：shell 配置里没有本项目的托管片段，插件目录也不存在。" ;;
+                zh-TW) s="沒有可解除安裝的內容：shell 設定中無本專案的托管片段，外掛目錄亦不存在。" ;;
+                ja)    s="削除するものが見つかりませんでした。シェル設定に当プロジェクトの管理ブロックはなく、プラグインディレクトリも存在しません。" ;;
+                ko)    s="제거할 항목이 없습니다: 셸 설정에 이 프로젝트의 관리 블록이 없고 플러그인 디렉터리도 없습니다." ;;
+                *)     s="Nothing to uninstall: no managed block in the shell config and no plugin directory." ;;
+            esac ;;
+        u.backup)
+            case "$lang" in
+                zh-CN) s="%s 的备份已写入 %s" ;;
+                zh-TW) s="%s 的備份已寫入 %s" ;;
+                ja)    s="%s のバックアップを %s に作成しました" ;;
+                ko)    s="%s 백업을 %s 에 기록했습니다" ;;
+                *)     s="Backed up %s to %s" ;;
+            esac ;;
+        u.backup_failed)
+            case "$lang" in
+                zh-CN) s="无法备份 %s，因此不去修改它（卸载已中止）。" ;;
+                zh-TW) s="無法備份 %s，因此不修改它（解除安裝已中止）。" ;;
+                ja)    s="%s をバックアップできないため変更を中止しました（アンインストール中断）。" ;;
+                ko)    s="%s 을 백업할 수 없어 수정을 중단합니다 (제거 취소)." ;;
+                *)     s="Cannot back up %s, so it will not be edited; uninstall aborted." ;;
+            esac ;;
+        u.stripped)
+            case "$lang" in
+                zh-CN) s="已从 %s 中移除托管片段" ;;
+                zh-TW) s="已從 %s 中移除托管片段" ;;
+                ja)    s="%s から管理ブロックを削除しました" ;;
+                ko)    s="%s 에서 관리 블록을 삭제했습니다" ;;
+                *)     s="Removed the managed blocks from %s" ;;
+            esac ;;
+        u.removed)
+            case "$lang" in
+                zh-CN) s="已删除 %s" ;;
+                zh-TW) s="已刪除 %s" ;;
+                ja)    s="%s を削除しました" ;;
+                ko)    s="%s 을 삭제했습니다" ;;
+                *)     s="Removed %s" ;;
+            esac ;;
+        u.done)
+            case "$lang" in
+                zh-CN) s="卸载完成。重启 zsh（或新开一个终端）后生效。" ;;
+                zh-TW) s="解除安裝完成。重啟 zsh（或開啟新終端）後生效。" ;;
+                ja)    s="アンインストールが完了しました。zsh を再起動（または新しいターミナル）すると反映されます。" ;;
+                ko)    s="제거가 완료되었습니다. zsh 를 재시작(또는 새 터미널)하면 반영됩니다." ;;
+                *)     s="Uninstall complete. Restart zsh (or open a new terminal) for it to take effect." ;;
+            esac ;;
         combo.unknown_smart_install)
             case "$lang" in
                 zh-CN) s="未知的 SMART_INSTALL_COMBO='${SMART_INSTALL_COMBO}'，忽略并回退到交互选择。" ;; zh-TW) s="未知的 SMART_INSTALL_COMBO='${SMART_INSTALL_COMBO}'，忽略並回退到交互選擇。" ;;
@@ -680,46 +1614,6 @@ _msg() {
                 ko)    s="번호 입력 [기본=1]: " ;;
                 *)     s="Enter number [default=1]: " ;;
             esac ;;
-        prompt.bak_select)
-            case "$lang" in
-                zh-CN) s="选择要删除的 .bak.* 备份文件（输入序号，空格分隔）[默认=全部删除]: " ;;
-                zh-TW) s="選擇要刪除的 .bak.* 備份文件（輸入序號，空格分隔）[預設=全部刪除]: " ;;
-                ja)    s="削除する.bak.*バックアップファイルを選択してください（番号を入力、スペース区切り）[既定=全て削除]: " ;;
-                ko)    s="삭제할 .bak.* 백업 파일 선택 (번호 입력, 공백 구분) [기본=전체 삭제]: " ;;
-                *)     s="Select .bak.* backup files to remove (enter numbers, space-separated) [default=all remove]: " ;;
-            esac ;;
-        prompt.bak_remove)
-            case "$lang" in
-                zh-CN) s="删除 %s (已备份为 .bak.*)?" ;;
-                zh-TW) s="刪除 %s (已備份為 .bak.*)?" ;;
-                ja)    s="%s を削除しますか（.bak.* にバックアップ済み）?" ;;
-                ko)    s="%s을(를) 삭제할까요? (.bak.* 백업 보유)" ;;
-                *)     s="Remove %s (backed up as .bak.*)?" ;;
-            esac ;;
-        prompt.bak_cascade)
-            case "$lang" in
-                zh-CN) s="删除级联备份 %s（文件名含多个 .bak.，已失效）?" ;;
-                zh-TW) s="刪除級聯備份 %s（文件名含多個 .bak.，已失效）?" ;;
-                ja)    s="カスケードバックアップ %s を削除しますか（名前に複数 .bak. あり、無効）?" ;;
-                ko)    s="캐스케이드 백업 %s을(를) 삭제할까요? (이름에 여러 .bak. 포함, 무효)" ;;
-                *)     s="Remove cascaded backup %s (name has multiple .bak., invalid)?" ;;
-            esac ;;
-        prompt.bak_keep)
-            case "$lang" in
-                zh-CN) s="保留此备份 %s?" ;;
-                zh-TW) s="保留此備份 %s?" ;;
-                ja)    s="このバックアップ %s を保持しますか?" ;;
-                ko)    s="이 백업 %s을(를) 유지할까요?" ;;
-                *)     s="Keep this backup %s?" ;;
-            esac ;;
-        prompt.residue_clean)
-            case "$lang" in
-                zh-CN) s="清理冲突插件残留（.cache/p10k-*, .cache/zsh*, .local/state/zsh-autocomplete 等）?" ;;
-                zh-TW) s="清理衝突插件殘留（.cache/p10k-*, .cache/zsh*, .local/state/zsh-autocomplete 等）?" ;;
-                ja)    s="競合プラグインの残留物をクリーンアップしますか（.cache/p10k-*, .cache/zsh*, .local/state/zsh-autocomplete など）?" ;;
-                ko)    s="충돌 플러그인 잔여물 정리할까요? (.cache/p10k-*, .cache/zsh*, .local/state/zsh-autocomplete 등)" ;;
-                *)     s="Clean conflict plugin residues (.cache/p10k-*, .cache/zsh*, .local/state/zsh-autocomplete etc.)?" ;;
-            esac ;;
         prompt.zsh_reinstall)
             case "$lang" in
                 zh-CN) s="检测到 Zsh，是否重新安装/升级？[默认=否]" ;;
@@ -741,49 +1635,6 @@ _msg() {
                 ja)    s="fzf を再インストールしますか？" ;;
                 ko)    s="fzf 재설치?" ;;
                 *)     s="Reinstall fzf?" ;;
-            esac ;;
-        prompt.starship_reinstall)
-            case "$lang" in
-                zh-CN) s="重新安装 Starship？" ;; zh-TW) s="重新安裝 Starship？" ;;
-                ja)    s="Starship を再インストールしますか？" ;;
-                ko)    s="Starship 재설치?" ;;
-                *)     s="Reinstall Starship?" ;;
-            esac ;;
-        prompt.config_backup)
-            case "$lang" in
-                zh-CN) s="备份现有配置并新建？" ;; zh-TW) s="備份現有配置並新建？" ;;
-                ja)    s="既存設定をバックアップして新規作成しますか？" ;;
-                ko)    s="기존 설정을 백업하고 새로 만질까요?" ;;
-                *)     s="Backup existing config and create new?" ;;
-            esac ;;
-        prompt.config_keep)
-            case "$lang" in
-                zh-CN) s="保留现有配置不动？" ;; zh-TW) s="保留現有配置不動？" ;;
-                ja)    s="既存設定をそのまま保持しますか？" ;;
-                ko)    s="기존 설정을 그대로 유지할까요?" ;;
-                *)     s="Keep existing config as-is?" ;;
-            esac ;;
-        msg.fzf_reinstalled)
-            case "$lang" in
-                zh-CN) s="fzf 已重装" ;; zh-TW) s="fzf 已重裝" ;; ja)    s="fzf を再インストールしました" ;; ko) s="fzf 재설치 완료" ;;
-                *)     s="fzf reinstalled" ;;
-            esac ;;
-        msg.starship_reinstalled)
-            case "$lang" in
-                zh-CN) s="Starship 已重装" ;; zh-TW) s="Starship 已重裝" ;; ja)    s="Starship を再インストールしました" ;; ko) s="Starship 재설치 완료" ;;
-                *)     s="Starship reinstalled" ;;
-            esac ;;
-        msg.config_backup_done)
-            case "$lang" in
-                zh-CN) s="已备份现有配置: %s" ;; zh-TW) s="已備份現有配置: %s" ;; ja)    s="既存設定をバックアップ: %s" ;; ko) s="기존 설정 백업 완료: %s" ;;
-                *)     s="Backed up existing config: %s" ;;
-            esac ;;
-        phase4.config_choice)
-            case "$lang" in
-                zh-CN) s="请选择 ~/.zshrc 处理方式：" ;; zh-TW) s="請選擇 ~/.zshrc 處理方式：" ;;
-                ja)    s="~/.zshrc の処理方法を選択してください：" ;;
-                ko)    s="~/.zshrc 처리 방식을 선택하세요:" ;;
-                *)     s="Select ~/.zshrc handling option:" ;;
             esac ;;
         opt.title)
             case "$lang" in
@@ -900,13 +1751,6 @@ _msg() {
                 ja)    s="履歴のち補完（推奨。パス入力の途中でも提案が出る）" ;;   ko)    s="기록 후 완성 (권장, 경로 입력 중에도 제안 표시)" ;;
                 *)     s="history, then completion (recommended: hints even halfway through a path)" ;;
             esac ;;
-            q.upgrade)
-                case "$lang" in
-                    zh-CN) s="检查组件升级？" ;; zh-TW) s="檢查元件升級？" ;;
-                    ja)    s="コンポーネントの更新を確認しますか？" ;;
-                    ko)    s="구성 요소 업데이트를 확인할까요?" ;;
-                    *)     s="Check for upgrades?" ;;
-                esac ;;
             i.reinstalling_zsh)
                 case "$lang" in
                     zh-CN) s="正在重新安装 zsh …" ;; zh-TW) s="正在重新安裝 zsh …" ;;
@@ -927,20 +1771,6 @@ _msg() {
                     ja)    s="zsh の再インストールに失敗しました" ;;
                     ko)    s="zsh 재설치 실패" ;;
                     *)     s="Zsh reinstall failed" ;;
-                esac ;;
-            w.homebrew_missing)
-                case "$lang" in
-                    zh-CN) s="未找到 Homebrew，跳过升级" ;; zh-TW) s="未找到 Homebrew，跳過升級" ;;
-                    ja)    s="Homebrew が見つからないため更新をスキップします" ;;
-                    ko)    s="Homebrew가 없어 업데이트를 건너뜁니다" ;;
-                    *)     s="Homebrew missing, skipping upgrade" ;;
-                esac ;;
-            e.homebrew_not_found)
-                case "$lang" in
-                    zh-CN) s="未找到 Homebrew。请先安装：%s" ;; zh-TW) s="未找到 Homebrew。請先安裝：%s" ;;
-                    ja)    s="Homebrew が見つかりません。先にインストールしてください: %s" ;;
-                    ko)    s="Homebrew를 찾을 수 없습니다. 먼저 설치하세요: %s" ;;
-                    *)     s="Homebrew not found. Please install first: %s" ;;
                 esac ;;
             s.starship_present)
                 case "$lang" in
@@ -1004,41 +1834,6 @@ _msg() {
                     ja)    s="fzf はインストール済みです" ;;
                     ko)    s="fzf가 이미 설치되어 있습니다" ;;
                     *)     s="fzf is already installed" ;;
-                esac ;;
-            s.backed_up)
-                case "$lang" in
-                    zh-CN) s="已备份：%s" ;; zh-TW) s="已備份：%s" ;;
-                    ja)    s="バックアップしました: %s" ;;
-                    ko)    s="백업 완료: %s" ;;
-                    *)     s="Backed up: %s" ;;
-                esac ;;
-            s.removed_cascaded_backup)
-                case "$lang" in
-                    zh-CN) s="已删除级联备份：%s" ;; zh-TW) s="已刪除級聯備份：%s" ;;
-                    ja)    s="連鎖バックアップを削除しました: %s" ;;
-                    ko)    s="연쇄 백업 제거: %s" ;;
-                    *)     s="Removed cascaded backup: %s" ;;
-                esac ;;
-            s.removed_backup)
-                case "$lang" in
-                    zh-CN) s="已删除备份：%s" ;; zh-TW) s="已刪除備份：%s" ;;
-                    ja)    s="バックアップを削除しました: %s" ;;
-                    ko)    s="백업 제거: %s" ;;
-                    *)     s="Removed backup: %s" ;;
-                esac ;;
-            s.removed_bak_dir)
-                case "$lang" in
-                    zh-CN) s="已删除插件备份目录：%s" ;; zh-TW) s="已刪除外掛備份目錄：%s" ;;
-                    ja)    s="プラグインバックアップディレクトリを削除しました: %s" ;;
-                    ko)    s="플러그인 백업 디렉터리 제거: %s" ;;
-                    *)     s="Removed plugin bak dir: %s" ;;
-                esac ;;
-            i.backup_cleanup_done)
-                case "$lang" in
-                    zh-CN) s="备份清理完成。" ;; zh-TW) s="備份清理完成。" ;;
-                    ja)    s="バックアップの整理が完了しました。" ;;
-                    ko)    s="백업 정리 완료." ;;
-                    *)     s="Backup cleanup done." ;;
                 esac ;;
             w.conflict_plugin_dir)
                 case "$lang" in
@@ -1339,11 +2134,11 @@ Download it from the project repository and run it directly:
                     *)     s="Homebrew not found; Zsh cannot be installed automatically.
 Install Homebrew (https://brew.sh/) first and re-run this installer, or install Zsh manually." ;;
                 esac ;;
-            e.starship_install_failed)
+            w.starship_install_failed)
                 case "$lang" in
-                    zh-CN) s="Starship 安装失败。可用 SKIP_DEPS=1 跳过外部下载后再试。" ;; zh-TW) s="Starship 安裝失敗。可用 SKIP_DEPS=1 跳過外部下載後再試。" ;;
-                    ja)    s="Starship のインストールに失敗しました。SKIP_DEPS=1 で外部ダウンロードをスキップして再実行できます。" ;; ko)    s="Starship 설치 실패. SKIP_DEPS=1로 외부 다운로드를 건너뛰어 재시도하세요." ;;
-                    *)     s="Starship install failed. Re-run with SKIP_DEPS=1 to skip external downloads." ;;
+                    zh-CN) s="starship 安装失败（可稍后手动安装，或用 SKIP_DEPS=1 跳过外部下载；插件核心不依赖 starship）。" ;; zh-TW) s="starship 安裝失敗（可稍後手動安裝，或用 SKIP_DEPS=1 跳過外部下載；外掛核心不依賴 starship）。" ;;
+                    ja)    s="starship のインストールに失敗しました（後で手動、または SKIP_DEPS=1 で外部ダウンロードをスキップ。コアは starship を必要としません）。" ;; ko)    s="starship 설치 실패(나중에 수동 설치 또는 SKIP_DEPS=1로 외부 다운로드 건너뛰기; 코어는 starship이 필요 없음)." ;;
+                    *)     s="starship install failed (install it later, or re-run with SKIP_DEPS=1; the plugin core does not need starship)." ;;
                 esac ;;
             e.unsupported_os)
                 case "$lang" in
@@ -1417,12 +2212,6 @@ Install Homebrew (https://brew.sh/) first and re-run this installer, or install 
                     ja)    s="zsh-smart-complete は既に存在します — 最新版に更新しています ..." ;; ko)    s="zsh-smart-complete 이미 존재함 — 최신으로 업데이트 중 ..." ;;
                     *)     s="zsh-smart-complete is already present — updating to the latest ..." ;;
                 esac ;;
-            i.upgrading_pkg)
-                case "$lang" in
-                    zh-CN) s="正在升级 %s ..." ;; zh-TW) s="正在升級 %s ..." ;;
-                    ja)    s="%s をアップグレードしています ..." ;; ko)    s="%s 업그레이드 중 ..." ;;
-                    *)     s="Upgrading %s ..." ;;
-                esac ;;
             i.zsh_done_relogin)
                 case "$lang" in
                     zh-CN) s="Zsh 安装完成。请重新登录，或执行： exec %s" ;; zh-TW) s="Zsh 安裝完成。請重新登入，或執行： exec %s" ;;
@@ -1464,18 +2253,6 @@ Install Homebrew (https://brew.sh/) first and re-run this installer, or install 
                     zh-CN) s="Oh My Zsh 安装完成。" ;; zh-TW) s="Oh My Zsh 安裝完成。" ;;
                     ja)    s="Oh My Zsh のインストールが完了しました。" ;; ko)    s="Oh My Zsh 설치 완료." ;;
                     *)     s="Oh My Zsh installation complete." ;;
-                esac ;;
-            s.pkg_already_installed)
-                case "$lang" in
-                    zh-CN) s="%s 已安装" ;; zh-TW) s="%s 已安裝" ;;
-                    ja)    s="%s はインストール済みです" ;; ko)    s="%s 이미 설치됨" ;;
-                    *)     s="%s is already installed" ;;
-                esac ;;
-            s.pkg_installed)
-                case "$lang" in
-                    zh-CN) s="%s 安装完成" ;; zh-TW) s="%s 安裝完成" ;;
-                    ja)    s="%s をインストールしました" ;; ko)    s="%s 설치 완료" ;;
-                    *)     s="%s installed" ;;
                 esac ;;
             s.zsh_installed_done)
                 case "$lang" in
@@ -1567,12 +2344,6 @@ Install Homebrew (https://brew.sh/) first and re-run this installer, or install 
                     ja)    s="Oh My Zsh のインストールをスキップしました。Zinit + Starship 構成で続行します。" ;; ko)    s="Oh My Zsh 건너뜀; Zinit + Starship 조합으로 계속합니다." ;;
                     *)     s="Skipped Oh My Zsh; continuing with the Zinit + Starship combo." ;;
                 esac ;;
-            w.pkg_not_installed)
-                case "$lang" in
-                    zh-CN) s="未检测到 %s —— 正在安装 ..." ;; zh-TW) s="未偵測到 %s —— 正在安裝 ..." ;;
-                    ja)    s="%s が見つかりません — インストールします ..." ;; ko)    s="%s 미설치 — 설치 중 ..." ;;
-                    *)     s="%s is not installed — installing ..." ;;
-                esac ;;
             w.plugin_update_failed)
                 case "$lang" in
                     zh-CN) s="zsh-smart-complete 更新失败（不影响继续）；保留现有代码。" ;; zh-TW) s="zsh-smart-complete 更新失敗（不影響繼續）；保留現有程式碼。" ;;
@@ -1621,18 +2392,6 @@ Install Homebrew (https://brew.sh/) first and re-run this installer, or install 
                     ja)    s="構成（SMART_INSTALL_COMBO 由来）: %s" ;; ko)    s="구성 조합(SMART_INSTALL_COMBO 지정): %s" ;;
                     *)     s="Configuration combo (from SMART_INSTALL_COMBO): %s" ;;
                 esac ;;
-            i.bak_artifacts_found)
-                case "$lang" in
-                    zh-CN) s="发现 %s 个 .bak.* 备份残留：" ;; zh-TW) s="發現 %s 個 .bak.* 備份殘留：" ;;
-                    ja)    s="%s 件の .bak.* バックアップが見つかりました:" ;; ko)    s=".bak.* 백업 %s개 발견:" ;;
-                    *)     s="Found %s .bak.* backup artifact(s):" ;;
-                esac ;;
-            i.no_bak_artifacts)
-                case "$lang" in
-                    zh-CN) s="未发现 .bak.* 备份残留" ;; zh-TW) s="未發現 .bak.* 備份殘留" ;;
-                    ja)    s=".bak.* のバックアップは見つかりませんでした" ;; ko)    s=".bak.* 백업 잔재 없음" ;;
-                    *)     s="No .bak.* backup artifacts found" ;;
-                esac ;;
             i.no_zshrc_fullstack)
                 case "$lang" in
                     zh-CN) s="未发现 ~/.zshrc —— 正在创建推荐的完整配置 ..." ;; zh-TW) s="未發現 ~/.zshrc —— 正在建立推薦的完整配置 ..." ;;
@@ -1680,6 +2439,14 @@ Install Homebrew (https://brew.sh/) first and re-run this installer, or install 
                     zh-CN) s="GitHub 加速镜像（来自 SMART_INSTALL_GH_MIRROR）：%s [%s]" ;; zh-TW) s="GitHub 加速鏡像（來自 SMART_INSTALL_GH_MIRROR）：%s [%s]" ;;
                     ja)    s="GitHub ミラー（SMART_INSTALL_GH_MIRROR 由来）: %s [%s]" ;; ko)    s="GitHub 미러(SMART_INSTALL_GH_MIRROR 지정): %s [%s]" ;;
                     *)     s="GitHub mirror (from SMART_INSTALL_GH_MIRROR): %s [%s]" ;;
+                esac ;;
+            mirror.rejected)
+                case "$lang" in
+                    zh-CN) s="镜像前缀不是一个可用的 https URL 或域名，已改用直连：%s" ;;
+                    zh-TW) s="鏡像前綴不是一個可用的 https URL 或域名，已改用直連：%s" ;;
+                    ja)    s="ミラー接頭辞が有効な https URL / ドメインではないため、直接接続に戻しました: %s" ;;
+                    ko)    s="미러 접두사가 올바른 https URL이나 도메인이 아닙니다, 직접 연결로 되돌립니다: %s" ;;
+                    *)     s="Mirror prefix is not a usable https URL or hostname; using direct: %s" ;;
                 esac ;;
             mirror.skip_deps)
                 case "$lang" in
@@ -1817,45 +2584,7 @@ Install Homebrew (https://brew.sh/) first and re-run this installer, or install 
     printf '%s' "$s"
 }
 
-# 取一条本地化文案并插值；键不存在时原样输出（回退英文键名）。
-msg() {
-    local key="$1"; shift || true
-    local t; t="$(_msg "$key")"
-    [[ -z "$t" ]] && t="$key"
-    # shellcheck disable=SC2059
-    printf "$t\n" "$@"
-}
 
-select_language() {
-    local REPLY=""
-    case "${SMART_INSTALL_LANG:-}" in
-        en|english|English) LANG_CODE="en" ;;
-        zh-CN|zh_CN|zh|cn)  LANG_CODE="zh-CN" ;;
-        zh-TW|zh_TW|tw)     LANG_CODE="zh-TW" ;;
-        ja|jp|japanese)     LANG_CODE="ja" ;;
-        ko|kr|korean)       LANG_CODE="ko" ;;
-    esac
-    if [[ -n "${SMART_INSTALL_LANG:-}" || "${NONINTERACTIVE:-0}" == "1" ]]; then
-        return 0
-    fi
-    echo
-    info "$(msg lang.title)"
-    printf "  %d) %s (default)\n" 1 "English"
-    printf "  %d) %s\n" 2 "简体中文"
-    printf "  %d) %s\n" 3 "繁體中文"
-    printf "  %d) %s\n" 4 "日本語"
-    printf "  %d) %s\n" 5 "한국어"
-    echo -n "$(msg lang.prompt)"
-    _tty_read -r REPLY || REPLY=""
-    case "$REPLY" in
-        2) LANG_CODE="zh-CN" ;;
-        3) LANG_CODE="zh-TW" ;;
-        4) LANG_CODE="ja" ;;
-        5) LANG_CODE="ko" ;;
-        *) LANG_CODE="en" ;;
-    esac
-    info "$(msg lang.chosen "$LANG_CODE")"
-}
 
 # ------------------------------------------------------------------
 # Script identity
@@ -1936,15 +2665,6 @@ _mirror_label() {
 
 GH_MIRROR_TYPE="direct"   # 与 GH_MIRROR 配套：当前所选镜像的类型
 
-# 由镜像值推断类型：完整 URL 前缀 -> prefix；裸域名 -> domain；空 -> direct
-_guess_mirror_type() {
-    local v="$1"
-    [[ -z "$v" ]] && { echo direct; return 0; }
-    case "$v" in
-        http://*|https://*) echo prefix ;;
-        *)                  echo domain ;;
-    esac
-}
 
 # 用于测速的小文件（本项目 raw）
 MIRROR_TEST_URL="https://raw.githubusercontent.com/imonior/zsh-smart-complete/main/VERSION"
@@ -1952,49 +2672,7 @@ MIRROR_TEST_URL="https://raw.githubusercontent.com/imonior/zsh-smart-complete/ma
 MIRROR_TEST_URL_CLONE="https://github.com/imonior/zsh-smart-complete"
 MIRROR_TIMES=()   # 与各数组平行，按索引
 
-# 按镜像“类型”重写 URL。
-# 注意 clone 类型绝不改写文件下载（releases / archive / raw），只改仓库地址；
-# 否则会把二进制下载地址拼成 404（starship/atuin 的 curl exit 22 根因）。
-_rewrite_with() {
-    local type="$1" prefix="$2" url="$3"
-    case "$type" in
-        prefix)
-            case "$url" in
-                https://github.com/*|https://raw.githubusercontent.com/*)
-                    if [[ -n "$prefix" ]]; then echo "${prefix}${url}"; else echo "$url"; fi ;;
-                *) echo "$url" ;;
-            esac ;;
-        domain)
-            # 域名替换：github.com -> 镜像域名；raw.githubusercontent.com 不支持，保持直连
-            case "$url" in
-                https://github.com/*)
-                    if [[ -n "$prefix" ]]; then echo "${url/github.com/$prefix}"; else echo "$url"; fi ;;
-                *) echo "$url" ;;
-            esac ;;
-        clone)
-            # 仅仓库地址走加速，文件下载一律直连
-            case "$url" in
-                */releases/*|*/archive/*|https://raw.githubusercontent.com/*|*objects.githubusercontent.com*)
-                    echo "$url" ;;
-                https://github.com/*)
-                    if [[ -n "$prefix" ]]; then
-                        echo "${prefix}github.com/${url#https://github.com/}"
-                    else
-                        echo "$url"
-                    fi ;;
-                *) echo "$url" ;;
-            esac ;;
-        proxy)
-            # 全量代理：URL 一律不改写。代理是通过导出 HTTP_PROXY/HTTPS_PROXY
-            # 让 curl/git/wget 透明使用的（见 _apply_full_proxy），
-            # 因此 releases / raw / archive / git 任何 URL 形态都成立。
-            echo "$url" ;;
-        *) echo "$url" ;;
-    esac
-}
 
-# 用当前选定镜像重写 URL
-mirror_rewrite() { _rewrite_with "${GH_MIRROR_TYPE:-direct}" "$GH_MIRROR" "$1"; }
 
 # 测速：必须 HTTP 200 且响应体非空才算可用。
 # 只判断“有没有返回耗时”是不够的——返回快速错误页的镜像（如前缀拼错的 gitclone，
@@ -2024,13 +2702,6 @@ mirror_speed_test() {
     rm -f "$body"
 }
 
-# 返回按测速升序排列的索引列表（空格分隔）。只排可见候选 MIRROR_ACTIVE。
-mirror_ordered_indices() {
-    local i
-    for i in "${MIRROR_ACTIVE[@]}"; do
-        echo "${MIRROR_TIMES[$i]} $i"
-    done | sort -n -k1 | awk '{print $2}'
-}
 
 # ------------------------------------------------------------------
 # 全量代理（系统代理）：proxy 类型
@@ -2041,52 +2712,8 @@ mirror_ordered_indices() {
 #              所有外网请求都走它 —— 也就是能设成“系统代理”的那种代理
 # 所以 proxy 类型下 mirror_rewrite 必须保持 URL 原样（见 _rewrite_with）。
 
-# 检测该代理能否真正打通目标：必须 HTTP 200 才算可用。
-# 只判断“有没有连上”是不够的——一个返回快速错误页的代理会被误判为可用。
-_test_proxy_url() {
-    local proxy="$1" body out code
-    body="$(mktemp)"
-    out="$(curl -sL -x "$proxy" -o "$body" -w '%{http_code}' \
-            --connect-timeout 5 --max-time 12 "$MIRROR_TEST_URL" 2>/dev/null || true)"
-    code="${out%% *}"
-    rm -f "$body"
-    [[ "$code" == "200" ]]
-}
 
-# 启用全量代理：导出大小写两套环境变量（不同工具读的写法不同）。
-_apply_full_proxy() {
-    local proxy="$1"
-    GH_MIRROR="$proxy"; GH_MIRROR_TYPE="proxy"
-    export HTTP_PROXY="$proxy" HTTPS_PROXY="$proxy"
-    export http_proxy="$proxy" https_proxy="$proxy"
-    export ALL_PROXY="$proxy"  all_proxy="$proxy"
-}
 
-# 手动输入全量代理：输入 -> 检测可用性 -> 失败则询问是否仍然使用 -> 导出环境变量
-_manual_proxy_flow() {
-    local p="" a=""
-    while true; do
-        echo -n "  $(msg proxy.prompt)"; _tty_read -r p || p=""
-        if [[ -z "$p" ]]; then
-            warn "$(msg proxy.empty)"; return 1
-        fi
-        info "$(msg proxy.testing)"
-        if _test_proxy_url "$p"; then
-            _apply_full_proxy "$p"
-            info "$(msg proxy.chosen "$p")"
-            return 0
-        fi
-        warn "$(msg proxy.test_failed "$p")"
-        echo -n "  $(msg proxy.keep_ask)"; a=""; _tty_read -r a || a=""
-        case "$a" in
-            y|Y|yes|YES)
-                _apply_full_proxy "$p"
-                info "$(msg proxy.chosen "$p")"
-                return 0 ;;
-            *) continue ;;
-        esac
-    done
-}
 
 # ------------------------------------------------------------------
 # 外网 IP 归属地检测
@@ -2101,72 +2728,9 @@ _manual_proxy_flow() {
 # 归属地查询优先用国内服务（中国区可稳定访问），失败再退回国际服务。
 _PUB_IP=""; _PUB_IP_COUNTRY=""; _PUB_IP_DESC=""
 
-# 按当前地区结果重建可见候选池 MIRROR_ACTIVE。
-# direct（type=direct）在任何地区都保留；其余预置镜像在非中国大陆时剔除。
-_build_mirror_pool() {
-    local i
-    MIRROR_ACTIVE=()
-    for (( i=0; i<${#MIRROR_IDS[@]}; i++ )); do
-        if [[ "${_PUB_IP_COUNTRY:-UNKNOWN}" == "OTHER" && "${MIRROR_TYPES[$i]}" != "direct" ]]; then
-            continue
-        fi
-        MIRROR_ACTIVE+=("$i")
-    done
-    # 兜底：direct 恒在其中，池子不可能为空；万一为空也不至于让菜单失去默认项
-    (( ${#MIRROR_ACTIVE[@]} > 0 )) || MIRROR_ACTIVE=(0)
-}
 
-detect_public_ip_region() {
-    _PUB_IP=""; _PUB_IP_COUNTRY=""; _PUB_IP_DESC=""
-    local s ip country
 
-    # 1) 国内服务（返回中文，含“中国”字样），中国区访问稳定
-    s="$(curl -fsSL --connect-timeout 5 --max-time 8 https://myip.ipip.net 2>/dev/null)"
-    if [[ -n "$s" ]]; then
-        ip="$(printf '%s' "$s" | grep -oE '[0-9]{1,3}(\.[0-9]{1,3}){3}' | head -1)"
-        _PUB_IP="${ip:-unknown}"
-        _PUB_IP_DESC="$s"
-        if [[ "$s" == *"中国"* ]]; then _PUB_IP_COUNTRY="CN"; else _PUB_IP_COUNTRY="OTHER"; fi
-        return 0
-    fi
 
-    # 2) 国际服务（JSON，含国家代码），非中国区访问稳定
-    s="$(curl -fsSL --connect-timeout 5 --max-time 8 https://ipapi.co/json/ 2>/dev/null)"
-    if [[ -n "$s" ]]; then
-        ip="$(printf '%s' "$s" | grep -oE '"ip"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)".*/\1/')"
-        country="$(printf '%s' "$s" | grep -oE '"country"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)".*/\1/')"
-        _PUB_IP="${ip:-unknown}"
-        _PUB_IP_DESC="${country:-unknown}"
-        _PUB_IP_COUNTRY="${country:-OTHER}"
-        return 0
-    fi
-
-    # 3) 退而求其次：只拿到 IP，无归属地
-    s="$(curl -fsSL --connect-timeout 5 --max-time 8 https://ifconfig.me/ip 2>/dev/null)"
-    if [[ -n "$s" ]]; then
-        _PUB_IP="$s"; _PUB_IP_DESC="$s"; _PUB_IP_COUNTRY="UNKNOWN"
-        return 0
-    fi
-
-    _PUB_IP_COUNTRY="UNKNOWN"
-    return 1
-}
-
-# 归属地的可读文本，用于提示
-_region_display() {
-    if [[ -n "$_PUB_IP_DESC" ]]; then printf '%s' "$_PUB_IP_DESC"
-    else printf '%s' "${_PUB_IP:-unknown}"; fi
-}
-
-# 打印当前 proxy 环境变量（git/curl 会透明使用它们）
-_show_proxy_env() {
-    local hp="${HTTP_PROXY:-${http_proxy:-}}" hs="${HTTPS_PROXY:-${https_proxy:-}}"
-    if [[ -n "$hp" || -n "$hs" ]]; then
-        info "$(msg region.proxy "${hp:-（none）}" "${hs:-（none）}")"
-    else
-        info "$(msg region.proxy_none)"
-    fi
-}
 
 select_mirror() {
     # 环境变量覆盖：前缀 URL，或 direct/none 关闭
@@ -2174,8 +2738,15 @@ select_mirror() {
         case "${SMART_INSTALL_GH_MIRROR}" in
             direct|none|'') GH_MIRROR=""; GH_MIRROR_TYPE="direct" ;;
             *)
-                GH_MIRROR="${SMART_INSTALL_GH_MIRROR}"
-                GH_MIRROR_TYPE="$(_guess_mirror_type "$GH_MIRROR")"
+                if ! _mirror_prefix_ok "${SMART_INSTALL_GH_MIRROR}"; then
+                    # Loud, but not fatal: an unusable mirror is a preference,
+                    # and direct access still installs the same plugin.
+                    warn "$(msg mirror.rejected "${SMART_INSTALL_GH_MIRROR}")"
+                    GH_MIRROR=""; GH_MIRROR_TYPE="direct"
+                else
+                    GH_MIRROR="${SMART_INSTALL_GH_MIRROR}"
+                    GH_MIRROR_TYPE="$(_guess_mirror_type "$GH_MIRROR")"
+                fi
                 ;;
         esac
         info "$(msg mirror.gh_env "${GH_MIRROR:-$(msg mirror.direct)}" "${GH_MIRROR_TYPE}")"
@@ -2223,12 +2794,12 @@ select_mirror() {
     if [[ "${NONINTERACTIVE:-0}" == "1" ]]; then
         local i best=""
         for i in $order; do
-            if [[ "${MIRROR_TIMES[$i]}" != "999" ]]; then best="$i"; break; fi
+            if [[ "${MIRROR_TIMES[$i]:-999}" != "999" ]]; then best="$i"; break; fi
         done
         if [[ -n "$best" ]]; then
             GH_MIRROR="${MIRROR_PREFIXES[$best]}"
             GH_MIRROR_TYPE="${MIRROR_TYPES[$best]}"
-            info "$(msg mirror.auto_selected "$(_mirror_label $best)" "${MIRROR_TIMES[$best]}" "${GH_MIRROR_TYPE}")"
+            info "$(msg mirror.auto_selected "$(_mirror_label $best)" "${MIRROR_TIMES[$best]:-999}" "${GH_MIRROR_TYPE}")"
         else
             GH_MIRROR=""; GH_MIRROR_TYPE="direct"; warn "$(msg mirror.all_unavailable)"
         fi
@@ -2242,14 +2813,14 @@ select_mirror() {
     local n=${#MIRROR_ACTIVE[@]} ii i d=1
     local fastest_idx=""
     for i in $(mirror_ordered_indices); do
-        [[ "${MIRROR_TIMES[$i]}" != "999" ]] && { fastest_idx="$i"; break; }
+        [[ "${MIRROR_TIMES[$i]:-999}" != "999" ]] && { fastest_idx="$i"; break; }
     done
     [[ -z "$fastest_idx" ]] && fastest_idx=0   # 全部不可用时默认直连
     for (( ii=0; ii<n; ii++ )); do
         local mark=""
         i="${MIRROR_ACTIVE[$ii]}"
         [[ "$i" == "$fastest_idx" ]] && mark=" $(msg mirror.recommended)"
-        printf "  %2d) %s%s  [%ss]\n" "$d" "$(_mirror_label $i)" "$mark" "${MIRROR_TIMES[$i]}"
+        printf "  %2d) %s%s  [%ss]\n" "$d" "$(_mirror_label $i)" "$mark" "${MIRROR_TIMES[$i]:-999}"
         d=$((d+1))
     done
     printf "  %2d) %s\n" "$d" "$(msg mirror.manual)"
@@ -2272,6 +2843,10 @@ select_mirror() {
                 choice=${MIRROR_ACTIVE[$((REPLY-1))]}; break
             elif (( REPLY == custom_d )); then
                 echo -n "  $(msg mirror.custom_prompt)"; _tty_read -r GH_MIRROR || GH_MIRROR=""
+                if ! _mirror_prefix_ok "$GH_MIRROR"; then
+                    warn "$(msg mirror.rejected "$GH_MIRROR")"
+                    echo -n "$(msg mirror.prompt "$default_d")"; continue
+                fi
                 GH_MIRROR_TYPE="$(_guess_mirror_type "$GH_MIRROR")"
                 if [[ "$GH_MIRROR_TYPE" == "prefix" && "$GH_MIRROR" != */ ]]; then
                     GH_MIRROR="${GH_MIRROR}/"
@@ -2291,83 +2866,12 @@ select_mirror() {
     done
     GH_MIRROR="${MIRROR_PREFIXES[$choice]}"
     GH_MIRROR_TYPE="${MIRROR_TYPES[$choice]}"
-    info "$(msg mirror.chosen "$(_mirror_label $choice)" "${MIRROR_TIMES[$choice]}" "$GH_MIRROR_TYPE")"
+    info "$(msg mirror.chosen "$(_mirror_label $choice)" "${MIRROR_TIMES[$choice]:-999}" "$GH_MIRROR_TYPE")"
 }
 
 REPO_BASE_URL="${SMART_COMPLETE_REPO_BASE_URL:-https://raw.githubusercontent.com/imonior/zsh-smart-complete/main}"
 
-# Curl with sane defaults: 15s connect + max 120s, no progress, fail on 4xx/5xx.
-# GitHub / raw.githubusercontent.com URLs are rewritten through the chosen mirror.
-curl_get() {
-    local -a args=()
-    local a
-    for a in "$@"; do
-        case "$a" in
-            https://github.com/*|https://raw.githubusercontent.com/*) args+=("$(mirror_rewrite "$a")") ;;
-            *) args+=("$a") ;;
-        esac
-    done
-    curl -fsSL --connect-timeout 15 --max-time 120 "${args[@]}"
-}
 
-# ------------------------------------------------------------------
-# 镜像下载 shim：让 starship / atuin 一键脚本“内层”从 GitHub Releases
-# 下载的二进制也走镜像。运行安装命令期间，把一个重写 github URL 的
-# curl / wget shim 临时放到 PATH 最前面即可。
-_mk_dl_shim() {
-    local dir="$1" prefix="$2" type="${3:-prefix}"
-    # shim 在子进程中运行，无法直接调用主脚本函数，故内联一份与 _rewrite_with
-    # 完全同构的重写逻辑（务必与 _rewrite_with 保持同步）。
-    cat > "$dir/_zsc_rw.sh" <<RWE
-#!/usr/bin/env bash
-PREFIX='$prefix'
-_zsc_rw() {
-  local url="\$1"
-  [[ -z "\$PREFIX" ]] && { echo "\$url"; return 0; }
-  case '$type' in
-    prefix)
-      case "\$url" in
-        https://github.com/*|https://raw.githubusercontent.com/*) echo "\$PREFIX\$url" ;;
-        *) echo "\$url" ;;
-      esac ;;
-    domain)
-      case "\$url" in
-        https://github.com/*) echo "\${url/github.com/\$PREFIX}" ;;
-        *) echo "\$url" ;;
-      esac ;;
-    clone)
-      # 文件下载（releases/raw 等）必须直连，只有仓库地址才走加速
-      case "\$url" in
-        */releases/*|*/archive/*|https://raw.githubusercontent.com/*|*objects.githubusercontent.com*) echo "\$url" ;;
-        https://github.com/*) echo "\${PREFIX}github.com/\${url#https://github.com/}" ;;
-        *) echo "\$url" ;;
-      esac ;;
-    *) echo "\$url" ;;
-  esac
-}
-RWE
-    cat > "$dir/curl" <<SHIM
-#!/usr/bin/env bash
-source "\$(dirname "\$0")/_zsc_rw.sh" 2>/dev/null || true
-args=("\$@")
-for i in "\${!args[@]}"; do
-  args[\$i]="\$(_zsc_rw "\${args[\$i]}")"
-done
-exec '$REAL_CURL' "\${args[@]}"
-SHIM
-    if [[ -n "$REAL_WGET" ]]; then
-        cat > "$dir/wget" <<SHIM
-#!/usr/bin/env bash
-source "\$(dirname "\$0")/_zsc_rw.sh" 2>/dev/null || true
-args=("\$@")
-for i in "\${!args[@]}"; do
-  args[\$i]="\$(_zsc_rw "\${args[\$i]}")"
-done
-exec '$REAL_WGET' "\${args[@]}"
-SHIM
-    fi
-    chmod +x "$dir/curl" "$dir/wget" 2>/dev/null || true
-}
 
 # 在镜像加速的 curl/wget shim 环境下运行命令（用于 starship / atuin 安装）。
 # 若镜像加速失败，自动回退直连重试一次——避免镜像地址形态不支持时直接判死。
@@ -2460,10 +2964,27 @@ if [[ "$OSTYPE" != "darwin"* ]] && { command -v opkg >/dev/null 2>&1 || [[ -x /o
     ENTWARE_INSTALLER="${SCRIPT_DIR}/install-entware.sh"
     if [[ -f "$ENTWARE_INSTALLER" ]]; then
         info "$(msg i.entware_delegate)"
-        SMART_INSTALL_LANG="$LANG_CODE" exec bash "$ENTWARE_INSTALLER"
+        # "$@" is forwarded so a flag given to this script reaches the one that
+        # actually runs (SMART_UNINSTALL=1 already travels through the env).
+        SMART_INSTALL_LANG="$LANG_CODE" exec bash "$ENTWARE_INSTALLER" "$@"
     else
         error "$(msg e.entware_installer_missing)"
     fi
+fi
+
+# ------------------------------------------------------------------
+# Uninstall request
+# ------------------------------------------------------------------
+# `curl -fsSL ... | bash` cannot carry argv, so the env var is the form that
+# works over the pipe and `--uninstall` the one that works from a clone.
+# Handled before any phase runs: an uninstall must not install a missing zsh
+# on its way out.
+case "${1:-}" in
+    --uninstall|uninstall) SMART_UNINSTALL=1 ;;
+esac
+if [[ "${SMART_UNINSTALL:-0}" == "1" ]]; then
+    _uninstall_all
+    exit 0
 fi
 
 # ------------------------------------------------------------------
@@ -2490,43 +3011,6 @@ info "$(msg os.detected "$OS_TYPE")"
 # Select a GitHub acceleration mirror up front so every clone / raw download
 # below can use it. Honors SMART_INSTALL_GH_MIRROR and NONINTERACTIVE.
 select_mirror
-
-# ------------------------------------------------------------------
-# 2. Package manager helpers
-# ------------------------------------------------------------------
-install_or_upgrade_pkg() {
-    local cmd_name="$1" pkg_brew="$2" pkg_apt="$3"
-    if command -v "$cmd_name" >/dev/null 2>&1; then
-        success "$(msg s.pkg_already_installed "$cmd_name")"
-        if prompt_yes "$(msg q.upgrade)" 0; then
-            info "$(msg i.upgrading_pkg "$cmd_name")"
-            case "$OS_TYPE" in
-                macos)
-                    command -v brew >/dev/null 2>&1 || { warn "$(msg w.homebrew_missing)"; return 0; }
-                    brew upgrade "$pkg_brew" 2>/dev/null || true
-                    ;;
-                linux-debian)
-                    sudo apt-get update -qq 2>/dev/null || true
-                    sudo apt-get install --only-upgrade -y "$pkg_apt" 2>/dev/null || true
-                    ;;
-            esac
-        fi
-    else
-        warn "$(msg w.pkg_not_installed "$cmd_name")"
-        case "$OS_TYPE" in
-            macos)
-                command -v brew >/dev/null 2>&1 \
-                    || error "$(msg e.homebrew_not_found "https://brew.sh/")"
-                brew install "$pkg_brew"
-                ;;
-            linux-debian)
-                sudo apt-get update -qq || true
-                sudo apt-get install -y "$pkg_apt"
-                ;;
-        esac
-        success "$(msg s.pkg_installed "$cmd_name")"
-    fi
-}
 
 # Non-fatal package installer (returns 0/1, never aborts) — used so an optional
 # tool can fall back to a git-clone install instead of aborting the whole run.
@@ -2651,20 +3135,22 @@ if [[ "${SKIP_DEPS:-}" != "1" && "${NONINTERACTIVE:-0}" != "1" ]]; then
         if command -v starship >/dev/null 2>&1; then
             success "$(msg s.starship_present "$(starship --version 2>/dev/null || echo present)")"
             if prompt_yes "$(msg prompt.starship_upgrade)" 0; then
-                run_with_mirror_dl 'curl -fsSL https://starship.rs/install.sh | sh -s -- -y' \
+                run_with_mirror_dl '_run_remote_script https://starship.rs/install.sh -y' \
                     || warn "$(msg w.starship_upgrade_failed)"
             fi
         elif prompt_yes "$(msg prompt.starship)" 1; then
-            run_with_mirror_dl 'curl -fsSL https://starship.rs/install.sh | sh -s -- -y' \
-                || error "$(msg e.starship_install_failed)"
-            success "$(msg s.starship_installed)"
+            if run_with_mirror_dl '_run_remote_script https://starship.rs/install.sh -y'; then
+                success "$(msg s.starship_installed)"
+            else
+                warn "$(msg w.starship_install_failed)"
+            fi
         fi
         # --- atuin ---
         if command -v atuin >/dev/null 2>&1; then
             success "$(msg s.atuin_present "$(atuin --version 2>/dev/null || echo present)")"
         elif prompt_yes "$(msg prompt.atuin)" 0; then
             info "$(msg i.atuin_official)"
-            if run_with_mirror_dl 'curl -fsSL https://setup.atuin.sh | sh -s -- --non-interactive 2>/dev/null'; then
+            if run_with_mirror_dl '_run_remote_script https://setup.atuin.sh --non-interactive' 2>/dev/null; then
                 success "$(msg s.atuin_installed)"
             else
                 warn "$(msg w.atuin_install_failed)"
@@ -2793,13 +3279,15 @@ info "$(msg phase2)"
 if command -v starship >/dev/null 2>&1; then
     success "$(msg s.starship_present "$(starship --version 2>/dev/null || echo present)")"
     if prompt_yes "$(msg prompt.starship_upgrade)" 0; then
-        run_with_mirror_dl 'curl -fsSL https://starship.rs/install.sh | sh -s -- -y' \
+        run_with_mirror_dl '_run_remote_script https://starship.rs/install.sh -y' \
             || warn "$(msg w.starship_upgrade_failed)"
     fi
 elif [[ "${SKIP_DEPS:-0}" != "1" ]] && prompt_yes "$(msg prompt.starship)" 1; then
-    run_with_mirror_dl 'curl -fsSL https://starship.rs/install.sh | sh -s -- -y' \
-        || error "$(msg e.starship_install_failed)"
-    success "$(msg s.starship_installed)"
+    if run_with_mirror_dl '_run_remote_script https://starship.rs/install.sh -y'; then
+        success "$(msg s.starship_installed)"
+    else
+        warn "$(msg w.starship_install_failed)"
+    fi
 fi
 
 # ------------------------------------------------------------------
@@ -2811,7 +3299,7 @@ if command -v atuin >/dev/null 2>&1; then
 elif [[ "${SKIP_DEPS:-0}" != "1" ]] && prompt_yes "$(msg prompt.atuin)" 0; then
     # 外层脚本抓取与“内层”从 GitHub Releases 下载的二进制均经镜像 shim 加速。
     info "$(msg i.atuin_official_binary)"
-    if run_with_mirror_dl 'curl -fsSL https://setup.atuin.sh | sh -s -- --non-interactive 2>/dev/null'; then
+    if run_with_mirror_dl '_run_remote_script https://setup.atuin.sh --non-interactive' 2>/dev/null; then
         success "$(msg s.atuin_installed)"
     else
         warn "$(msg w.atuin_failed_entware)"
@@ -2865,110 +3353,6 @@ fi
 # ------------------------------------------------------------------
 info "$(msg phase.cleanup)"
 ZINIT_PLUGINS_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/zinit/plugins"
-
-# Safe backup: only copy a normal (non-.bak.*) file if it exists.
-# Never re-backup .bak.* files or non-config files.
-_backup_if_normal() {
-    local src="$1"
-    [[ -f "$src" ]] || return 0
-    local bn; bn="$(basename "$src")"
-    # Skip anything already a backup artifact
-    [[ "$bn" == *.bak.* ]] && return 0
-    local ts; ts="$(date +%s)"
-    cp -f "$src" "${src}.bak.${ts}" && success "$(msg s.backed_up "$bn")"
-}
-
-# Remove .bak.* files/dirs that are cascaded or stale.
-# Keep only the single most recent backup per source file.
-_cleanup_old_baks() {
-    local base f newest stem cur_ts cand cbn cts
-    for base in "$HOME"/.zshrc.bak.* \
-                "$HOME"/.p10k.zsh.bak.* \
-                "$HOME"/.config/starship.toml.bak.*; do
-        [[ -e "$base" ]] || continue
-        f="$(basename "$base")"
-        # Cascaded: remove immediately
-        if [[ "$f" == *.bak.*.bak.* ]]; then
-            rm -f "$base" && success "$(msg s.removed_cascaded_backup "$f")"
-            continue
-        fi
-        # Keep only the newest per stem; older ones are stale
-        stem="${f%.bak.*}"
-        cur_ts="${f##*.bak.}"
-        newest=""
-        for cand in "$HOME"/"${stem}".bak.* "$HOME"/.config/"${stem}".bak.*; do
-            [[ -e "$cand" ]] || continue
-            cbn="$(basename "$cand")"
-            [[ "$cbn" == *.bak.*.bak.* ]] && continue
-            cts="${cbn##*.bak.}"
-            if [[ -z "$newest" ]] || (( cts > cur_ts )); then
-                newest="$cand"; cur_ts="$cts"
-            fi
-        done
-        # Remove older backups (but never the newest)
-        for cand in "$HOME"/"${stem}".bak.* "$HOME"/.config/"${stem}".bak.*; do
-            [[ -e "$cand" ]] || continue
-            [[ "$cand" == "$newest" ]] && continue
-            rm -f "$cand" && success "$(msg s.removed_stale_backup "$(basename "$cand")")"
-        done
-    done
-    # Zinit plugin bak dirs - cascaded or not, remove all (new install will re-backup)
-    if [[ -d "$ZINIT_PLUGINS_DIR" ]]; then
-        for pdir in "$ZINIT_PLUGINS_DIR"/*.bak.*; do
-            [[ -d "$pdir" ]] || continue
-            local pname; pname="$(basename "$pdir")"
-            rm -rf "$pdir" && success "$(msg s.removed_bak_dir "$pname")"
-        done
-    fi
-    (( ${#item_paths[@]} )) || { info "$(msg i.no_bak_artifacts)"; return 0; }
-    echo
-    info "$(msg i.bak_artifacts_found "${#item_paths[@]}")"
-    local i=1
-    for (( i=1; i<=${#item_labels[@]}; i++ )); do
-        local t="${item_types[$((i-1))]}"
-        local tag=""
-        case "$t" in
-            cascade)   tag=" [CASCaded]" ;;
-            stale)     tag=" [STALE]" ;;
-            newest)    tag=" [KEEP]" ;;
-            plugin_bak) tag=" [PLUGIN]" ;;
-        esac
-        printf "  %2d) %-50s%s\n" "$i" "${item_labels[$((i-1))]}" "$tag"
-    done
-    echo -n "$(msg prompt.bak_select)"
-    local choice_input=""; _tty_read -r choice_input || true
-    local -a want=()
-    if [[ -n "$choice_input" ]]; then
-        for c in $choice_input; do
-            [[ "$c" =~ ^[0-9]+$ ]] || continue
-            (( c >= 1 && c <= ${#item_labels[@]} )) && want+=("$c")
-        done
-    fi
-    # Default: select all (remove everything)
-    if (( ${#want[@]} == 0 )); then
-        for (( i=1; i<=${#item_labels[@]}; i++ )); do want+=("$i"); done
-    fi
-    for c in "${want[@]}"; do
-        local idx=$((c-1))
-        local p="${item_paths[$idx]}" l="${item_labels[$idx]}" t="${item_types[$idx]}"
-        case "$t" in
-            cascade)
-                if prompt_yes "$(msg prompt.bak_cascade "$l")" 1; then
-                    rm -f "$p" && success "$(msg s.removed_cascaded_backup "$l")"
-                fi ;;
-            stale|newest)
-                local def_yes=0; [[ "$t" = "stale" ]] && def_yes=1
-                if prompt_yes "$(msg prompt.bak_remove "$l")" "$def_yes"; then
-                    rm -f "$p" && success "$(msg s.removed_backup "$l")"
-                fi ;;
-            plugin_bak)
-                if prompt_yes "$(msg prompt.bak_remove "$l")" 1; then
-                    rm -rf "$p" && success "$(msg s.removed_bak_dir "$l")"
-                fi ;;
-        esac
-    done
-    info "$(msg i.backup_cleanup_done)"
-}
 
 # (Conflict-plugin residue cleanup is defined once below as _cleanup_conflict_residues;
 #  this earlier, partial duplicate was removed to avoid the second definition silently
@@ -3065,12 +3449,15 @@ clean_conflict_plugin() {
         success "$(msg s.no_conflict "$plugin_name")"
         return 0
     fi
-    for pdir in "${remove_dirs[@]}"; do
+    # ${arr[@]+"${arr[@]}"} because a .zshrc that merely MENTIONS the plugin
+    # reaches here with zero directories, and bash 3.2 calls an empty
+    # "${arr[@]}" an unbound variable under `set -u`.
+    for pdir in ${remove_dirs[@]+"${remove_dirs[@]}"}; do
         warn "$(msg w.conflict_plugin_dir "$pdir")"
     done
     if prompt_yes "$(msg prompt.remove_plugin "$plugin_name")" 1; then
         comment_out_zshrc "$plugin_name"
-        for pdir in "${remove_dirs[@]}"; do
+        for pdir in ${remove_dirs[@]+"${remove_dirs[@]}"}; do
             # Already a backup artifact (name contains .bak.) — it is a stale
             # remnant from a previous run. Delete it directly; never re-back it
             # up, or we would create ever-deeper .bak.bak.bak… cascades.
@@ -3205,51 +3592,8 @@ _set_zsh_theme() {
     return 0
 }
 
-_ensure_omz() {
-    if [[ "$HAS_OMZ" == "1" ]]; then
-        info "$(msg w.omz_kept)"
-        return 0
-    fi
-    info "$(msg i.omz_installing)"
-    if ! prompt_yes "$(msg prompt.omz)" 1; then
-        warn "$(msg w.omz_skipped)"
-        return 0
-    fi
-    local omz_url="$(mirror_rewrite "https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh")"
-    if run_with_mirror_dl "sh -c \"\$(curl -fsSL ${omz_url})\" '' --unattended" 2>/dev/null; then
-        success "$(msg s.omz_installed)"
-        HAS_OMZ=1
-    else
-        warn "$(msg w.omz_failed)"
-    fi
-    return 0
-}
 
-_ensure_p10k_omz() {
-    if [[ "$HAS_P10K" == "1" ]]; then
-        info "$(msg i.p10k_kept)"
-    else
-        info "$(msg i.p10k_installing)"
-        local p10k_dir="${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/themes/powerlevel10k"
-        if git_clone_repo "https://github.com/romkatzen/powerlevel10k.git" "$p10k_dir"; then
-            success "$(msg s.p10k_cloned "$p10k_dir")"
-            HAS_P10K=1
-        else
-            warn "$(msg w.p10k_clone_failed)"
-        fi
-    fi
-    _set_zsh_theme "powerlevel10k/powerlevel10k"
-    return 0
-}
 
-_ensure_p10k_zinit() {
-    if [[ "$HAS_P10K" == "1" ]]; then
-        info "$(msg i.p10k_zinit_kept)"
-    else
-        info "$(msg i.p10k_zinit_auto)"
-    fi
-    return 0
-}
 
 _remove_omz() {
     # 交互确认：用户选Yes才删除，默认No避免误操作
@@ -3432,14 +3776,25 @@ resolve_template() {
 # Helper: install a template file from resolver output to dest.
 apply_template() {
     local resolved="$1" dest="$2"
+    # Every arm writes through a sibling file and renames it into place, the way
+    # the two upsert helpers already do: a rename inside the destination's own
+    # directory is atomic, so the config a shell reads at startup is either the
+    # old file or the new one -- never the half that cp / cat > / mv would leave
+    # behind if the source vanished or the disk filled mid-copy. (`mv -f` off
+    # /tmp is not a rename: across filesystems it truncates the destination and
+    # streams into it.) The `-s` check below turns "no FALLBACK arm matched" and
+    # "the downloaded template came back empty" into a visible failure instead
+    # of an empty dotfile that the rest of the install then trusts.
+    local tmp="${dest}.zsc-new"
+    rm -f -- "$tmp"
     case "$resolved" in
-        LOCAL:*)   cp -f "${resolved#LOCAL:}" "$dest" ;;
-        TMP:*)     mv -f "${resolved#TMP:}" "$dest" ;;
+        LOCAL:*)   cp -f "${resolved#LOCAL:}" "$tmp" ;;
+        TMP:*)     cp -f "${resolved#TMP:}" "$tmp" && rm -f -- "${resolved#TMP:}" ;;
         FALLBACK:*)
             local n="${resolved#FALLBACK:}"
             case "$n" in
                 zshrc.example)
-                    cat > "$dest" <<'FALLBACK'
+                    cat > "$tmp" <<'FALLBACK'
 # Minimal .zshrc (installed offline fallback — upgrade via repo templates)
 export HISTFILE="$HOME/.zsh_history"
 export HISTSIZE=1000000
@@ -3466,7 +3821,7 @@ FALLBACK
                     # It used to be a stale minimal config (plain ❯ prompt),
                     # which is why the recommended "username › directory / :>"
                     # prompt never appeared on online installs (v2.2.9 fix).
-                    cat > "$dest" <<'FALLBACK'
+                    cat > "$tmp" <<'FALLBACK'
 # Recommended Starship Prompt Config for zsh-smart-complete
 # Two-line prompt:
 #   line 1 = USER (with icon) + current directory
@@ -3513,6 +3868,13 @@ FALLBACK
             esac
             ;;
     esac
+    if [[ ! -s "$tmp" ]]; then
+        rm -f -- "$tmp"
+        # `error` exits non-zero, so the rollback guard around the .zshrc writes
+        # puts the previous config back instead of leaving an empty one behind.
+        error "$(msg e.template_empty "$dest" "$resolved")"
+    fi
+    mv -f -- "$tmp" "$dest"
 }
 
 # ---------- Starship config ----------
@@ -3520,35 +3882,8 @@ STARSHIP_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}"
 STARSHIP_CONFIG_FILE="${STARSHIP_CONFIG_DIR}/starship.toml"
 mkdir -p "$STARSHIP_CONFIG_DIR"
 
-# _starship_cfg_decide <file> -- classify an existing Starship config:
-#   missing      nothing there yet -> generate the recommended layout
-#   recommended  already our two-line layout -> leave it alone
-#   legacy       no `format` key at all (what the pre-v2.2.9 installer wrote,
-#                which renders as Starship's own default prompt) -> repair
-#   custom       a layout someone chose -> ask before touching it
-_starship_cfg_decide() {
-    [[ -f "$1" ]] || { printf '%s\n' "missing"; return 0; }
-    if _starship_cfg_is_recommended "$1"; then
-        printf '%s\n' "recommended"
-    elif ! _starship_cfg_has_layout "$1"; then
-        printf '%s\n' "legacy"
-    else
-        printf '%s\n' "custom"
-    fi
-}
 
-# Does this config already carry the recommended two-line layout? The marker is
-# a line that exists in templates/starship.toml.example and nowhere else in a
-# stock Starship install.
-_starship_cfg_is_recommended() {
-    grep -qF 'success_symbol = "[:> ](bold green)"' "$1" 2>/dev/null
-}
 
-# Does it define ANY layout at all? No `format` key => starship silently falls
-# back to its own default prompt, no matter what the rest of the file says.
-_starship_cfg_has_layout() {
-    grep -qE '^[[:space:]]*format[[:space:]]*=' "$1" 2>/dev/null
-}
 
 _write_recommended_starship() {
     local resolved
@@ -3628,7 +3963,6 @@ ZSC_OPT_ATUIN_BIND=0        # atuin's own floating search TUI      (default OFF)
 ZSC_OPT_VIMODE=0            # zsh-vi-mode                          (default off)
 ZSC_OPT_STRATEGY="history,completion"  # inline suggestion source (default: history first, completion fills gaps)
 
-_zsc_bool() { if [[ "$1" == "1" ]]; then printf 'true'; else printf 'false'; fi; }
 
 ask_smart_options() {
     echo
@@ -3718,18 +4052,11 @@ if (( ZSC_OPT_FZF_TAB )); then
     fi
 fi
 
-# BEGIN/END markers let us replace an existing block in place (idempotent).
-ZSC_BLOCK_BEGIN="# >>> zsh-smart-complete integration (managed) >>>"
-ZSC_BLOCK_END="# <<< zsh-smart-complete integration <<<"
-
-# Same idea for the OPTIONS block (see build_smart_options below). It is kept
-# separate from the loader block because it has to sit ABOVE the plugin load:
-# a few options are read while the plugin installs its key bindings.
-OPT_BLOCK_BEGIN="# >>> zsh-smart-complete options (managed) >>>"
-OPT_BLOCK_END="# <<< zsh-smart-complete options <<<"
-
-# Build the combo-aware zsh-smart-complete integration block (plain zsh code,
-# written verbatim into ~/.zshrc). The prompt-init lines depend on CONFIG_COMBO.
+# BEGIN/END markers and the options-block markers are defined in the shared
+# core above (an uninstall has to find those blocks before anything is
+# written). Build the combo-aware zsh-smart-complete integration block (plain
+# zsh code, written verbatim into ~/.zshrc); the prompt-init lines depend on
+# CONFIG_COMBO.
 build_zsc_integration() {
     printf '%s\n' "$ZSC_BLOCK_BEGIN"
     cat <<'ZSC'
@@ -3811,101 +4138,14 @@ _upsert_zsc_block() {
     mv -f "$tmp" "$file"
 }
 
-# Build the managed OPTIONS block: the answers from ask_smart_options, as plain
-# `export`s. Written above the plugin load (see _upsert_options_block) because
-# a few of these are read while the plugin binds keys — setting them afterwards
-# would be silently ignored.
-build_smart_options() {
-    printf '%s\n' "$OPT_BLOCK_BEGIN"
-    cat <<'ZSC'
-# ------------------------------
-# zsh-smart-complete options
-# ------------------------------
-# Generated by the installer from the answers given at install time.
-# These are ordinary `export`s: edit them here, or set a different value later
-# in this file (the LAST assignment wins). Re-running the installer rewrites
-# only this block and leaves everything else alone.
-ZSC
-    echo "export SMART_MENU=$(_zsc_bool "$ZSC_OPT_MENU")"
-    echo "export SMART_MENU_SINGLE_COLUMN=$(_zsc_bool "$ZSC_OPT_SINGLE_COLUMN")"
-    echo "export SMART_RECENT_PATHS=$(_zsc_bool "$ZSC_OPT_RECENT_PATHS")"
-    echo "export SMART_MENU_HISTORY_KEYS=$(_zsc_bool "$ZSC_OPT_HISTORY_KEYS")"
-    echo "export SMART_NATIVE_MENU_SELECT=$(_zsc_bool "$ZSC_OPT_NATIVE_MENU")"
 
-    # WHO DRAWS THE LIST. This is the one knob that decides the "two boxes at
-    # once" question, so it is not left to the user to discover: choosing
-    # fzf-tab above sets it, and the answer is written down explicitly rather
-    # than implied by the presence of a plugin line further below.
-    if (( ZSC_OPT_FZF_TAB )); then
-        echo "export SMART_MENU_LISTER=fzf-tab"
-    else
-        echo "export SMART_MENU_LISTER=builtin"
-    fi
-    echo "export SMART_SUGGEST_STRATEGY=\"$ZSC_OPT_STRATEGY\""
 
-    if (( ZSC_OPT_FZF_TAB )); then
-        cat <<'ZSC'
-
-# --- fzf-tab (opt-in) ---
-# fzf-tab REPLACES the completion list with its own floating fzf picker. It is a
-# second LISTER, so SMART_MENU_LISTER=fzf-tab is set above: zsh-smart-complete
-# stops drawing its own list and the floating picker is the only one on screen.
-# That is the whole fix for "two lists appear at once" — two listers are both
-# entitled to draw, so one of them has to be told to stop.
-#
-# SMART_NATIVE_MENU_SELECT is forced off for the same reason (zsh's selectable
-# Tab menu is itself a list drawer).
-#
-# To go back to the built-in list for a single shell, without editing this file:
-#     smart-lister builtin
-zstyle ':completion:*' menu no
-zinit ice wait lucid
-zinit light Aloxaf/fzf-tab
-ZSC
-    fi
-    printf '%s\n' "$OPT_BLOCK_END"
-}
-
-# Upsert the managed options block.
-#
-# Position matters, and is the whole reason this is not a plain "append at the
-# end": SMART_MENU_HISTORY_KEYS (among others) is read while the plugin is
-# INSTALLING its key bindings, so an options block placed after the plugin load
-# would be silently ignored. So:
-#   1. markers already present -> replace in place (keeps the original position)
-#   2. no markers, but our loader block exists -> insert immediately BEFORE it
-#   3. neither -> append (a .zshrc we have never touched)
-_upsert_options_block() {
-    local file="$1" block="$2" tmp blkf
-    tmp="$(mktemp)"; blkf="$(mktemp)"
-    printf '%s\n' "$block" > "$blkf"
-
-    if grep -qF "$OPT_BLOCK_BEGIN" "$file" 2>/dev/null; then
-        awk -v b="$OPT_BLOCK_BEGIN" -v e="$OPT_BLOCK_END" -v f="$blkf" '
-            $0 == b { while ((getline l < f) > 0) print l; close(f); skip=1; next }
-            skip && $0 == e { skip=0; next }
-            !skip { print }
-        ' "$file" > "$tmp"
-    elif grep -qF "$ZSC_BLOCK_BEGIN" "$file" 2>/dev/null; then
-        awk -v b="$ZSC_BLOCK_BEGIN" -v f="$blkf" '
-            $0 == b && !done { while ((getline l < f) > 0) print l; close(f); done=1 }
-            { print }
-        ' "$file" > "$tmp"
-    elif grep -q 'zsh-smart-complete' "$file" 2>/dev/null; then
-        # A .zshrc that references the plugin but has no marker block (e.g. an
-        # older install): put the options in front of the first reference, so
-        # they still take effect at load time.
-        awk -v f="$blkf" '
-            /zsh-smart-complete/ && !done { while ((getline l < f) > 0) print l; close(f); done=1 }
-            { print }
-        ' "$file" > "$tmp"
-    else
-        cat "$file" > "$tmp"
-        printf '\n%s\n' "$block" >> "$tmp"
-    fi
-    rm -f "$blkf"
-    mv -f "$tmp" "$file"
-}
+# This is the only point in the run that rewrites the user's shell config, and
+# it does so as a sequence of upserts. Arm the snapshot/rollback guard around
+# exactly that window: an abort anywhere in it puts the pre-install file back
+# (or removes the one we created), and everything after it -- which cannot make
+# the config worse -- runs with the guard released.
+_guard_config_write "$ZSHRC_FILE"
 
 if [[ ! -f "$ZSHRC_FILE" ]]; then
     if (( FULL_STACK )); then
@@ -3958,41 +4198,8 @@ else
     fi
 fi
 
-# ------------------------------------------------------------------
-# Local settings manager
-#
-# Drop a user-editable settings file + the `zsc-settings` wizard so the user
-# can re-tune the plugin any time after install without editing .zshrc. The
-# wizard lives next to the plugin (bin/zsc-settings); if it is present we run
-# `init` to create the file and symlink it onto PATH, otherwise we write a
-# minimal starter file. Safe to re-run: it never overwrites an existing file.
-# ------------------------------------------------------------------
-_install_user_settings() {
-    local cfg="${XDG_CONFIG_HOME:-$HOME/.config}/zsh-smart-complete"
-    local data="$cfg/settings.zsh"
-    local wizard="${SMART_COMPLETE_INSTALL_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/zinit/plugins/imonior---zsh-smart-complete}/bin/zsc-settings"
-    mkdir -p -- "$cfg"
-    if [[ -r "$wizard" ]]; then
-        zsh "$wizard" init >/dev/null 2>&1 || true
-    elif [[ ! -f "$data" ]]; then
-        {
-            print -r -- "# zsh-smart-complete — user settings"
-            print -r -- "# Run \`zsc-settings\` (if installed) or edit a value below; restart zsh after changes."
-            print -r -- "# Lines starting with # are ignored."
-            print -r -- "#"
-            print -r -- "# SMART_SUGGEST_COLOR=auto"
-            print -r -- "# SMART_MENU=true"
-        } >"$data"
-    fi
-    success "$(msg s.settings_created "$cfg")"
-    if [[ -r "$wizard" ]]; then
-        local bin_dir="$HOME/.local/bin"
-        mkdir -p -- "$bin_dir" 2>/dev/null
-        if ln -sf -- "$wizard" "$bin_dir/zsc-settings" 2>/dev/null; then
-            info "$(msg s.settings_symlink "$bin_dir/zsc-settings")"
-        fi
-    fi
-}
+_release_config_write_guard
+
 _install_user_settings
 
 # ------------------------------------------------------------------

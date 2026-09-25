@@ -65,7 +65,7 @@ fi
 
 # The suites print their tally in two shapes:
 #   === TOTAL: 47 passed, 0 failed ===        (the zsh suites)
-#   INSTALLER-OPTIONS TOTAL PASS=202 FAIL=0  (the bash one)
+#   INSTALLER-OPTIONS TOTAL PASS=202 FAIL=0  (the bash suites)
 # Summing them here means the assertion count quoted in README.md is a MEASURED
 # number on every run instead of a hand-maintained claim that drifts.
 total_pass=0

@@ -42,9 +42,62 @@ trap 'rm -rf "$TMP"' EXIT
 
 # ---------------------------------------------------------------------------
 # Extract the code under test, by NAME, so it can never drift from install.sh.
-# Function bodies in install.sh end with `}` in column 0.
+# A multi-line body ends with `}` in column 0; a one-line definition has to be
+# matched on its own line, or `sed` runs on looking for a close that is not there.
+#
+# The search for that closing brace has to skip heredoc bodies, because several
+# of these functions embed whole scripts -- and `_mk_dl_shim`'s embeds a
+# `_zsc_rw() { … }` whose own `}` sits in column 0. Reading it with a plain
+# `/^name() {/,/^}/` range returned the first 36 lines and called it the
+# function, so everything the test then asserted about the rest was vacuous.
 # ---------------------------------------------------------------------------
-extract_fn(){ sed -n "/^$1() {/,/^}/p" "$INSTALL"; }
+extract_fn(){
+    local _ef_file="${2:-$INSTALL}"
+    if grep -q "^$1() {.*}$" "$_ef_file"; then
+        grep -m1 "^$1() {.*}$" "$_ef_file"
+    else
+        awk -v fn="$1" '
+            function openheredoc(s) {
+                if (!match(s, /<<[-]?[^ \t]/)) return
+                s = substr(s, RSTART)
+                sub(/^<<-?/, "", s)
+                gsub(/[ \t].*$/, "", s)
+                gsub(/["\047]/, "", s)
+                if (s ~ /^[A-Za-z_][A-Za-z0-9_]*$/) { delim = s; here = 1 }
+            }
+            in_fn {
+                if (here) {
+                    print
+                    if ($0 ~ "^[ \t]*" delim "[ \t]*$") here = 0
+                    next
+                }
+                if ($0 ~ /^\}/) { print; exit }
+                print
+                openheredoc($0)
+                next
+            }
+            $0 ~ "^" fn "\\(\\) \\{" { in_fn = 1; print; openheredoc($0) }
+        ' "$_ef_file"
+    fi
+}
+# The parser's own witness, before anything else leans on it: the last line of
+# _mk_dl_shim is the `}` of its own wget branch, and the `chmod` that closes the
+# function is present. A range that stopped at the embedded script's brace
+# returns 36 lines and no chmod, which is what this catches.
+if extract_fn _mk_dl_shim | grep -q 'chmod +x' \
+    && [ "$(extract_fn _mk_dl_shim | wc -l | tr -d ' ')" -gt 40 ]; then
+    ok "extract_fn reads past the } that closes an embedded script"
+else
+    no "extract_fn reads past the } that closes an embedded script" \
+       "$(extract_fn _mk_dl_shim | wc -l | tr -d ' ') lines"
+fi
+
+# The answered-options defaults: the contiguous block that runs from
+# ZSC_OPT_MENU to the first blank line, plus the one-line _zsc_bool that prints
+# them. The end of the range is the block's own blank line rather than whatever
+# definition happened to follow it, because `_zsc_bool` now lives in the shared
+# core and can sit anywhere in the file.
+extract_defaults(){ sed -n '/^ZSC_OPT_MENU=1/,/^$/p' "$INSTALL"; extract_fn _zsc_bool; }
 
 # ---------------------------------------------------------------------------
 # Drive the prompts from stdin, not from the terminal.
@@ -63,9 +116,7 @@ extract_fn(){ sed -n "/^$1() {/,/^}/p" "$INSTALL"; }
 _tty_read() { read "$@" ; }
 
 {
-    # The answered-options defaults (everything from ZSC_OPT_MENU=1 up to and
-    # including the one-line _zsc_bool helper).
-    sed -n '/^ZSC_OPT_MENU=1/,/^_zsc_bool() {/p' "$INSTALL"
+    extract_defaults
     # The marker constants.
     grep -E '^(ZSC|OPT)_BLOCK_(BEGIN|END)=' "$INSTALL"
     extract_fn build_smart_options
@@ -73,7 +124,7 @@ _tty_read() { read "$@" ; }
 } > "$TMP/lib.sh"
 
 echo "== 0. extraction =="
-for fn in build_smart_options _upsert_options_block; do
+for fn in build_smart_options _upsert_options_block _zsc_bool; do
     if grep -q "^$fn() {" "$TMP/lib.sh"; then ok "extracted $fn"; else no "could not extract $fn"; fi
 done
 if grep -q '^ZSC_OPT_MENU=1' "$TMP/lib.sh"; then ok "extracted option defaults"; else no "option defaults missing"; fi
@@ -268,10 +319,12 @@ assert_eq "sourcing sets the documented variables" "$got" "true/true/history,com
 
 # ---------------------------------------------------------------------------
 echo "== 9. the Entware installer carries the same machinery =="
-# install-entware.sh is a separate, standalone script (fetched on its own), so
-# it cannot share code with install.sh — which means it can silently drift.
-# These assertions are the cheap tripwire: the questions, the builder and the
-# managed block must all be present there too.
+# Both installers are standalone files, on purpose (each is fetched on its own),
+# so the shared part is generated into them from lib/install/core.sh rather than
+# sourced. The generated half is checked by tools/build-installers.sh --check and
+# by tests/test-installer-shared.sh; what is left to check HERE is the
+# environment-specific half: that entware still asks the same questions through
+# its own copies of the questionnaire and the managed block.
 ENT="$REPO/install-entware.sh"
 if [ -f "$ENT" ]; then
     for fn in build_smart_options _upsert_options_block ask_smart_options _zsc_bool _tty_read; do
@@ -448,11 +501,17 @@ echo "== 12. region detection: China -> proxy/mirror, non-China -> direct =="
     extract_fn _test_proxy_url
     extract_fn _apply_full_proxy
     extract_fn _manual_proxy_flow
+    # select_mirror's callees have to be listed here one by one, and a missing
+    # one does not fail loudly: `if ! _mirror_prefix_ok "$x"` on an undefined
+    # function is 127, which the `!` turns into "reject", so every manual mirror
+    # below would silently come back as direct. The loop after the source checks
+    # that this one is present.
+    extract_fn _mirror_prefix_ok
     extract_fn select_mirror
 } > "$TMP/region.sh"
 # shellcheck disable=SC1090
 source "$TMP/region.sh"
-for fn in detect_public_ip_region select_mirror mirror_speed_test; do
+for fn in detect_public_ip_region select_mirror mirror_speed_test _mirror_prefix_ok; do
     if grep -q "^$fn() {" "$TMP/region.sh"; then ok "extracted $fn"; else no "could not extract $fn"; fi
 done
 
@@ -769,14 +828,28 @@ echo "== 14. prompts survive the documented piped one-liner (curl | bash) =="
 #   helper, and the helper itself is present in BOTH installers.
 bare_reads() {
     # Interactive reads that bypass _tty_read. File loops (`while IFS= read`)
-    # and the helper's own body are not prompts.
+    # and the helper's own body are not prompts -- and neither is a read inside
+    # a heredoc, which is a script the installer *writes out* rather than one it
+    # runs (the download shim in _mk_dl_shim reads four configuration lines from
+    # a file; that file is never the installer's stdin).
     awk '
+      BEGIN { here = 0; delim = "" }
       /^[[:space:]]*#/ { next }
+      here {
+          if ($0 ~ "^[[:space:]]*" delim "[[:space:]]*$") here = 0
+          next
+      }
       /^_tty_read\(\) \{/ { in_tty=1; next }
       in_tty { if ($0 ~ /^\}/) in_tty=0; next }
       /while IFS= read/ { next }
       /_tty_read/ { next }
       /(^|[;&|[:space:]])read[[:space:]]+-[a-zA-Z]/ { print FNR": "$0 }
+      /<<[-]?[^[:space:]]/ {
+          s = $0
+          sub(/^.*<<[-]?/, "", s)
+          gsub(/\047/, "", s); gsub(/"/, "", s)
+          if (split(s, a, /[^A-Za-z0-9_]/) >= 1 && a[1] ~ /^[A-Za-z_]/) { delim = a[1]; here = 1 }
+      }
     ' "$1"
 }
 for f in "$INSTALL" "$ENT"; do
@@ -793,6 +866,24 @@ printf 'echo -n "x: "; read -r ans\n' > "$TMP/bare-probe.sh"
 [ "$(bare_reads "$TMP/bare-probe.sh" | wc -l | tr -d ' ')" -eq 1 ] \
     && ok "detector self-test: a plain read is reported" \
     || no "detector self-test: a plain read went unnoticed (assertion is vacuous)"
+# ... and the other half of that self-test: the identical line inside a heredoc
+# is data the installer writes, not code it runs, so it must stay quiet. Without
+# this the filter above would be a way to make the check pass on anything.
+{   printf 'cat > "$out" <<%sGEN%s\n' "'" "'"
+    printf 'read -r inside\n'
+    printf 'GEN\n'
+    printf 'read -r outside\n'
+} > "$TMP/bare-probe2.sh"
+probe2="$(bare_reads "$TMP/bare-probe2.sh")"
+[ "$(printf '%s\n' "$probe2" | grep -c .)" -eq 1 ] && printf '%s\n' "$probe2" | grep -q outside \
+    && ok "detector self-test: a read inside a heredoc body is not a prompt" \
+    || no "detector self-test: the heredoc filter reported [$probe2], expected only the read outside it"
+# A heredoc that never terminates would hide the rest of the file, so say what
+# the detector thinks about a file whose body is still open at EOF.
+printf 'cat > x <<GEN\nread -r ans\n' > "$TMP/bare-probe3.sh"
+[ -z "$(bare_reads "$TMP/bare-probe3.sh")" ] \
+    && ok "detector self-test: an unterminated heredoc hides what follows (documented limitation)" \
+    || no "detector self-test: expected the unterminated-heredoc blind spot, got [$(bare_reads "$TMP/bare-probe3.sh")]"
 
 # An unguarded $BASH_SOURCE[0] is unset for a piped script, so `set -u` prints
 # "BASH_SOURCE[0]: unbound variable" and SCRIPT_DIR silently becomes the CWD.
@@ -899,7 +990,7 @@ echo "== 17. atuin: NOBIND by default - the floating TUI is a second UI =="
 # they are now an installer question (default no) and the generated config
 # uses ATUIN_NOBIND, which keeps history recording but binds nothing.
 {
-    sed -n '/^ZSC_OPT_MENU=1/,/^_zsc_bool() {/p' "$INSTALL"
+    extract_defaults
     grep -E '^(ZSC|OPT)_BLOCK_(BEGIN|END)=' "$INSTALL"
     extract_fn build_zsc_integration
     extract_fn _scan_foreign_atuin
@@ -1188,6 +1279,826 @@ if diff <(sed -n '/^_upsert_options_block() {/,/^}/p' "$INSTALL") \
 else
     no "23 both installers ship the same _upsert_options_block"
 fi
+
+# ---------------------------------------------------------------------------
+echo "== 24. _run_remote_script: fetch, look, then run =="
+# `curl … | sh` gave the shell whatever arrived. A connection that dies halfway
+# ran the first half; a mirror answering 200 with a portal page ran HTML; and
+# because run_with_mirror_dl evaluates its command a second time as the direct
+# fallback, a half-executed third-party installer could run twice. The helper
+# under test is what replaced that, so this drives it against a fake `curl`.
+{
+    sed -n '/^ZSC_OPT_MENU=1/,/^$/p' "$INSTALL"
+    grep -E '^(ZSC|OPT)_BLOCK_(BEGIN|END)=' "$INSTALL"
+    for fn in _rewrite_with mirror_rewrite curl_get _run_remote_script \
+              info success warn error msg _msg; do
+        extract_fn "$fn"
+    done
+} > "$TMP/lib24.sh"
+# shellcheck disable=SC1090
+source "$TMP/lib24.sh"
+
+mkdir -p "$TMP/bin24"
+cat > "$TMP/bin24/curl" <<'STUB'
+#!/usr/bin/env bash
+# Logs its argv, then serves $FAKE_BODY as the body of the request.
+printf 'curl %s\n' "$*" >> "$FAKE_LOG"
+out=""
+while [ $# -gt 0 ]; do
+    [ "$1" = "-o" ] && { out="$2"; shift 2; continue; }
+    shift
+done
+[ -n "$out" ] && cp -- "$FAKE_BODY" "$out"
+exit "${FAKE_RC:-0}"
+STUB
+chmod +x "$TMP/bin24/curl"
+
+# A body long enough to clear the size floor, and which proves it ran by
+# recording the arguments it was given.
+_good_body() {
+    {   printf '#!/bin/sh\n'
+        printf '# %s\n' "$(head -c 500 /dev/zero | tr '\0' 'x')"
+        printf 'printf "%%s\\n" "$@" > "%s/argv24"\n' "$TMP"
+        printf 'touch "%s/ran24"\n' "$TMP"
+    } > "$TMP/body24"
+}
+_html_body() {
+    {   printf '<!DOCTYPE html>\n<html>\n<head><title>Sign in</title></head>\n'
+        printf '<body>%s</body>\n' "$(head -c 900 /dev/zero | tr '\0' 'y')"
+        printf '</html>\n'
+    } > "$TMP/body24"
+}
+
+PATH="$TMP/bin24:$PATH"
+# An earlier section defines a `curl()` stub, and in bash a function wins over
+# PATH — the fake below would never be reached.
+unset -f curl 2>/dev/null || true
+export FAKE_LOG="$TMP/curl24.log"; : > "$FAKE_LOG"
+export FAKE_BODY="$TMP/body24"
+GH_MIRROR=""; GH_MIRROR_TYPE=direct; LANG_CODE=en
+
+# Run in a subshell with TMPDIR pointed at $TMP, so the fetched file itself is
+# observable: it must be gone afterwards whatever the outcome.
+_run24() { ( TMPDIR="$TMP" _run_remote_script "$@" ) > "$TMP/out24" 2>&1; }
+_leftovers() { find "$TMP" -maxdepth 1 -name 'zsc-remote.*' 2>/dev/null | wc -l | tr -d ' '; }
+
+rm -f -- "$TMP/ran24" "$TMP/argv24"; : > "$FAKE_LOG"
+_good_body; export FAKE_RC=0
+_run24 https://starship.example/install.sh -y; rc=$?
+# Every refusal below is also what an unfound stub produces, so prove the stub
+# is the thing that answered before trusting any of them.
+assert_eq "24 the fake curl was reached (nothing below is vacuous)" "$(wc -l < "$FAKE_LOG" | tr -d ' ')" "1"
+assert_eq "24 a whole script runs, and runs with the caller's arguments" "$rc" "0"
+[ -f "$TMP/ran24" ] && ok "24 the fetched script was executed" || no "24 the fetched script was executed"
+assert_has "24 the argument reached the script" "$TMP/argv24" "-y"
+assert_eq "24 the downloaded file is cleaned up after a success" "$(_leftovers)" "0"
+
+rm -f -- "$TMP/ran24"
+_html_body
+_run24 https://portal.example/; rc=$?
+[ "$rc" -ne 0 ] && ok "24 an HTML page is refused (exit $rc)" || no "24 an HTML page is refused"
+[ ! -f "$TMP/ran24" ] && ok "24 nothing ran when the body was a web page" || no "24 nothing ran when the body was a web page"
+grep -qiE 'html|script' "$TMP/out24" \
+    && ok "24 the refusal says why" || no "24 the refusal says why" "$(cat "$TMP/out24")"
+assert_eq "24 the downloaded file is cleaned up after a refusal" "$(_leftovers)" "0"
+
+# A body under the floor is what a half-open connection looks like from the
+# receiving end, which is the case `curl | sh` executed anyway.
+printf '#!/bin/sh\nexit 0\n' > "$TMP/body24"
+rm -f -- "$TMP/ran24"
+_run24 https://starship.example/install.sh; rc=$?
+[ "$rc" -ne 0 ] && ok "24 a truncated body is refused (exit $rc)" || no "24 a truncated body is refused"
+[ ! -f "$TMP/ran24" ] && ok "24 a truncated body never runs" || no "24 a truncated body never runs"
+
+: > "$FAKE_LOG"; _good_body; export FAKE_RC=22
+_run24 https://starship.example/install.sh; rc=$?
+assert_eq "24 curl's own failure is the exit code, not a reinterpreted one" "$rc" "22"
+assert_eq "24 a failed fetch does not reach the size check" "$(wc -l < "$FAKE_LOG" | tr -d ' ')" "1"
+
+# The one property the rewrite of _ensure_omz depends on: mirror_rewrite is
+# applied exactly once. A double rewrite would prepend the prefix twice and
+# still "work" in every test that does not look at the URL.
+: > "$FAKE_LOG"; GH_MIRROR="https://gh.example/"; GH_MIRROR_TYPE=prefix
+_run24 https://github.com/ohmyzsh/ohmyzsh/master/tools/install.sh --unattended
+if grep -qF -- 'https://gh.example/https://github.com/ohmyzsh' "$FAKE_LOG"; then
+    ok "24 the mirror prefix is applied"
+else
+    no "24 the mirror prefix is applied" "$(cat "$FAKE_LOG")"
+fi
+if grep -qF -- 'https://gh.example/https://gh.example/' "$FAKE_LOG"; then
+    no "24 the mirror prefix is applied exactly once" "$(cat "$FAKE_LOG")"
+else
+    ok "24 the mirror prefix is applied exactly once"
+fi
+GH_MIRROR=""; GH_MIRROR_TYPE=direct
+
+# The helper is shared code, so the artifact that was not edited by hand has to
+# carry the same body — this is the check that would catch a regenerated file
+# that lost it, which the byte-comparison suite only covers while both sides
+# agree with the core.
+if diff <(extract_fn _run_remote_script) <(extract_fn _run_remote_script "$EW") >/dev/null 2>&1; then
+    ok "24 both installers ship the same _run_remote_script"
+else
+    no "24 both installers ship the same _run_remote_script"
+fi
+
+# ---------------------------------------------------------------------------
+echo "== 25. a half-finished config rewrite is undone =="
+# Every write below is a rename, so no single one can leave a truncated file --
+# but the installer performs them as a SEQUENCE on $ZSHRC_FILE, and an abort
+# between two of them leaves a .zshrc that parses, starts a shell, and does not
+# load the plugin. The .bak.<timestamp> sitting next to it does not undo that:
+# nothing points at it, and the run that made it has already stopped.
+{
+    for fn in _guard_config_write _undo_config_write _release_config_write_guard; do
+        extract_fn "$fn"
+    done
+} > "$TMP/lib25.sh"
+# shellcheck disable=SC1090
+source "$TMP/lib25.sh"
+
+RC25="$TMP/rc25"
+LANG_CODE=en
+# The snapshot has to be observable, so it is parked in $TMP like the fetch.
+_snap_count() { find "$TMP" -maxdepth 1 -name 'zsc-guard.*' 2>/dev/null | wc -l | tr -d ' '; }
+
+# 1. A pre-existing config comes back byte for byte.
+printf 'OLD\n' > "$RC25"
+( TMPDIR="$TMP" _guard_config_write "$RC25"
+  printf 'NEW\n' > "$RC25"
+  exit 1 ) > "$TMP/out25a" 2>&1
+assert_eq "25 an abort partway through restores the pre-install content" "$(cat "$RC25")" "OLD"
+assert_has "25 the rollback is announced" "$TMP/out25a" "restored"
+
+# The witness for everything below: without the guard the same run leaves the
+# half-installed file, so a pass above cannot be the file never having changed.
+printf 'OLD\n' > "$RC25"
+( printf 'NEW\n' > "$RC25"; exit 1 ) >/dev/null 2>&1
+assert_eq "25 without the guard the half-write is what survives" "$(cat "$RC25")" "NEW"
+
+# 2. "There was no .zshrc before" is a state too. The installer has a branch
+# that creates the file, and leaving that file behind would claim an install
+# that never happened.
+rm -f -- "$RC25"
+( TMPDIR="$TMP" _guard_config_write "$RC25"
+  printf 'NEW\n' > "$RC25"
+  exit 1 ) > "$TMP/out25b" 2>&1
+[ ! -e "$RC25" ] && ok "25 a .zshrc the install created is removed again" \
+                  || no "25 a .zshrc the install created is removed again" "left: $(cat "$RC25")"
+
+# 3. Success is not a failure: the config the user asked for stays.
+printf 'OLD\n' > "$RC25"
+( TMPDIR="$TMP" _guard_config_write "$RC25"
+  printf 'NEW\n' > "$RC25"
+  exit 0 ) >/dev/null 2>&1
+assert_eq "25 a finished install keeps what it wrote" "$(cat "$RC25")" "NEW"
+
+# 4. Released: a failure after the last write must not talk the installer out
+# of a config the user asked for.
+printf 'OLD\n' > "$RC25"
+( TMPDIR="$TMP" _guard_config_write "$RC25"
+  printf 'NEW\n' > "$RC25"
+  _release_config_write_guard
+  exit 1 ) >/dev/null 2>&1
+assert_eq "25 releasing the guard keeps the config through a later failure" "$(cat "$RC25")" "NEW"
+
+# 5. The snapshot really exists while armed (otherwise 1-4 would pass on a
+# guard that quietly did nothing) and really gone once the run ends.
+printf 'OLD\n' > "$RC25"
+( TMPDIR="$TMP" _guard_config_write "$RC25"
+  _snap_count > "$TMP/during25"
+  printf 'NEW\n' > "$RC25"
+  exit 1 ) >/dev/null 2>&1
+assert_eq "25 arming the guard takes a snapshot" "$(cat "$TMP/during25")" "1"
+assert_eq "25 and no snapshot is left behind" "$(_snap_count)" "0"
+
+# 6. Nothing on the rollback path may be an unbound variable: these installers
+# run under `set -u`, and a trap that dies is worse than no trap.
+( set -u
+  TMPDIR="$TMP" _guard_config_write "$RC25"
+  printf 'NEW\n' > "$RC25"
+  exit 1 ) > "$TMP/out25u" 2>&1
+if grep -q 'unbound variable' "$TMP/out25u"; then
+    no "25 the rollback path is set -u clean" "$(cat "$TMP/out25u")"
+else
+    ok "25 the rollback path is set -u clean"
+fi
+
+# 7. Wiring. The functions above do nothing until something arms them around
+# the writes, and which writes are inside the window is exactly the part a
+# later edit can move.
+for f in "$INSTALL" "$EW"; do
+    name="$(basename "$f")"
+    arm="$(grep -n '^_guard_config_write "\$ZSHRC_FILE"$' "$f" | head -1 | cut -d: -f1)"
+    rel="$(grep -n '^_release_config_write_guard$' "$f" | head -1 | cut -d: -f1)"
+    inside="$(sed -n "$(( ${arm:-1} + 1 )),${rel:-1}p" "$f" 2>/dev/null | grep -c '_upsert_options_block "\$ZSHRC_FILE"')"
+    outside="$(sed -n "${rel:-1},\$p" "$f" | grep -c '_upsert_options_block "\$ZSHRC_FILE"')"
+    if [ -n "$arm" ] && [ -n "$rel" ] && [ "$arm" -lt "$rel" ] \
+        && [ "$inside" -gt 0 ] && [ "$outside" -eq 0 ]; then
+        ok "$name: the guard wraps the .zshrc writes and nothing after them"
+    else
+        no "$name: the guard wraps the .zshrc writes and nothing after them" \
+           "arm=$arm rel=$rel inside=$inside outside=$outside"
+    fi
+done
+
+# 8. It is shared code: the artifact nobody edits by hand has to carry the same
+# body and the same message keys.
+if diff <(extract_fn _undo_config_write) <(extract_fn _undo_config_write "$EW") >/dev/null 2>&1; then
+    ok "25 both installers ship the same _undo_config_write"
+else
+    no "25 both installers ship the same _undo_config_write"
+fi
+if grep -q '^        i.config_undone)$' "$INSTALL" \
+    && grep -q '^            i.config_undone)$' "$EW"; then
+    ok "25 both installers can say what they undid"
+else
+    no "25 both installers can say what they undid"
+fi
+
+# ---------------------------------------------------------------------------
+echo "== 26. apply_template never blanks the file it writes =="
+# `cp -f src dest` and `cat > dest <<EOF` truncate the destination first and
+# then discover whether they have anything to write: a source that vanished
+# between resolve and apply, a download that came back empty, or a FALLBACK
+# name no arm matches all leave a zero-byte .zshrc or starship.toml behind --
+# and the rest of the install goes on trusting it.
+extract_fn apply_template > "$TMP/lib26.sh"
+# shellcheck disable=SC1090
+source "$TMP/lib26.sh"
+
+TPL_SRC="$TMP/src26"; TPL_DEST="$TMP/dest26"
+printf 'GOOD TEMPLATE\n' > "$TPL_SRC"
+
+( apply_template "LOCAL:$TPL_SRC" "$TPL_DEST" ) > "$TMP/out26a" 2>&1; rc26=$?
+assert_eq "26 a local template lands in place" "$(cat "$TPL_DEST")" "GOOD TEMPLATE"
+assert_eq "26 and the call succeeds" "$rc26" "0"
+[ ! -e "${TPL_DEST}.zsc-new" ] && ok "26 the sibling it wrote through is gone" \
+                               || no "26 the sibling it wrote through is gone"
+
+# Now the case the old code got wrong: the destination already has content, and
+# what is being applied is nothing.
+printf 'USER CONFIG\n' > "$TPL_DEST"
+: > "$TPL_SRC"
+( apply_template "LOCAL:$TPL_SRC" "$TPL_DEST" ) > "$TMP/out26b" 2>&1; rc26=$?
+[ "$rc26" -ne 0 ] && ok "26 an empty template fails the install (exit $rc26)" \
+                   || no "26 an empty template fails the install"
+assert_eq "26 and the existing config is untouched" "$(cat "$TPL_DEST")" "USER CONFIG"
+rm -f -- "$TPL_DEST"
+( apply_template "BOGUS:whatever" "$TPL_DEST" ) > "$TMP/out26c" 2>&1; rc26=$?
+[ "$rc26" -ne 0 ] && ok "26 an unresolved template is not silently an empty one" \
+                   || no "26 an unresolved template is not silently an empty one"
+[ ! -e "$TPL_DEST" ] && ok "26 and no file is created for it" || no "26 and no file is created for it"
+
+# Every arm of the case statement writes through the sibling, so the one thing
+# the function does to $dest is rename a finished file onto it. A call site that
+# reintroduced a direct write would slip past the cases above, which all fail
+# before reaching that rename.
+bad26="$(awk '/^apply_template\(\) \{/,/^\}/' "$INSTALL" | grep -v '^[[:space:]]*#' \
+            | grep -F '"$dest"' | grep -vF 'mv -f -- "$tmp" "$dest"' \
+            | grep -vF 'msg e.template_empty')"
+if [ -z "$bad26" ]; then
+    ok "26 apply_template touches \$dest only by renaming onto it"
+else
+    no "26 apply_template touches \$dest only by renaming onto it" "$bad26"
+fi
+
+# ---------------------------------------------------------------------------
+echo "== 27. the mirror prefix is a URL, and it is data =="
+# GH_MIRROR reaches the installer from SMART_INSTALL_GH_MIRROR or from the menu,
+# and from there into every download this run performs -- including the fetch of
+# third-party installers that are then executed. Two properties, one per channel
+# it can go wrong: the value has to name a mirror (not a typo, not plaintext
+# http), and carrying it into the download shim must not be able to say anything
+# back to the shell. The second one used to be `PREFIX='$prefix'` inside an
+# unquoted heredoc, so a quote in the value closed the string and the rest of it
+# became code in a file every download sources.
+{
+    for fn in _mirror_prefix_ok _mk_dl_shim info warn error msg _msg; do
+        extract_fn "$fn"
+    done
+} > "$TMP/lib27.sh"
+# shellcheck disable=SC1090
+source "$TMP/lib27.sh"
+LANG_CODE=en
+
+for good in "" "https://ghproxy.net/" "https://ghproxy.net" "https://host.example:8443/a/b" \
+            "my.mirror.example" "mirror.ghproxy.com"; do
+    _mirror_prefix_ok "$good" && ok "27 accepts [$good]" || no "27 accepts [$good]"
+done
+for bad in "http://ghproxy.net/" "https://ghproxy.net/'; touch /tmp/nope; '" \
+           "https://evil.example/ && curl -s x | sh" 'https://$(id)/' \
+           "https://host/a b" "file:///etc/passwd" "https:///no-host" \
+           "my.mirror.example/../x" "https://ghproxy.net/
+"; do
+    if _mirror_prefix_ok "$bad"; then
+        no "27 rejects [$(printf '%s' "$bad" | head -c 40)]"
+    else
+        ok "27 rejects [$(printf '%s' "$bad" | head -c 40)]"
+    fi
+done
+
+# The shim itself, built from a value that is both a plausible-looking prefix
+# and an attempt to run something.
+SHIM27="$TMP/shim27"; mkdir -p "$SHIM27" "$TMP/bin27"
+printf '#!/usr/bin/env bash\nprintf "realcurl %%s\\n" "$@" >> "%s/handoff"\n' "$TMP" > "$TMP/bin27/realcurl"
+chmod +x "$TMP/bin27/realcurl"
+REAL_CURL="$TMP/bin27/realcurl"; REAL_WGET=""
+EVIL27="https://x.example/'; touch $TMP/pwn27; '"
+rm -f -- "$TMP/pwn27" "$TMP/handoff"
+_mk_dl_shim "$SHIM27" "$EVIL27" "prefix"
+if grep -qF "touch $TMP/pwn27" "$SHIM27/_zsc_rw.sh" "$SHIM27/curl"; then
+    no "27 the prefix stays out of the generated scripts"
+else
+    ok "27 the prefix stays out of the generated scripts"
+fi
+# Data, in the file the generated script reads at run time.
+assert_has "27 the value is written as data instead" "$SHIM27/_zsc_conf" "x.example"
+
+# Broken as it is, the value must still not swallow the download: the shim hands
+# off to the real curl, and a non-github URL passes through unchanged. Running
+# the shim is also the moment an injected value would land, because `curl`
+# sources the rewrite script before it does anything.
+"$SHIM27/curl" -o /dev/null "https://example.invalid/path" >> "$TMP/out27" 2>&1
+assert_has "27 an unusable prefix still handoffs to the real curl" "$TMP/handoff" "https://example.invalid/path"
+[ ! -e "$TMP/pwn27" ] && ok "27 running the shim executes nothing from the value" \
+                      || no "27 running the shim executes nothing from the value"
+# The witness for that absence: the marker really is creatable here, so this is
+# a refusal and not a `touch` that happens to fail.
+( touch "$TMP/pwn27-witness" ) >/dev/null 2>&1
+[ -e "$TMP/pwn27-witness" ] && ok "27 (and the marker was creatable)" \
+                             || no "27 (and the marker was creatable)"
+rm -f -- "$TMP/pwn27" "$TMP/pwn27-witness"
+
+# The behaviour the shim exists for, with a real prefix.
+: > "$TMP/handoff"
+_mk_dl_shim "$SHIM27" "https://ghproxy.net/" "prefix"
+"$SHIM27/curl" -o /dev/null "https://raw.githubusercontent.com/imonior/zsh-smart-complete/main/install.sh" >> "$TMP/out27" 2>&1
+assert_has "27 a github URL goes through the mirror" "$TMP/handoff" "https://ghproxy.net/https://raw.githubusercontent.com/"
+if grep -qF -- 'https://ghproxy.net/https://ghproxy.net/' "$TMP/handoff"; then
+    no "27 rewritten once"
+else
+    ok "27 rewritten once"
+fi
+: > "$TMP/handoff"
+"$SHIM27/curl" -o /dev/null "https://example.invalid/x" >> "$TMP/out27" 2>&1
+assert_has "27 a non-github URL is left alone" "$TMP/handoff" "https://example.invalid/x"
+# The clone type must not touch release downloads, which is what made starship
+# exit 22 when it did.
+: > "$TMP/handoff"
+_mk_dl_shim "$SHIM27" "https://gitclone.com/" "clone"
+"$SHIM27/curl" -o /dev/null "https://github.com/starship/starship/releases/download/v1.0.0/starship.tar.gz" >> "$TMP/out27" 2>&1
+assert_has "27 a releases URL is never routed through a clone mirror" "$TMP/handoff" "https://github.com/starship/starship/releases"
+: > "$TMP/handoff"
+"$SHIM27/curl" -o /dev/null "https://github.com/imonior/zsh-smart-complete.git" >> "$TMP/out27" 2>&1
+assert_has "27 but a repository URL is" "$TMP/handoff" "https://gitclone.com/github.com/imonior/zsh-smart-complete.git"
+rm -rf -- "$SHIM27" "$TMP/bin27"
+
+# Shared code again: the second installer is regenerated from the same core, and
+# a divergence here would mean one of the two can be talked into a bad URL.
+for fn in _mk_dl_shim _mirror_prefix_ok; do
+    if diff <(extract_fn "$fn") <(extract_fn "$fn" "$EW") >/dev/null 2>&1; then
+        ok "27 both installers ship the same $fn"
+    else
+        no "27 both installers ship the same $fn"
+    fi
+done
+for f in "$INSTALL" "$EW"; do
+    grep -q '^            mirror.rejected)$' "$f" \
+        && ok "$(basename "$f"): the refusal is translated" \
+        || no "$(basename "$f"): the refusal is translated"
+done
+
+# ---------------------------------------------------------------------------
+echo "== 28. nothing the installer defines is left unused =="
+# `_cleanup_old_baks` was dead code with a live half: its first 40 lines deleted
+# the user's .bak.* files unconditionally, its second half walked three arrays
+# that nothing ever filled (which `set -u` would have aborted on the spot), and
+# nobody called it. Ten message keys in five languages existed for it alone.
+# Nothing in the suite could notice, because no check asked whether a definition
+# has a caller. These two lints are that question.
+dead_fns() {
+    # Names defined as a function in $1 and never mentioned again by a line that
+    # is not a comment. A comment is excluded because one is exactly how a dead
+    # function survives: "# (… _cleanup_conflict_residues; this earlier, partial
+    # duplicate was removed …)" describes a deletion while keeping the name alive
+    # in text.
+    awk '
+      /^[A-Za-z_][A-Za-z0-9_]*\(\)/ {
+          n = $0; sub(/\(\).*/, "", n); defs[++nd] = n; next
+      }
+      /^[ \t]*#/ { next }
+      {
+          t = $0; gsub(/[^A-Za-z0-9_]+/, " ", t)
+          nt = split(t, a, " ")
+          for (i = 1; i <= nt; i++) used[a[i]] = 1
+      }
+      END { for (i = 1; i <= nd; i++) if (!(defs[i] in used)) print defs[i] }
+    ' "$1"
+}
+for f in "$INSTALL" "$ENT"; do
+    if [ -n "$(dead_fns "$f")" ]; then
+        no "$(basename "$f"): every function has a caller" "$(dead_fns "$f" | tr '\n' ' ')"
+    else
+        ok "$(basename "$f"): every function has a caller"
+    fi
+done
+# The detector's own witness, including the two ways it could lie: report
+# nothing at all, or count a mention in a comment as a call.
+{   printf 'live_fn() { :; }\n'
+    printf 'commented_out() { :; }\n'
+    printf '# someone should call commented_out one day\n'
+    printf 'never_mentioned() { :; }\n'
+    printf 'live_fn\n'
+} > "$TMP/fnprobe.sh"
+got="$(dead_fns "$TMP/fnprobe.sh" | sort | tr '\n' ' ')"
+assert_eq "dead-function detector reports exactly the dead ones" "$got" "commented_out never_mentioned "
+
+# Message keys are shared wholesale between the two installers -- each catalog is
+# the full set so the UI cannot drift by file -- so a key is dead only when
+# neither installer asks for it.
+msg_keys() {
+    # A key is a line of its own followed -- past any comment, which several
+    # entries carry -- by the `case "$lang" in` that gives its five
+    # translations. That second half is what keeps the arms of apply_template's
+    # `case "$n" in` (zshrc.example, starship.toml.example) out of the set: they
+    # look like keys and are not.
+    awk '
+      /^[ \t]+[a-z0-9_]+\.[a-z0-9_.]+\)[ \t]*$/ {
+          k = $0; sub(/\)[ \t]*$/, "", k); sub(/^[ \t]+/, "", k); pend = k; next
+      }
+      pend && /^[ \t]*#/ { next }
+      pend && /^[ \t]+case .*lang.* in[ \t]*$/ { print pend; pend = ""; next }
+      { pend = "" }
+    ' "$1"
+}
+key_called_in() {
+    # `msg <key>` as a whole word: `s.backed_up` is a prefix of the live
+    # `s.backed_up_removed_path`, so a plain substring search would call a dead
+    # key used and the lint below would pass on the very thing it is for.
+    local esc; esc="$(printf '%s' "$2" | sed 's/\./\\./g')"
+    grep -qE "(^|[^[:alnum:]_])msg ${esc}([^[:alnum:]_.]|\$)" "$1" 2>/dev/null
+}
+key_called() { key_called_in "$INSTALL" "$1" || key_called_in "$ENT" "$1"; }
+dead_keys=""
+for k in $(msg_keys "$INSTALL") $(msg_keys "$ENT"); do
+    key_called "$k" || dead_keys="$dead_keys $k"
+done
+assert_eq "every message key in either catalog is asked for somewhere" "$dead_keys" ""
+# Probes for that detector: one true positive, the prefix false positive it has
+# to avoid, and the whole-word positive that proves it is not simply blind.
+printf 'a=$(msg probe.used_key "x")\nb=$(msg probe.used_key_longer "y")\n' > "$TMP/keyprobe.sh"
+key_called_in "$TMP/keyprobe.sh" "probe.used_key" \
+    && ok "key detector: finds a key that is called" || no "key detector: finds a key that is called"
+key_called_in "$TMP/keyprobe.sh" "probe.used_key_longer" \
+    && ok "key detector: finds the longer key too" || no "key detector: finds the longer key too"
+printf 'a=$(msg probe.dead_key_longer "y")\n' > "$TMP/keyprobe2.sh"
+if key_called_in "$TMP/keyprobe2.sh" "probe.dead_key"; then
+    no "key detector: a longer key does not vouch for its own prefix"
+else
+    ok "key detector: a longer key does not vouch for its own prefix"
+fi
+if [ -n "$(msg_keys "$INSTALL")" ] && [ "$(msg_keys "$INSTALL" | wc -l | tr -d ' ')" -gt 200 ]; then
+    ok "key detector: the catalog really was walked ($(( $(msg_keys "$INSTALL" | wc -l | tr -d ' ') )) keys)"
+else
+    no "key detector: the catalog walk found almost nothing, so the lint above is vacuous"
+fi
+
+# ---------------------------------------------------------------------------
+echo "== 29. --uninstall takes back only what the installer wrote =="
+# The strip pass is the inverse of `_upsert_options_block`, and it is the one
+# place in these scripts that DELETES lines from a file the user wrote. Two
+# failure modes matter: taking something that was not ours (unrecoverable --
+# this is the shell config), and leaving an orphaned `zinit ice` behind.
+# `zinit ice` configures whatever plugin loads NEXT, so deleting only the
+# `zinit light` line would silently re-style an unrelated plugin.
+{
+    for fn in _zsc_in_config _zsc_strip_managed _uninstall_all; do
+        extract_fn "$fn"
+    done
+} > "$TMP/lib29.sh"
+# shellcheck disable=SC1090
+source "$TMP/lib29.sh"
+
+# The marker values are read back from install.sh rather than retyped here. An
+# empty marker turns `grep -qF ""` into "match every line" and the awk below
+# into "delete the file", while every assertion in this section would still
+# pass -- so this is both the fixture and the check that the values are plain
+# top-level assignments in the shipped script.
+if eval "$(grep -E '^(ZSC|OPT)_BLOCK_(BEGIN|END)=' "$INSTALL")" \
+        && [[ -n "$ZSC_BLOCK_BEGIN" && -n "$ZSC_BLOCK_END" \
+              && -n "$OPT_BLOCK_BEGIN" && -n "$OPT_BLOCK_END" ]] \
+        && [[ "$ZSC_BLOCK_BEGIN" != "$OPT_BLOCK_BEGIN" && "$ZSC_BLOCK_END" != "$OPT_BLOCK_END" ]]; then
+    ok "29 markers read back from install.sh: non-empty and distinct"
+else
+    no "29 markers read back from install.sh: non-empty and distinct"
+fi
+if [[ "$(grep -cE '^ZSC_BLOCK_BEGIN=' "$INSTALL")" == "1" ]]; then
+    ok "29 each marker is defined exactly once (with two, the fixture above silently takes the last)"
+else
+    no "29 each marker is defined exactly once (with two, the fixture above silently takes the last)"
+fi
+
+# The installer's own output helpers, kept on stdout so each case can be
+# captured and grepped per run.
+info()    { printf 'I:%s\n' "$*"; }
+success() { printf 'O:%s\n' "$*"; }
+warn()    { printf 'W:%s\n' "$*"; }
+error()   { printf 'E:%s\n' "$*"; exit 1; }
+# Echo the key AND its arguments, so "the message named the right file" is an
+# assertion rather than a guess.
+msg()     { local k="$1"; shift || true; printf '%s' "$k"; local a; for a in "$@"; do printf ' <%s>' "$a"; done; }
+prompt_yes() { [[ "${ANSWER29:-1}" == "1" ]]; }
+
+# 1. Both managed blocks go; everything the user wrote stays.
+R29="$TMP/a29.zshrc"
+{
+    printf 'export MY_OWN=1\n'
+    printf '%s\n' "$ZSC_BLOCK_BEGIN"
+    printf 'zinit light imonior/zsh-smart-complete\n'
+    printf 'autoload -Uz compinit\n'
+    printf '%s\n' "$ZSC_BLOCK_END"
+    printf 'alias ll="ls -l"\n'
+    printf '%s\n' "$OPT_BLOCK_BEGIN"
+    printf 'export SMART_MENU=true\n'
+    printf '%s\n' "$OPT_BLOCK_END"
+    printf 'export PATH="$PATH:/opt/bin"\n'
+} > "$R29"
+if _zsc_strip_managed "$R29"; then
+    ok "29 the strip reports that it changed the file"
+else
+    no "29 the strip reports that it changed the file"
+fi
+assert_lacks "29 the managed content is gone" "$R29" "SMART_MENU=true"
+assert_lacks "29 the markers themselves are gone too" "$R29" "$ZSC_BLOCK_BEGIN"
+assert_has   "29 the line above the first block survives" "$R29" "export MY_OWN=1"
+assert_has   "29 the line between the two blocks survives" "$R29" 'alias ll="ls -l"'
+assert_has   "29 the line after the second block survives" "$R29" "/opt/bin"
+assert_eq    "29 exactly the two blocks were removed, nothing else (3 lines survive)" "$(wc -l < "$R29" | tr -d ' ')" "3"
+
+# 1b. The blank line the installer puts in FRONT of the block it appended goes
+#     with the block. A blank line between two of the user's own stanzas does
+#     not, even though the strip pass had to buffer it to know which case it was.
+R29="$TMP/h29.zshrc"
+printf 'export A=1\n\nalias ll="ls -l"\n\n%s\nexport SMART_MENU=true\n%s\n' \
+    "$OPT_BLOCK_BEGIN" "$OPT_BLOCK_END" > "$R29"
+_zsc_strip_managed "$R29"
+assert_eq "29 the block's own leading blank line went with it (3 lines left)" "$(wc -l < "$R29" | tr -d ' ')" "3"
+assert_eq "29 and the user's own separator is still in the same place" \
+    "$(tr '\n' '|' < "$R29")" 'export A=1||alias ll="ls -l"|'
+# Witness: had the fixture ended with a block in the middle of the file, both
+# checks above could pass while the strip left two blank lines at EOF.
+assert_eq "29 nothing trails the last user line" "$(tail -c 1 "$R29" | od -An -c | tr -d ' ')" "\\n"
+
+# 2. The `zinit ice` pairing: the first ice belongs to ANOTHER plugin and must
+#    stay with it; the second is consumed by our load line and both go.
+R29="$TMP/b29.zshrc"
+{
+    printf 'zinit ice wait lucid\n'
+    printf 'zinit light other/plugin\n'
+    printf 'zinit ice wait lucid\n'
+    printf 'zinit light imonior/zsh-smart-complete\n'
+} > "$R29"
+_zsc_strip_managed "$R29"
+assert_eq "29 another plugin's zinit ice is not orphaned (2 lines left, not 3)" "$(wc -l < "$R29" | tr -d ' ')" "2"
+assert_has "29 the surviving ice line is the one that still has a consumer" "$R29" "zinit light other/plugin"
+assert_eq "29 and it still sits directly above that plugin" "$(sed -n '1p' "$R29")" "zinit ice wait lucid"
+# Witness for the reverse mistake: an implementation that dropped every ice
+# line passes the three checks above by accident.
+assert_eq "29 exactly one ice line is left" "$(grep -c '^zinit ice' "$R29")" "1"
+
+# 3. A trailing run of ice lines with no consumer at EOF is the user's, not ours.
+R29="$TMP/c29.zshrc"
+{
+    printf 'zinit light imonior/zsh-smart-complete\n'
+    printf 'zinit ice wait lucid\n'
+} > "$R29"
+_zsc_strip_managed "$R29"
+assert_has "29 an ice line at end of file is flushed back, not swallowed" "$R29" "zinit ice wait lucid"
+assert_eq "29 and only our load line was removed" "$(wc -l < "$R29" | tr -d ' ')" "1"
+
+# 4. The pre-marker forms: indented inside an `if`, and the `zinit load` spelling.
+R29="$TMP/d29.zshrc"
+{
+    printf 'if [[ -f "$ZINIT_HOME/zinit.zsh" ]]; then\n'
+    printf '    zinit ice wait lucid\n'
+    printf '    zinit light zdharma-continuum/fast-syntax-highlighting\n'
+    printf '    zinit light imonior/zsh-smart-complete\n'
+    printf 'fi\n'
+} > "$R29"
+_zsc_strip_managed "$R29"
+assert_lacks "29 an indented (inside-if) load line is matched too" "$R29" "zinit light imonior"
+assert_has "29 the if block is left intact and still loads the other plugin" "$R29" "fast-syntax-highlighting"
+assert_eq "29 the block is still closed, so the config parses" "$(tail -1 "$R29")" "fi"
+R29="$TMP/e29.zshrc"
+printf 'zinit ice wait\nzinit load imonior/zsh-smart-complete\n' > "$R29"
+_zsc_strip_managed "$R29"
+assert_eq "29 the zinit load spelling is handled as well" "$(wc -l < "$R29" | tr -d ' ')" "0"
+
+# 5. Nothing of ours: report no change, and do not touch the file.
+R29="$TMP/f29.zshrc"
+printf 'export MY_OWN=1\nalias ll="ls -l"\n' > "$R29"
+cp -p "$R29" "$R29.ref"
+if _zsc_strip_managed "$R29"; then
+    no "29 a config with nothing of ours reports NO change (a false 'yes' would fake a cleanup)"
+else
+    ok "29 a config with nothing of ours reports NO change (a false 'yes' would fake a cleanup)"
+fi
+cmp -s "$R29" "$R29.ref" && ok "29 and it is left byte for byte identical" || no "29 and it is left byte for byte identical"
+if _zsc_in_config "$R29"; then no "29 _zsc_in_config calls a clean config ours"; else ok "29 _zsc_in_config calls a clean config NOT ours"; fi
+if _zsc_in_config "$TMP/does-not-exist-29"; then no "29 a missing config is not ours"; else ok "29 a missing config is not ours"; fi
+# A half-removed config (only an END marker left over from an older or
+# interrupted run) still counts, because the strip pass is what fixes it.
+printf 'x\n%s\n' "$OPT_BLOCK_END" > "$R29"
+if _zsc_in_config "$R29"; then ok "29 a lone END marker still counts as ours"; else no "29 a lone END marker still counts as ours"; fi
+
+# 6. Permissions. The strip writes a temp and renames over the file, and mktemp
+#    hands out 0600 -- without the cp -p an uninstall would quietly tighten
+#    ~/.zshrc on every machine it touches.
+R29="$TMP/g29.zshrc"
+printf '%s\nexport SMART_MENU=true\n%s\n' "$OPT_BLOCK_BEGIN" "$OPT_BLOCK_END" > "$R29"
+chmod 644 "$R29"
+_zsc_strip_managed "$R29"
+assert_eq "29 the config keeps the mode it had" "$(ls -l "$R29" | cut -c2-10)" "rw-r--r--"
+assert_eq "29 and no .zsc-strip temp file is left in the directory" \
+    "$(find "$(dirname "$R29")" -name '.zsc-strip.*' | wc -l | tr -d ' ')" "0"
+
+# 7. The uninstall driver, against a fake $HOME.
+home29() {   # point every path the driver derives at $1
+    local h="$1"
+    rm -rf "$h"; mkdir -p "$h"
+    printf 'export MY_OWN=1\nalias ll="ls -l"\n' > "$h/.zshrc"
+    HOME="$h"; ZDOTDIR="$h"; XDG_DATA_HOME=""; XDG_CONFIG_HOME=""
+    unset ZSHRC_FILE SMART_COMPLETE_INSTALL_DIR
+}
+
+#    Nothing installed: say so, and do not even ask.
+H="$TMP/home29-clean"
+( home29 "$H"
+  _uninstall_all > "$TMP/out29a" 2>&1 )
+assert_has "29 with nothing installed it says there is nothing to remove" "$TMP/out29a" "u.nothing"
+assert_lacks "29 and it does not ask for confirmation first" "$TMP/out29a" "u.confirm"
+assert_eq  "29 the user's config is untouched" "$(cat "$H/.zshrc")" "$(printf 'export MY_OWN=1\nalias ll="ls -l"')"
+
+#    Installed, and the answer is NO.
+H="$TMP/home29-declined"
+( home29 "$H"
+  { printf '%s\n' "$ZSC_BLOCK_BEGIN"
+    printf 'zinit light imonior/zsh-smart-complete\n'
+    printf '%s\n' "$ZSC_BLOCK_END"; } >> "$H/.zshrc"
+  mkdir -p "$H/.local/share/zinit/plugins/imonior---zsh-smart-complete"
+  ANSWER29=0
+  _uninstall_all > "$TMP/out29b" 2>&1 )
+assert_has "29 declining the confirmation cancels" "$TMP/out29b" "u.cancelled"
+assert_has "29 a declined uninstall leaves the config block in place" "$H/.zshrc" "zinit light imonior/zsh-smart-complete"
+assert_eq "29 and the plugin checkout is still there" \
+    "$([[ -d "$H/.local/share/zinit/plugins/imonior---zsh-smart-complete" ]] && echo yes || echo no)" "yes"
+
+#    Installed, and the answer is YES.
+H="$TMP/home29-yes"
+( home29 "$H"
+  { printf '%s\n' "$OPT_BLOCK_BEGIN"
+    printf 'export SMART_MENU=true\n'
+    printf '%s\n' "$OPT_BLOCK_END"; } >> "$H/.zshrc"
+  P="$H/.local/share/zinit/plugins/imonior---zsh-smart-complete"
+  mkdir -p "$P/bin" "$H/.config/zsh-smart-complete" "$H/.local/bin"
+  printf 'plugin\n' > "$P/zsh-smart-complete.plugin.zsh"
+  printf '#!/bin/zsh\n' > "$P/bin/zsc-settings"; chmod +x "$P/bin/zsc-settings"
+  printf 'SMART_MENU=true\n' > "$H/.config/zsh-smart-complete/settings.zsh"
+  ln -s "$P/bin/zsc-settings" "$H/.local/bin/zsc-settings"
+  # Files with the same names that somebody else put there must survive.
+  ln -s "/somewhere/else/zsc-settings" "$H/.local/bin/zsc-settings.foreign"
+  printf '[palettes]\n' > "$H/.config/starship.toml"
+  ANSWER29=1
+  _uninstall_all > "$TMP/out29c" 2>&1 )
+assert_lacks "29 the managed block is gone from the config" "$H/.zshrc" "SMART_MENU=true"
+assert_has   "29 the user's own lines are still there" "$H/.zshrc" "alias ll"
+assert_eq    "29 the plugin checkout is gone" \
+    "$([[ -e "$H/.local/share/zinit/plugins/imonior---zsh-smart-complete" ]] && echo yes || echo no)" "no"
+assert_eq    "29 settings.zsh is gone, and its now-empty directory with it" \
+    "$([[ -e "$H/.config/zsh-smart-complete" ]] && echo yes || echo no)" "no"
+assert_eq    "29 the settings symlink we made is gone" \
+    "$([[ -e "$H/.local/bin/zsc-settings" ]] && echo yes || echo no)" "no"
+assert_eq    "29 a same-named symlink to someone else's file is left alone" \
+    "$([[ -L "$H/.local/bin/zsc-settings.foreign" ]] && echo yes || echo no)" "yes"
+assert_eq    "29 the prompt config is left alone (an uninstall is not a package purge)" \
+    "$([[ -f "$H/.config/starship.toml" ]] && echo yes || echo no)" "yes"
+assert_lacks "29 and nothing in the output claims to have deleted it" "$TMP/out29c" "starship.toml"
+assert_has   "29 the run ends by telling the user to restart the shell" "$TMP/out29c" "u.done"
+
+#    The backup: written BEFORE the edit, and it still holds what was removed.
+BK="$(find "$H" -maxdepth 1 -name '.zshrc.bak.*' 2>/dev/null | head -1)"
+if [[ -n "$BK" ]] && grep -q "SMART_MENU=true" "$BK"; then
+    ok "29 the config was backed up before it was edited, and the backup holds the removed block"
+else
+    no "29 the config was backed up before it was edited, and the backup holds the removed block"
+fi
+assert_has "29 and it says where that backup is" "$TMP/out29c" "u.backup <"
+
+#    A backup name that is ALREADY TAKEN is stepped around, never overwritten.
+#    The name has second resolution, and "install, then undo that install" is
+#    exactly the pair of runs that can land in one second — where a plain `cp`
+#    replaces the copy the install made, which is the single version of a
+#    hand-written config this line exists to keep. `date` is a shell function for
+#    the duration of this subshell, so the colliding second is fixed here rather
+#    than being a race the test happens to win.
+H="$TMP/home29-collide"
+( home29 "$H"
+  { printf '%s\n' "$OPT_BLOCK_BEGIN"
+    printf 'export SMART_MENU=true\n'
+    printf '%s\n' "$OPT_BLOCK_END"; } >> "$H/.zshrc"
+  mkdir -p "$H/.local/share/zinit/plugins/imonior---zsh-smart-complete"
+  date() { printf '1790000000\n'; }
+  printf 'THE INSTALL COPY\n' > "$H/.zshrc.bak.1790000000"
+  ANSWER29=1
+  _uninstall_all > "$TMP/out29e" 2>&1 )
+if grep -q "THE INSTALL COPY" "$H/.zshrc.bak.1790000000" 2>/dev/null; then
+    ok "29 an already-existing backup keeps its own contents"
+else
+    no "29 an already-existing backup keeps its own contents" \
+       "got: $(cat "$H/.zshrc.bak.1790000000" 2>/dev/null)"
+fi
+assert_has "29 and the uninstall wrote its copy under a stepped name" "$TMP/out29e" ".zshrc.bak.1790000000-1>"
+assert_eq "29 so the directory holds two backups, not one overwritten file" \
+    "$(find "$H" -maxdepth 1 -name '.zshrc.bak.*' 2>/dev/null | wc -l | tr -d ' ')" "2"
+
+#    A config that cannot be backed up is not edited at all. Root ignores file
+#    permissions, so this one can only be checked as an ordinary user.
+if [[ "$(id -u)" != "0" ]]; then
+    H="$TMP/home29-nobak"
+    ( home29 "$H"
+      printf '%s\nexport SMART_MENU=true\n%s\n' "$OPT_BLOCK_BEGIN" "$OPT_BLOCK_END" >> "$H/.zshrc"
+      cp -p "$H/.zshrc" "$H/.zshrc.ref"
+      chmod 555 "$H"
+      ANSWER29=1
+      _uninstall_all > "$TMP/out29d" 2>&1 )
+    chmod 755 "$H"
+    cmp -s "$H/.zshrc" "$H/.zshrc.ref" \
+        && ok "29 with nowhere to put a backup it refuses to edit the config" \
+        || no "29 with nowhere to put a backup it refuses to edit the config"
+    assert_has "29 and it says why" "$TMP/out29d" "u.backup_failed"
+    assert_lacks "29 an aborted uninstall does not claim the cleanup it did not do" "$TMP/out29d" "u.done"
+    assert_lacks "29 nor does it remove the plugin directory on the way out" "$TMP/out29d" "u.removed"
+fi
+
+# 8. Wiring: the request is handled once the language is known and before any
+#    phase runs -- an uninstall that starts by installing a missing zsh is not
+#    an uninstall. The "first install action" anchor differs per installer.
+for f in "$INSTALL" "$EW"; do
+    name="$(basename "$f")"
+    if [[ "$f" == "$INSTALL" ]]; then anchor='^OS_TYPE=""'; else anchor='^if command -v opkg >/dev/null 2>&1; then'; fi
+    lang29="$(grep -n '^select_language$' "$f" | head -1 | cut -d: -f1)"
+    dsp="$(grep -n 'SMART_UNINSTALL:-0' "$f" | head -1 | cut -d: -f1)"
+    first="$(grep -n "$anchor" "$f" | head -1 | cut -d: -f1)"
+    if [[ -n "$lang29" && -n "$dsp" && -n "$first" ]] && (( lang29 < dsp && dsp < first )); then
+        ok "$name handles the uninstall after the language is chosen and before anything installs (lang=$lang29 dispatch=$dsp first=$first)"
+    else
+        no "$name handles the uninstall after the language is chosen and before anything installs (lang=$lang29 dispatch=$dsp first=$first)"
+    fi
+done
+assert_has "install.sh forwards its arguments to the entware installer it hands off to" \
+    "$INSTALL" 'exec bash "$ENTWARE_INSTALLER" "$@"'
+
+# 9. Shared code: both artifacts must carry the same bodies, or one of them is
+#    uninstalling with an older idea of what we wrote.
+for fn in _zsc_in_config _zsc_strip_managed _uninstall_all; do
+    if diff <(extract_fn "$fn") <(extract_fn "$fn" "$EW") > /dev/null 2>&1; then
+        ok "29 both installers ship the same $fn"
+    else
+        no "29 both installers ship the same $fn"
+    fi
+done
+
+# 10. Every key the shared uninstall code prints is in both catalogs, in all 5
+#     languages.
+key_langs(){
+    awk -v k="$2" '
+        !inblk && $0 ~ "^[[:space:]]+" k "\\)" { inblk = 1; next }
+        inblk && /esac/ { exit }
+        inblk { t = t $0 "\n" }
+        END {
+            n = 0
+            if (t ~ /zh-CN\)/) n++
+            if (t ~ /zh-TW\)/) n++
+            if (t ~ /[^-]ja\)/) n++
+            if (t ~ /ko\)/) n++
+            if (t ~ /\*\)/) n++
+            print n
+        }' "$1"
+}
+# Probe first: an entry with a single language has to count as 1, or the loop
+# below would pass on a detector that never finds anything.
+printf '        probe.key)\n            case "$lang" in\n                zh-CN) s="x" ;;\n            esac ;;\n' > "$TMP/probe29.txt"
+assert_eq "29 the language counter is real (a one-language entry counts 1)" \
+    "$(key_langs "$TMP/probe29.txt" probe.key)" "1"
+for k in u.confirm u.cancelled u.nothing u.backup u.backup_failed u.stripped u.removed u.done; do
+    if [[ "$(key_langs "$INSTALL" "$k")" == "5" && "$(key_langs "$EW" "$k")" == "5" ]]; then
+        ok "29 $k is translated in all 5 languages in both installers"
+    else
+        no "29 $k is translated in all 5 languages in both installers (install=$(key_langs "$INSTALL" "$k") entware=$(key_langs "$EW" "$k"))"
+    fi
+done
+
 
 echo "-----"
 echo "INSTALLER-OPTIONS TOTAL PASS=$PASS FAIL=$FAIL"

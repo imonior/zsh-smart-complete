@@ -158,17 +158,21 @@ assert_run() {
 # The evidence for a missing block goes INSIDE the FAIL line rather than on the
 # detail line under it: this suite's CI log is behind authentication, the
 # annotations of a check run are not, and only a reported line reaches an
-# annotation. Size and marker counts are structural facts, so they describe the
-# branch the config writer took no matter which UI language the run rendered.
+# annotation. The counts are structural facts; the two greps name the branch the
+# config writer took, and are safe to match in English because every label that
+# reaches this function pins SMART_INSTALL_LANG=en.
 _installed_evidence() {
     label="$1"; home="$TMP/h_$label"
-    printf 'rc=%s size=%s opts=%s integ=%s baks=%s last=%s' \
+    printf 'rc=%s size=%s opts=%s integ=%s baks=%s ph0=%s branch=%s last=%s' \
         "$(cat "$TMP/$label.rc" 2>/dev/null)" \
         "$(wc -c < "$home/.zshrc" 2>/dev/null | tr -d ' ')" \
         "$(grep -c '>>> zsh-smart-complete options (managed) >>>' "$home/.zshrc" 2>/dev/null)" \
         "$(grep -c '>>> zsh-smart-complete integration (managed) >>>' "$home/.zshrc" 2>/dev/null)" \
         "$(find "$home" -maxdepth 1 -name '.zshrc.bak.*' 2>/dev/null | wc -l | tr -d ' ')" \
-        "$(grep -v '^[[:space:]]*$' "$TMP/$label.out" 2>/dev/null | tail -1 | tr -d '\n' | cut -c1-90)"
+        "$(grep -c 'Phase 0/5' "$TMP/$label.out" 2>/dev/null)" \
+        "$(grep -oE 'No ~/\.zshrc found|created with the zsh-smart-complete integration block|Plugin-only install|config already present|created with the recommended full-stack|replaced with the recommended full-stack|block refreshed|updated with the integration block' \
+              "$TMP/$label.out" 2>/dev/null | sort -u | tr '\n' '+')" \
+        "$(grep -v '^[[:space:]]*$' "$TMP/$label.out" 2>/dev/null | tail -1 | tr -d '\n' | cut -c1-60)"
 }
 assert_installed() {
     label="$1"

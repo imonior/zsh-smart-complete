@@ -130,6 +130,12 @@ jobs:
     # silencing it would put the finding back in the drawer.
     container:
       image: ${{ matrix.image }}
+      env:
+        # Minimal container images ship with the C locale, which makes grep and
+        # awk choke on the Chinese section headers the suites print. Force a
+        # UTF-8-capable locale so the text pipeline sees bytes it can match.
+        LANG: C.UTF-8
+        LC_ALL: C.UTF-8
     strategy:
       fail-fast: false
       matrix:

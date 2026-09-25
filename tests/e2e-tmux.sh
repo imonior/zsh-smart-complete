@@ -33,6 +33,12 @@ fi
 
 SESS="zsc_e2e_$$"
 ZD="$(mktemp -d "${TMPDIR:-/tmp}/zsc_e2e.XXXXXX")"
+# compinit treats world-writable directories (like /tmp) as insecure and may
+# prompt even with `-u` on some builds. Make the harness directory group/world-
+# non-writable so compinit sees it as secure; the `-u` flag stays as defense in
+# depth. Measured 2026-09-26: without this, ubuntu-latest's zsh 5.9 hung on the
+# "Ignore insecure directories?" prompt for 25s and never rendered READY>.
+chmod go-w "$ZD"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/zsc_work.XXXXXX")"   # probe cwd: NOT a git repo
 BIG=""                                                  # 1200-entry dir, created in 3c
 RD=""                                                   # recent-dirs fixture, created below

@@ -20,10 +20,20 @@
 #
 # HOW IT STAYS SANDBOXED
 #   `env -i` (no inherited environment), HOME/ZDOTDIR/XDG_* inside a fresh
-#   mktemp -d, and a stub bin dir first on PATH so nothing reaches the network
-#   or the package manager. Each stub appends its arguments to a log instead of
-#   doing anything, so a run that tried to escape the sandbox would show up as
-#   a line in that log — asserted below.
+#   mktemp -d, and a PATH that contains ONLY what this file puts there: a stub
+#   dir for the network and package tools, and a symlink farm of the core
+#   utilities the installers legitimately need. Each stub appends its arguments
+#   to a log instead of doing anything, so a run that tried to escape the
+#   sandbox would show up as a line in that log — asserted below.
+#
+#   The farm is an ALLOWLIST, and that is the part that matters. Appending the
+#   real /usr/bin "for date and awk" makes the run a sample of the machine it
+#   happens to execute on: the installers decide what to install, and which
+#   config-write branch to take, by asking `command -v` for fzf, starship,
+#   atuin, zoxide and zinit. A runner image that ships one of those then
+#   asserts a different .zshrc than a clean laptop did — which is how one commit
+#   came to be green on macOS and red on ubuntu. Names outside the list are
+#   absent on EVERY host, so those probes answer "not installed" everywhere.
 #
 # TALLY: prints "INSTALLER-SANDBOX TOTAL PASS=n FAIL=m" like the other bash
 # suite does, because tests/run-all.sh discovers this file by name and sums both
@@ -50,12 +60,43 @@ TMP="$(mktemp -d "${TMPDIR:-/tmp}/zsc-installer-sandbox.XXXXXX")" || {
 trap 'rm -rf -- "$TMP"' EXIT
 
 # --- the stub bin dir ------------------------------------------------------
+# `sudo` is in here with the package tools, not in the core farm below: a run
+# that could escalate would not be sandboxed no matter how empty its PATH is,
+# and the linux-debian branch of install_pkg_soft calls it directly.
 BIN="$TMP/bin"; mkdir -p "$BIN"
 STUB_LOG="$TMP/stubs.log"; : > "$STUB_LOG"
-for c in curl wget git brew apt apt-get opkg chsh stow; do
+for c in curl wget git brew apt apt-get opkg chsh stow sudo; do
     printf '#!/bin/sh\nprintf "%%s %%s\\n" "%s" "$*" >> "%s"\nexit 0\n' "$c" "$STUB_LOG" > "$BIN/$c"
     chmod +x "$BIN/$c"
 done
+
+# --- the core farm: the only other thing a run is allowed to see ------------
+# Resolved from THIS shell's PATH once, into symlinks, so a run gets a fixed
+# tool inventory rather than the host's. A name that does not resolve is a hard
+# error, not a silent gap — a missing coreutil inside the sandbox would look
+# exactly like a defect in the installer.
+#
+# What is deliberately NOT here: `timeout` (macOS ships no such binary, so every
+# run takes the branch without it, which is the branch a macOS user gets), and
+# fzf / starship / atuin / zoxide / zinit, whose presence the installers probe to
+# decide what to install and which config-write branch to take.
+CORE="$TMP/core"; mkdir -p "$CORE"
+_missing=""
+for c in sh bash zsh awk sed grep mktemp cp mv rm cat touch chmod mkdir rmdir \
+         ln readlink basename dirname find sort head tail tr wc cut uniq date \
+         uname id whoami tty stty sleep expr diff xargs env ls pwd du ps kill; do
+    src="$(command -v "$c" 2>/dev/null)" || src=""
+    if [ -n "$src" ]; then
+        ln -s "$src" "$CORE/$c"
+    else
+        _missing="$_missing $c"
+    fi
+done
+if [ -n "$_missing" ]; then
+    printf '  FAIL  this host has no:%s — the suite cannot promise a fixed tool inventory\n' "$_missing" >&2
+    printf 'INSTALLER-SANDBOX TOTAL PASS=0 FAIL=1\n'
+    exit 1
+fi
 
 # A run is: fresh $HOME, no inherited environment, stubs on PATH, and the
 # documented knobs on the command line. $1 = label, rest = NAME=value pairs.
@@ -76,9 +117,9 @@ run_installer() {
     # empty one, which is what "first run on a fresh account" means.
     if [ -f "$TMP/$label.seed" ]; then cp "$TMP/$label.seed" "$home/.zshrc"; else : > "$home/.zshrc"; fi
     : > "$STUB_LOG"
-    # `date`, `awk`, `sed`, `grep` and `bash` itself come from the real system
-    # PATH appended after the stub dir; nothing on that list installs anything.
-    env -i PATH="$BIN:/usr/bin:/bin:/usr/sbin:/sbin" \
+    # `date`, `awk`, `sed`, `grep` and `bash` itself come from the core farm,
+    # which is the whole rest of the world this run can address.
+    env -i PATH="$BIN:$CORE" \
         HOME="$home" ZDOTDIR="$home" \
         XDG_CONFIG_HOME="$home/.config" XDG_DATA_HOME="$home/.local/share" \
         TERM="${TERM:-dumb}" TMPDIR="${TMPDIR:-/tmp}" \
@@ -113,18 +154,34 @@ assert_run() {
 }
 
 # What an install must have LEFT BEHIND.
+#
+# The evidence for a missing block goes INSIDE the FAIL line rather than on the
+# detail line under it: this suite's CI log is behind authentication, the
+# annotations of a check run are not, and only a reported line reaches an
+# annotation. Size and marker counts are structural facts, so they describe the
+# branch the config writer took no matter which UI language the run rendered.
+_installed_evidence() {
+    label="$1"; home="$TMP/h_$label"
+    printf 'rc=%s size=%s opts=%s integ=%s baks=%s last=%s' \
+        "$(cat "$TMP/$label.rc" 2>/dev/null)" \
+        "$(wc -c < "$home/.zshrc" 2>/dev/null | tr -d ' ')" \
+        "$(grep -c '>>> zsh-smart-complete options (managed) >>>' "$home/.zshrc" 2>/dev/null)" \
+        "$(grep -c '>>> zsh-smart-complete integration (managed) >>>' "$home/.zshrc" 2>/dev/null)" \
+        "$(find "$home" -maxdepth 1 -name '.zshrc.bak.*' 2>/dev/null | wc -l | tr -d ' ')" \
+        "$(grep -v '^[[:space:]]*$' "$TMP/$label.out" 2>/dev/null | tail -1 | tr -d '\n' | cut -c1-90)"
+}
 assert_installed() {
     label="$1"
     home="$TMP/h_$label"
     if grep -q ">>> zsh-smart-complete options (managed) >>>" "$home/.zshrc"; then
         ok "$label: managed options block written to .zshrc"
     else
-        no "$label: managed options block written to .zshrc" "$(head -3 "$home/.zshrc")"
+        no "$label: managed options block written to .zshrc -- $(_installed_evidence "$label")"
     fi
     if grep -q ">>> zsh-smart-complete integration (managed) >>>" "$home/.zshrc"; then
         ok "$label: integration block written to .zshrc"
     else
-        no "$label: integration block written to .zshrc"
+        no "$label: integration block written to .zshrc -- $(_installed_evidence "$label")"
     fi
     settings="$home/.config/zsh-smart-complete/settings.zsh"
     # The bug this file was written for: the fallback writer ran a zsh builtin,
@@ -181,9 +238,9 @@ assert_run net_mirror 0
 
 echo ""
 echo "=== 5. nothing tried to leave the sandbox ==="
-# The stubs log every call. A real network tool reached by absolute path would
-# NOT appear here, which is the one hole this check cannot cover; everything
-# the installers do use is on the stub PATH.
+# The stubs log every call. A real network tool reached by ABSOLUTE path would
+# NOT appear here, which is the one hole this check cannot cover; everything the
+# installers reach by name is either a stub or a symlink this file made.
 if grep -qE '^curl( |$)' "$TMP/net_no_skipping.stubs.log"; then
     ok "the downloader stubs were exercised (so branch 4 was real)"
 else
@@ -206,6 +263,24 @@ else
         "$(cat "$TMP/net_mirror.stubs.log")"
 fi
 
+# The witness for the allowlist: the probes that used to answer "whatever this
+# machine has" now answer the same way on every machine. Both halves are
+# asserted, because an empty farm would satisfy the first half for free.
+for c in fzf starship atuin zoxide zinit; do
+    if env -i PATH="$BIN:$CORE" sh -c "command -v $c" >/dev/null 2>&1; then
+        no "the sandbox cannot see $c, so that probe is not a host sample"
+    else
+        ok "the sandbox cannot see $c, so that probe is not a host sample"
+    fi
+done
+if env -i PATH="$BIN:$CORE" sh -c \
+        'command -v awk >/dev/null && command -v mktemp >/dev/null && command -v mv >/dev/null && command -v zsh >/dev/null'; then
+    ok "and it can see the tools the installers actually call"
+else
+    no "and it can see the tools the installers actually call" \
+       "farm: $(ls "$CORE" | tr '\n' ' ')"
+fi
+
 echo ""
 echo "=== 6. the entware installer reaches its own guard, cleanly ==="
 # The script decides "am I on Entware" with `command -v opkg`, so the opkg stub
@@ -222,7 +297,7 @@ for c in "$BIN"/*; do
 done
 ehome="$TMP/h_entware"; mkdir -p "$ehome"; : > "$ehome/.zshrc"
 : > "$STUB_LOG"
-env -i PATH="$BIN_ENT:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$ehome" ZDOTDIR="$ehome" \
+env -i PATH="$BIN_ENT:$CORE" HOME="$ehome" ZDOTDIR="$ehome" \
     TERM=dumb NONINTERACTIVE=1 bash "$ENTWARE" > "$TMP/entware.out" 2>&1
 ent_rc=$?
 check "entware: refuses without opkg (exit 1)" "1" "$ent_rc"
@@ -347,7 +422,7 @@ fi
 run_uninstall() {   # run_uninstall <label> <home> <NAME=value>...
     label="$1"; home="$2"; shift 2
     : > "$STUB_LOG"
-    env -i PATH="$BIN:/usr/bin:/bin:/usr/sbin:/sbin" \
+    env -i PATH="$BIN:$CORE" \
         HOME="$home" ZDOTDIR="$home" \
         XDG_CONFIG_HOME="$home/.config" XDG_DATA_HOME="$home/.local/share" \
         TERM="${TERM:-dumb}" TMPDIR="${TMPDIR:-/tmp}" \

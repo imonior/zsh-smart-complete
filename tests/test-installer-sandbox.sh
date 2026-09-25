@@ -194,26 +194,41 @@ _tail_line() {
 # has the last [OK], so where the narration stopped was never a fact about the
 # config window.)
 #
-# The backup the config writer takes just before it overwrites brackets the
-# same write from the other side: `bak=0/0` means the file the run started from
-# really was the empty one, so the block lost its marker on the way in, while a
-# backup that still holds both markers says something rewrote the config AFTER
-# the window closed.
+# The config writer takes a backup immediately before it overwrites, so its size
+# and marker count bracket the write from the other side: what came back is
+# `bak=0/0` for a run that started from an empty config — the file the run began
+# from really was the empty one, and whatever mangled the block did it on the
+# way in, not after the window closed.
 _newest_bak() { # _newest_bak <home>
     found=""
     for f in "$1"/.zshrc.bak.*; do [ -f "$f" ] && found="$f"; done
     printf '%s' "$found"
 }
+# How many lines the run tagged at all, and which tagged line came JUST BEFORE
+# the last one. The last one is always `_install_user_settings`'s closing
+# sentence — the final [OK] a complete install ever prints — so the line in
+# front of it is the config window's own words, verbatim. A branch probe can
+# only report which of the strings the script is expected to print were present;
+# the backup taken inside the window proves a write branch ran while all eight
+# came back zero. Either the window said something none of the eight matches, or
+# it said nothing and the captured output is missing text — `tags=` tells those
+# apart, because a run that narrated itself has a count the sentence sits in.
+_tag_count() {
+    awk '/\[(INFO|OK|WARN)\]/ { c++ } END { print c + 0 }' "$1" 2>/dev/null
+}
+_said_before() {
+    awk '/\[(INFO|OK|WARN)\]/ {
+            if (match($0, /\[(INFO|OK|WARN)\].*/)) { p = t; t = substr($0, RSTART, 90) }
+         }
+         END { printf "%s", p }' "$1" 2>/dev/null | tr -d '\r\t'
+}
 # Which of the eight sentences the config writer can print, as digits in this
 # order: plugin-only / no-zshrc-found / created-with-integration-block /
 # block-refreshed / updated-with-integration-block / recommended-full-stack
-# (created OR replaced) / nothing-written / already-present. Between the two
-# `info` lines at the head of each branch and the `success` lines at the foot of
-# each write, these eight cover every path through the window — so all zeros
-# does not mean "a branch we forgot to ask about", it means the window said
-# nothing at all. Every label that reaches here pins SMART_INSTALL_LANG=en, so
-# the English strings are the ones to ask for — and awk, not grep, because this
-# reads a run's painted output.
+# (created OR replaced) / nothing-written / already-present. Between the `info`
+# at the head of each branch and the `success` at the foot of each write, these
+# eight cover every path through the window. Every label that reaches here pins
+# SMART_INSTALL_LANG=en, so the English strings are the ones to ask for.
 _wrote_which() {
     out="$1"
     printf '%s%s%s%s%s%s%s%s' \
@@ -228,20 +243,21 @@ _wrote_which() {
 }
 # The fields are ordered by how much each one costs to lose: an annotation can
 # be cut off at the end of a long line, so the shape of the config comes first,
-# the backup that brackets the write next, and the file's own tail last.
+# the backup that brackets the write next, then what the run said, and the
+# file's own tail last.
 _installed_evidence() {
     label="$1"; home="$TMP/h_$label"; bak="$(_newest_bak "$home")"
-    printf 'rc=%s size=%s lines=%s opts=%s integ=%s beg=%s end=%s bak=%s/%s wrote=[%s] tail=[%s]' \
+    printf 'rc=%s size=%s lines=%s opts=%s integ=%s beg=%s bak=%s/%s tags=%s wrote=[%s] said=[%s] tail=[%s]' \
         "$(cat "$TMP/$label.rc" 2>/dev/null)" \
         "$(wc -c < "$home/.zshrc" 2>/dev/null | tr -d ' ')" \
         "$(wc -l < "$home/.zshrc" 2>/dev/null | tr -d ' ')" \
         "$(_marker_count "$home/.zshrc" '>>> zsh-smart-complete options (managed) >>>')" \
         "$(_marker_count "$home/.zshrc" '>>> zsh-smart-complete integration (managed) >>>')" \
         "$(_marker_count "$home/.zshrc" '# >>>')" \
-        "$(_marker_count "$home/.zshrc" '# <<<')" \
-        "$(wc -c < "$bak" 2>/dev/null | tr -d ' ')" \
         "$(_marker_count "$bak" '# >>>')" \
+        "$(_tag_count "$TMP/$label.out")" \
         "$(_wrote_which "$TMP/$label.out")" \
+        "$(_said_before "$TMP/$label.out")" \
         "$(_tail_line "$home/.zshrc")"
 }
 assert_installed() {

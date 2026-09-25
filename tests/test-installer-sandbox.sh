@@ -141,13 +141,15 @@ assert_run() {
     fi
     check "$label: exit code" "$want" "$(cat "$TMP/$label.rc")"
     out_file="$TMP/$label.out"
-    if grep -q "unbound variable" "$out_file"; then
-        no "$label: no unbound variable under set -u" "$(grep -m1 'unbound variable' "$out_file")"
+    # `-a` because these four read a run's painted output, and an error scan that
+    # silently reads nothing is worse than no scan at all (see _marker_count).
+    if grep -a -q "unbound variable" "$out_file"; then
+        no "$label: no unbound variable under set -u" "$(grep -a -m1 'unbound variable' "$out_file")"
     else
         ok "$label: no unbound variable under set -u"
     fi
-    if grep -qE "command not found" "$out_file"; then
-        no "$label: no missing command (a zsh-ism in bash?)" "$(grep -m1 'command not found' "$out_file")"
+    if grep -a -qE "command not found" "$out_file"; then
+        no "$label: no missing command (a zsh-ism in bash?)" "$(grep -a -m1 'command not found' "$out_file")"
     else
         ok "$label: no missing command (a zsh-ism in bash?)"
     fi
@@ -158,31 +160,52 @@ assert_run() {
 # The evidence for a missing block goes INSIDE the FAIL line rather than on the
 # detail line under it: this suite's CI log is behind authentication, the
 # annotations of a check run are not, and only a reported line reaches an
-# annotation. The counts are structural facts; the two greps name the branch the
-# config writer took, and are safe to match in English because every label that
-# reaches this function pins SMART_INSTALL_LANG=en.
+# annotation.
+#
+# Whether a marker is in a file is asked of awk's index(), never of grep. The
+# installers paint their progress with carriage returns and SGR sequences, and a
+# GNU grep that meets bytes it cannot decode in the current locale stops treating
+# the file as text — and then prints "Binary file matches" where `-o` should have
+# printed the match, which is how the branch probe below came back empty for a
+# sentence the run had certainly written. BSD grep on macOS has no such mode, so
+# the same file answers "the marker is not in .zshrc" on ubuntu and "of course it
+# is" on macOS, and neither answer is evidence about the installer until the tool
+# is one that cannot give up. index() has no concept of a binary file. The greps
+# that still read a run's prose keep `-a`, which is the same claim made per-call.
+_marker_count() { # _marker_count <file> <needle>
+    awk -v n="$2" 'index($0, n) { c++ } END { print c + 0 }' "$1" 2>/dev/null
+}
+# Every line of the written config that mentions the plugin, flattened and
+# truncated: what the file actually contains, rather than what one probe claims.
+_marker_lines() {
+    awk '/zsh-smart-complete/ { printf "%s+", substr($0, 1, 40) }' "$1" 2>/dev/null \
+        | tr -d '\r\t' | cut -c1-200
+}
+# The fields are ordered by how much each one costs to lose: an annotation can be
+# cut off at the end of a long line, so the config file's own contents come
+# before the installer's prose.
 _installed_evidence() {
     label="$1"; home="$TMP/h_$label"
-    printf 'rc=%s size=%s opts=%s integ=%s baks=%s ph0=%s branch=%s last=%s' \
+    printf 'rc=%s size=%s opts=%s integ=%s baks=%s zsc=[%s] branch=[%s] ph0=%s' \
         "$(cat "$TMP/$label.rc" 2>/dev/null)" \
         "$(wc -c < "$home/.zshrc" 2>/dev/null | tr -d ' ')" \
-        "$(grep -c '>>> zsh-smart-complete options (managed) >>>' "$home/.zshrc" 2>/dev/null)" \
-        "$(grep -c '>>> zsh-smart-complete integration (managed) >>>' "$home/.zshrc" 2>/dev/null)" \
+        "$(_marker_count "$home/.zshrc" '>>> zsh-smart-complete options (managed) >>>')" \
+        "$(_marker_count "$home/.zshrc" '>>> zsh-smart-complete integration (managed) >>>')" \
         "$(find "$home" -maxdepth 1 -name '.zshrc.bak.*' 2>/dev/null | wc -l | tr -d ' ')" \
-        "$(grep -c 'Phase 0/5' "$TMP/$label.out" 2>/dev/null)" \
-        "$(grep -oE 'No ~/\.zshrc found|created with the zsh-smart-complete integration block|Plugin-only install|config already present|created with the recommended full-stack|replaced with the recommended full-stack|block refreshed|updated with the integration block' \
-              "$TMP/$label.out" 2>/dev/null | sort -u | tr '\n' '+')" \
-        "$(grep -v '^[[:space:]]*$' "$TMP/$label.out" 2>/dev/null | tail -1 | tr -d '\n' | cut -c1-60)"
+        "$(_marker_lines "$home/.zshrc")" \
+        "$(grep -aoE 'Plugin-only install|config already present|No .*zshrc found|recommended full-stack|block refreshed|integration block|restored|nothing to uninstall' \
+              "$TMP/$label.out" 2>/dev/null | sort -u | tr '\n' '+' | cut -c1-90)" \
+        "$(grep -ac 'Phase 0/5' "$TMP/$label.out" 2>/dev/null)"
 }
 assert_installed() {
     label="$1"
     home="$TMP/h_$label"
-    if grep -q ">>> zsh-smart-complete options (managed) >>>" "$home/.zshrc"; then
+    if [ "$(_marker_count "$home/.zshrc" '>>> zsh-smart-complete options (managed) >>>')" != "0" ]; then
         ok "$label: managed options block written to .zshrc"
     else
         no "$label: managed options block written to .zshrc -- $(_installed_evidence "$label")"
     fi
-    if grep -q ">>> zsh-smart-complete integration (managed) >>>" "$home/.zshrc"; then
+    if [ "$(_marker_count "$home/.zshrc" '>>> zsh-smart-complete integration (managed) >>>')" != "0" ]; then
         ok "$label: integration block written to .zshrc"
     else
         no "$label: integration block written to .zshrc -- $(_installed_evidence "$label")"
@@ -191,7 +214,7 @@ assert_installed() {
     # The bug this file was written for: the fallback writer ran a zsh builtin,
     # so this file existed but was EMPTY, and an empty file also made the
     # "only create if absent" guard refuse to ever fix it.
-    if [ -s "$settings" ] && grep -q "SMART_MENU" "$settings"; then
+    if [ -s "$settings" ] && [ "$(_marker_count "$settings" 'SMART_MENU')" != "0" ]; then
         ok "$label: settings starter file is non-empty"
     else
         no "$label: settings starter file is non-empty" "size=$(wc -c < "$settings" 2>/dev/null || echo missing)"
@@ -469,7 +492,7 @@ fi
 # backup of the seeded config — a file with nothing managed in it, so this failed
 # whenever the two runs did not collide in the same second.
 bak="$(find "$u_home" -maxdepth 1 -name '.zshrc.bak.*' 2>/dev/null | sort | tail -1)"
-if [ -n "$bak" ] && grep -q ">>> zsh-smart-complete" "$bak"; then
+if [ -n "$bak" ] && [ "$(_marker_count "$bak" '>>> zsh-smart-complete')" != "0" ]; then
     ok "$UL: a backup was taken before the edit, and it still holds the managed blocks"
 else
     no "$UL: a backup was taken before the edit, and it still holds the managed blocks" "bak=[$bak]"

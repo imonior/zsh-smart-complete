@@ -225,7 +225,13 @@ done < "$TMP/names.first"
 awk '
     /^# Canonical[ \t]/ { inblock = 1; next }
     inblock && /^[ \t]*$/ { inblock = 0 }
-    inblock && /^#[ \t]{3}[a-z_][a-z0-9_.]*[ \t]{2,}/ {
+    # The repetitions are spelled out, not written as {3} / {2,}. mawk only
+    # honours interval expressions in POSIX mode, so on a container whose awk is
+    # mawk (any Debian/Ubuntu image without gawk) the braces match LITERALLY,
+    # every key is skipped, and the whole DEAD KEY section below silently finds
+    # nothing — it reports green because it extracted zero keys to check. The
+    # expanded form behaves the same on mawk, gawk and BSD awk alike.
+    inblock && /^#[ \t][ \t][ \t][a-z_][a-z0-9_.]*[ \t][ \t]+/ {
         k = substr($0, 5)
         sub(/[ \t].*$/, "", k)
         print k

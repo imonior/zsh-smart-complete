@@ -98,10 +98,18 @@ jobs:
               while IFS= read -r line; do printf '::notice::%s\n' "$line"; done
           else
             printf '%s\n' "$out"
-            printf '%s\n' "$out" | grep -E 'FAIL|TOTAL|SKIP|env:|run-all:' | tail -n 20 | \
-              while IFS= read -r line; do
-                [ -n "$line" ] && printf '::error::%s\n' "$line"
-              done
+            # Same packing as the zsh-versions job: name every failing assertion
+            # in one annotation and the per-suite tallies in another, so a red on
+            # one runner is legible from outside it. run-all -v indents each
+            # suite's own output with '| ', which is what separates an assertion
+            # line from run-all's own `FAIL rc=` summary.
+            printf '%s\n' "$out" \
+              | grep -E '\|[[:space:]]+FAIL[[:space:]]' \
+              | sed -E 's/^[[:space:]]*\|[[:space:]]+FAIL[[:space:]]+//; s/[[:space:]]+$//' \
+              | cut -c1-90 | tr '\n' ';' | \
+              { IFS= read -r line; printf '::error::FAILING ASSERTIONS: %s\n' "$line"; }
+            printf '%s\n' "$out" | grep -E 'TOTAL|FAILED suites' | tr '\n' ';' | \
+              { IFS= read -r line; printf '::error::SUITE TALLIES: %s\n' "$line"; }
             exit 1
           fi
 
@@ -149,10 +157,23 @@ jobs:
           export DEBIAN_FRONTEND=noninteractive
           apt-get update
           apt-get install -y --no-install-recommends \
-            ca-certificates git zsh sqlite3 locales
-          # Minimal container images ship without any locale generated. The test
-          # suites print Chinese section headers, so grep and awk need a UTF-8
-          # locale to avoid truncating multi-byte sequences mid-character.
+            ca-certificates git zsh sqlite3 locales python3 procps ncurses-term
+          # python3 and procps are test dependencies, not product ones:
+          # tests/test-installer-shared.sh parses the installers with a python
+          # script, and the installer sandbox's core-tool farm requires `ps` to
+          # promise a fixed tool inventory. ubuntu-latest ships both, so a
+          # container missing them fails suites that are otherwise green — the
+          # exact host-dependence the sandbox farm exists to remove.
+          #
+          # ncurses-term is the same story one layer down: zsh drops every
+          # colour attribute when its terminfo lookup cannot find `setaf`, so a
+          # host whose compiled database lacks the requested TERM prints an
+          # uncoloured ghost and tests/test-repaint.zsh cannot tell that apart
+          # from a plugin that stopped painting it.
+          #
+          # Minimal images also ship without any locale generated, so the suites'
+          # Chinese section headers ("场景 1: …") would be truncated mid-character
+          # by grep/awk. Generate the one the job env selects.
           sed -i '/en_US.UTF-8/s/^# //' /etc/locale.gen 2>/dev/null || true
           locale-gen en_US.UTF-8 2>/dev/null || true
           zsh --version

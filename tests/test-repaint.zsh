@@ -63,6 +63,10 @@ fi
 ZPTY_NAME="zsc_repaint_$$"
 ZD=""                 # throwaway ZDOTDIR of the nested shell
 CAP=""                # file holding the raw bytes of the last keystroke(s)
+# The TERM every session in this file boots with. A variable because the
+# capability probe below has to ask about this exact one, not about whatever the
+# CI shell happens to export.
+NESTED_TERM="xterm-256color"
 
 # _ok / _no -- tally
 _ok() { (( PASS++ )); print -r -- "  PASS  $1" }
@@ -89,7 +93,7 @@ assert_painted_ghost() {
     [[ "$b" == *"s -la /etc/"* ]] && _ok "ghost: the suggestion is written (${n} bytes)" \
                                  || _no "ghost: the suggestion is written" "(${n} bytes: $(_show "$b"))"
     [[ "$b" == *"38;5;110"* ]] && _ok "ghost: the suggestion is coloured" \
-                              || _no "ghost: the suggestion is coloured" "(${n} bytes: $(_show "$b"))"
+                              || _no "ghost: the suggestion is coloured" "(colors=${_tf:-?}, ${n}B $(_show "$b"))"
 }
 
 # assert_one_line <name> -- the keystroke must not leave the line it is on.
@@ -141,7 +145,8 @@ _session_start() {
         # "the ghost is coloured" depends on terminfo lookup plus the
         # auto-detection, and a runner whose TERM database answers differently
         # fails a test that is not about colour at all. Colour selection itself
-        # is covered by tests/test-menu.zsh.
+        # is covered by tests/test-menu.zsh. What the database answers for the
+        # nested TERM is reported with every colour failure, below.
         print -r -- "SMART_SUGGEST_COLOR='fg=110'"
         print -r -- "source $ROOT/zsh-smart-complete.plugin.zsh"
         [[ -n "$extra" ]] && print -r -- "$extra"
@@ -160,7 +165,7 @@ _session_start() {
     # image leaves a directory in fpath group-writable), which blocks the shell
     # before it ever prints a prompt. Measured: without -d every session failed
     # its boot on Linux while macOS was fine.
-    zpty -b "$ZPTY_NAME" "env ZDOTDIR=$ZD HOME=$ZD TERM=xterm-256color zsh -i -d"
+    zpty -b "$ZPTY_NAME" "env ZDOTDIR=$ZD HOME=$ZD TERM=$NESTED_TERM zsh -i -d"
 
     local waited=0 boot="" answered=0
     while (( waited < 100 )); do
@@ -226,10 +231,20 @@ _type() {
 # One line of environment, so a failure that only happens on one platform can
 # be told apart from a real regression without re-running it there. The nested
 # shell is this same zsh binary.
-_tf="none"
-zmodload zsh/terminfo 2>/dev/null && _tf="${terminfo[colors]:-none}"
+#
+# The colour count is queried with the TERM the nested session boots with,
+# because that is the lookup ZLE performs. When terminfo cannot answer, zsh
+# drops EVERY attribute from the byte stream — the ghost still appears, just
+# uncoloured, which is indistinguishable from a plugin that stopped painting it.
+# A minimal container's terminfo set is exactly where that happens, so the
+# number is part of the failure message, not just this line: the CI annotation
+# carries assertion output and nothing else.
+_tf="$(TERM=$NESTED_TERM zsh -f -c \
+    'zmodload -F zsh/terminfo p:terminfo 2>/dev/null && print -r -- "${terminfo[colors]:-unset}"' \
+    2>/dev/null)"
+[[ -n "$_tf" ]] || _tf="no-answer"
 print -r -- "test-repaint: one keystroke must stay on one line"
-print -r -- "  env: zsh $ZSH_VERSION, $OSTYPE, TERM=${TERM:-unset}, terminfo colors=$_tf"
+print -r -- "  env: zsh $ZSH_VERSION, $OSTYPE, nested TERM=$NESTED_TERM, terminfo colors=$_tf"
 trap cleanup EXIT
 
 # ---------------------------------------------------------------------------

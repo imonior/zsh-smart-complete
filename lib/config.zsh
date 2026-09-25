@@ -166,8 +166,12 @@ setopt extended_glob no_warn_create_global
 #     and your `zstyle ':completion:*' matcher-list` (so the fuzzy matching
 #     documented for the popup does NOT apply to generated candidates).
 #   * Only commands / functions / aliases / builtins, filesystem paths and
-#     `cd` recent-directories are generated. Every other context (git
-#     subcommands, ssh hosts, `--options`, `sudo …`, `~user`) produces nothing
+#     `cd` recent-directories are generated. Commands are generated wherever
+#     the shell is still choosing one — the first word, and the word after `|`,
+#     `&&`, `;` or a bare wrapper like `sudo`; the recent directories answer a
+#     typed prefix, not only the empty word after `cd `. Every other context (git
+#     subcommands, ssh hosts, `--options`, `~user`, and anything after a
+#     wrapper that already took a command, like `sudo git`) produces nothing
 #     here and FALLS THROUGH to the native grid — so the popup changes shape
 #     while you type, which reads as "a second box appeared".
 #   * A candidate wider than the terminal is clipped to one line (no ellipsis).

@@ -462,7 +462,9 @@ echo "== 10. single-column (vertical) popup layout -- OPT-IN, default off =="
 # things in order: the default really is the grid (10a), opting in really does
 # produce one per line (10b), and turning it back off really does restore the
 # grid (10c). 10a and 10c are also what make 10b falsifiable -- otherwise a pass
-# there could mean nothing.
+# there could mean nothing. 10b+ then checks the harder half of the same claim:
+# that the generated list is still generated, and still vertical, at a command
+# position that is not the first word.
 #
 # The pane is 140 columns and the fixture names are 7 characters, so a GRID
 # would put all six on a single row while a vertical list must use six. That gap
@@ -515,6 +517,39 @@ if [ "$DUPES" -eq 0 ]; then
 else
     no "single column: $DUPES row(s) hold two candidates (grid layout)"
 fi
+
+echo "== 10b+. opted in, at a LATER command position: same commands, same layout =="
+# The unit tests prove the command-position predicate accepts a post-pipe word.
+# This proves the consequence a user can see: the vertical list no longer changes
+# shape in the middle of a line. Six functions are defined and the same prefix is
+# typed twice — once where the shell is choosing its first command, once after
+# `|`. If the second listing still came from the filesystem (which is what it
+# was) it would be empty here, and if it fell through to the native grid it would
+# be one row of six. Both are read against the FIRST case, the shape this feature
+# already had before it learned about pipelines.
+send_line 'for n in aa bb cc dd ee ff; do eval "zscsp_$n() { :; }"; done'
+reset_line
+slowtype 'zscsp_'; sleep 1.5
+RP=$(rows_below_prompt)
+DP=$(pane | awk '{c=0; for(i=1;i<=NF;i++) if ($i ~ /^zscsp_/) c++; if (c>=2) n++} END{print n+0}')
+if [ "$RP" -ge 6 ] && [ "$DP" -eq 0 ]; then
+    ok "first word: 6 commands on 6 or more rows ($RP)"
+else
+    no "first word: $RP row(s), $DP row(s) with two candidates — expected 6 vertical"
+    echo "    --- 10b+ screen ---"; pane | grep -n . | tail -12 | sed 's/^/    /'
+fi
+reset_line
+slowtype 'echo hi | zscsp_'; sleep 1.5
+RQ=$(rows_below_prompt)
+DQ=$(pane | awk '{c=0; for(i=1;i<=NF;i++) if ($i ~ /^zscsp_/) c++; if (c>=2) n++} END{print n+0}')
+if [ "$RQ" -ge 6 ] && [ "$DQ" -eq 0 ]; then
+    ok "after a pipe: the same 6 commands, still one per line ($RQ)"
+else
+    no "after a pipe: $RQ row(s), $DQ row(s) with two candidates — expected 6 vertical"
+    echo "    --- 10b+ pipe screen ---"; pane | grep -n . | tail -12 | sed 's/^/    /'
+fi
+# Take the fixtures back, so no later scenario sees six extra commands in a list.
+send_line 'for n in aa bb cc dd ee ff; do unfunction zscsp_$n; done'
 
 echo "== 10c. turned back off: SMART_MENU_SINGLE_COLUMN=false -> grid returns =="
 send_line 'SMART_MENU_SINGLE_COLUMN=false'

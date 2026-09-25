@@ -186,5 +186,38 @@ else
 fi
 
 print -r -- ""
+print -r -- "=== 5. command-position test on the keystroke path ==="
+# lib/engine/menu.zsh widened `_smart_menu_is_command_word` from "is this the
+# first word" to "is this a position where the shell still picks a command"
+# (after `|`, `&&`, `;`, or a wrapper like `sudo`), and the popup calls it on
+# every keystroke. The widening is worth exactly nothing if it costs more than
+# the completion it is deciding whether to run, so the claim in that function's
+# comment is asserted here instead of trusted: ~10 microseconds per call on a
+# realistic line, and linear — not quadratic — in the length of that line.
+source "${ROOT}/lib/engine/menu.zsh"
+_short_line="git log --on"
+_long_line=""
+for (( i = 1; i <= 20; i++ )); do _long_line+="echo word$i arg$i "; done
+_long_line+="git che"
+_check_short() {
+    local i
+    LBUFFER="$_short_line"
+    for (( i = 0; i < 200; i++ )); do _smart_menu_is_command_word; done
+}
+_check_long() {
+    local i
+    LBUFFER="$_long_line"
+    for (( i = 0; i < 200; i++ )); do _smart_menu_is_command_word; done
+}
+timed 3 _check_short
+_short_pos=$ELAPSED_US
+assert_fast "200 command-position tests, 2-word line" 12
+printf '  INFO  %.2f us per call (short line)\n' $(( _short_pos / 200.0 ))
+timed 3 _check_long
+assert_fast "200 command-position tests, ${#_long_line}-char line" 40
+assert_scaling "command position: ${#_long_line}/${#_short_line} chars costs less than 16x" \
+    16 "$ELAPSED_US" "$_short_pos"
+
+print -r -- ""
 print -r -- "=== TOTAL: $PASS passed, $FAIL failed ==="
 (( FAIL == 0 )) && exit 0 || exit 1

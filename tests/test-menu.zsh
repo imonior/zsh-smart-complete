@@ -137,6 +137,22 @@ else
     (( FAIL++ )); print -r -- "  FAIL  _smart_menu_now_ms did not advance: [$t1] -> [$t2]" >&2
 fi
 
+# The listing tick reads the clock twice per keystroke through the SCAN form,
+# because $(_smart_menu_now_ms) costs a subshell fork (measured: 349 us against
+# 10 us). Both forms must agree, or the throttle decisions would depend on which
+# caller made them — and the printing form has no reason to exist any more if it
+# stops matching.
+local _sw _sp
+_smart_menu_now_ms_scan; _sw="$_SMART_MENU_NOW_MS"
+_sp="$(_smart_menu_now_ms)"
+assert_eq "scan and print publish the same shape" "${#_sw}" "${#_sp}"
+if [[ "$_sp" == <-> ]] && (( _sp - _sw <= 5 && _sw <= _sp )); then
+    (( PASS++ )); print -r -- "  PASS  scan and print agree within a few ms (scan $_sw, print $_sp)"
+else
+    (( FAIL++ )); print -r -- "  FAIL  scan/print disagree: scan=[${_sw}] print=[${_sp}]" >&2
+fi
+assert_rc "scan reports having a clock" 0 _smart_menu_now_ms_scan
+
 # ---------------------------------------------------------------------------
 print -r -- ""
 print -r -- "=== 场景 4: terminfo 作为参数加载（回归：p:terminfo）==="
@@ -273,6 +289,19 @@ LBUFFER="git "
 assert_rc "MIN_PREFIX=0 -> list on an empty word too" 0 _smart_menu_should_list
 SMART_MENU_MIN_PREFIX=1
 
+# The two minimums must not disagree about where the user is typing a command:
+# MIN_PREFIX_CMD is the *command position* minimum, and the position test in
+# scenario 6 is what decides which of the two applies. Two words of the same
+# length, opposite answers, is the whole assertion.
+SMART_MENU_MIN_PREFIX=5
+SMART_MENU_MIN_PREFIX_CMD=2
+LBUFFER="ls -la | gr"
+assert_rc "post-pipe 2 chars -> the command minimum applies" 0 _smart_menu_should_list
+LBUFFER="git lo"
+assert_rc "an argument still gets the (higher) argument minimum" 1 _smart_menu_should_list
+SMART_MENU_MIN_PREFIX=1
+SMART_MENU_MIN_PREFIX_CMD=2
+
 # `cd ` is the ONE empty word we list while MIN_PREFIX is still 1: "which
 # directories have I been in?" is exactly the question being asked there, and
 # stock zsh shows nothing until Tab. Deliberately narrower than MIN_PREFIX=0,
@@ -399,6 +428,60 @@ LBUFFER="git s"
 assert_rc "second word is not a command word" 1 _smart_menu_is_command_word
 LBUFFER="  gi"
 assert_rc "leading spaces still command word" 0 _smart_menu_is_command_word
+
+# Command POSITION, which is not the same question as "first word". Single-column
+# mode has to answer this for itself (it never calls _main_complete), and zsh's
+# own completer offers commands at every one of the positive positions below —
+# so a generator that says "second word, therefore a path" loses the comparison
+# there and the popup changes shape mid-typing.
+LBUFFER="git log | gr"
+assert_rc "after a pipe is a command position"        0 _smart_menu_is_command_word
+LBUFFER="make && gi"
+assert_rc "after && is a command position"            0 _smart_menu_is_command_word
+LBUFFER="ls -la ; ch"
+assert_rc "after ; is a command position"             0 _smart_menu_is_command_word
+LBUFFER="echo one two three | "
+assert_rc "an empty word after a separator too"       0 _smart_menu_is_command_word
+LBUFFER="sudo zsc"
+assert_rc "after a command wrapper is a command position" 0 _smart_menu_is_command_word
+LBUFFER="FOO=1 v"
+assert_rc "after a VAR=value prefix assignment too"   0 _smart_menu_is_command_word
+# ...and the conservatism that keeps this from claiming positions where some
+# command has already been chosen: the generator cannot produce its subcommands,
+# so those must stay with the native grid.
+LBUFFER="sudo git st"
+assert_rc "a wrapper that already has its command is not" 1 _smart_menu_is_command_word
+LBUFFER="sudo -u root gi"
+assert_rc "a wrapper with options before its command is not" 1 _smart_menu_is_command_word
+LBUFFER="FOO=1 bar v"
+assert_rc "the argument of an assigned command is not"  1 _smart_menu_is_command_word
+LBUFFER='echo "a| sudo" x'
+assert_rc "a wrapper inside a quoted argument is not"   1 _smart_menu_is_command_word
+# KNOWN LIMIT, asserted so it stays visible: the popup's notion of a word is
+# whitespace-based everywhere (`_smart_menu_word`, the gate, the generator), so
+# `git log|gr` is one word and its `|` never reaches this function. Fixing that
+# means redefining what a word is for the whole popup, which is a different
+# change; the behaviour here is exactly what it was before the widening.
+LBUFFER="git log|gr"
+assert_rc "a separator with no spaces around it is NOT seen (see note)" 1 _smart_menu_is_command_word
+# (z) splits into shell words and keeps their quoting, so nothing that only
+# LOOKS like a wrapper from outside the quotes is treated as one.
+LBUFFER='"sudo" gi'
+assert_rc "a quoted wrapper is not taken for the bare word" 1 _smart_menu_is_command_word
+LBUFFER='"echo sudo" gr'
+assert_rc "a wrapper inside one quoted argument is still an argument" 1 _smart_menu_is_command_word
+# And characters stay characters: this fixture directory has exactly one entry,
+# named `sudo`, so a `*` that reached the filesystem would have come back as that
+# word and this would answer "yes" out of the directory instead of the line.
+local _g_dir="$(mktemp -d "${TMPDIR:-/tmp}/zsc_glob.XXXXXX")"
+: > "$_g_dir/sudo"
+local _g_old="$PWD"
+cd "$_g_dir"
+LBUFFER="ls | * "
+assert_rc "a glob char after a separator is not expanded against the cwd" 1 _smart_menu_is_command_word
+cd "$_g_old"
+rm -rf "$_g_dir"
+LBUFFER="git s"
 
 # ---------------------------------------------------------------------------
 print -r -- ""
@@ -752,6 +835,121 @@ LBUFFER="cat zscf_nonexistent"
 _smart_menu_candidates
 assert_eq "unmatched word -> empty candidate list (-> native fall-through)" \
     "${#_SMART_MENU_CAND}" "0"
+
+# --- 14g: the widened command positions reach the CANDIDATES ---------------
+# 14 above proves the predicate; this proves the generator actually paints a
+# different list there, which is the user-visible half. `zsc_probe_` after a
+# pipe must produce the three probe names, not a filesystem glob.
+local -a _g_cand
+LBUFFER="ls -la | zsc_probe_"
+_smart_menu_candidates
+_g_cand=( ${(M)_SMART_MENU_CAND:#zsc_probe_*} )
+assert_eq "post-pipe word -> probe candidates generated" "${#_g_cand}" "3"
+LBUFFER="sudo zsc_probe_"
+_smart_menu_candidates
+_g_cand=( ${(M)_SMART_MENU_CAND:#zsc_probe_*} )
+assert_eq "word after sudo -> probe candidates generated" "${#_g_cand}" "3"
+LBUFFER="sudo zsc_probe_alpha"
+_smart_menu_candidates
+assert_eq "narrowing at a wrapped command still narrows" "${#_SMART_MENU_CAND}" "1"
+# And the position the widening deliberately did NOT claim: `git` already owns
+# that slot, so nothing is generated here and the native grid takes over (14e).
+LBUFFER="git log zsc_probe_"
+_smart_menu_candidates
+assert_eq "a wrapper with its own command still falls through" \
+    "${#_SMART_MENU_CAND}" "0"
+
+# --- 14h: a command prefix is LITERAL, not a pattern ------------------------
+# This file runs with EXTENDED_GLOB on, exactly like the shells of the frameworks
+# that turn it on. There, `#` is pattern syntax meaning "repeat the previous
+# atom", so the unescaped filter turned the typed `zsc_probe#` into the pattern
+# `zsc_probe#*` — which matches zsc_probe_alpha. The popup would offer names the
+# user never typed a prefix of, instead of falling through to native.
+local _h_err; _h_err="$(mktemp)"
+LBUFFER="zsc_probe#"
+_smart_menu_candidates 2>"$_h_err"
+assert_eq "a pattern char in a command prefix matches nothing literally" \
+    "${#_SMART_MENU_CAND}" "0"
+assert_eq "and it does not abort the generator" "$(cat "$_h_err")" ""
+LBUFFER="zsc_probe_alpha"
+_smart_menu_candidates
+assert_eq "an ordinary command prefix is unaffected by the escape" \
+    "${#_SMART_MENU_CAND}" "1"
+rm -f "$_h_err"
+
+# --- 14i: `cd <typed word>` offers recent directories too ------------------
+# Before this, `cd ` (empty word) listed them and `cd Doc` did not: the popup
+# answered the first keystroke with recent directories and the second with the
+# contents of the current directory. The completer in lib/engine/recent.zsh has
+# always matched a typed prefix; this makes the vertical list agree with it.
+#
+# The fixture puts the two directories OUTSIDE the working directory on purpose:
+# a candidate that reads as an absolute path can then only have come from the
+# recent-dirs list, since the filesystem glob runs against `$_zdir` and yields
+# relative names. Inside the cwd the two sources produce the same strings and
+# every assertion below would pass for the wrong reason.
+local _rzdot="$_zdir/zdot" _zdot_save="$ZDOTDIR" _xdg_save="$XDG_DATA_HOME"
+local _zroot; _zroot="$(mktemp -d "${TMPDIR:-/tmp}/zsc_cand_root.XXXXXX")"
+mkdir -p "$_rzdot" "$_zroot/zsc_recent_Documents" "$_zroot/zsc_recent_Downloads"
+local -a _rdirs=("$_zroot/zsc_recent_Downloads" "$_zroot/zsc_recent_Documents")
+print -rl ${(qqqq)_rdirs} > "$_rzdot/.chpwd-recent-dirs"
+ZDOTDIR="$_rzdot"; export ZDOTDIR
+XDG_DATA_HOME="$_zdir/no-xdg"; export XDG_DATA_HOME
+# Seed through the real loader, so the assertions below are about the generator
+# and not about a hand-written array.
+_smart_recent_load
+assert_eq "recent-dirs database loaded from the seeded ZDOTDIR" \
+    "${#_SMART_RECENT_DIRS}" "2"
+# Does the current candidate list contain an absolute path (i.e. a recent dir)?
+local _i_probe=0
+_i_hit() {
+    local pat="$1" v
+    for v in "${_SMART_MENU_CAND[@]}"; do
+        [[ "$v" == ${~pat} ]] && return 0
+    done
+    return 1
+}
+LBUFFER="cd zsc_recent_"
+_smart_menu_candidates
+_i_probe=0; _i_hit "$_zroot/zsc_recent_Documents" && _i_probe=1
+assert_eq "cd + typed prefix -> the recent directory is a candidate" "$_i_probe" "1"
+assert_eq "and the list starts with the most recent one" \
+    "${_SMART_MENU_CAND[1]}" "$_zroot/zsc_recent_Downloads"
+# The negative controls, because "recent directories show up" is only half the
+# contract — where they must NOT show up is what keeps them out of the way:
+LBUFFER="cat zsc_recent_"
+_smart_menu_candidates
+_i_probe=0; _i_hit "$_zroot/*" && _i_probe=1
+assert_eq "a non-cd command gets no recent directories" "$_i_probe" "0"
+# Both fixture directories prefix-match this word, so the candidate SET is the
+# same either way and order is the only observable: the filesystem lists them
+# alphabetically, while the recent-dirs source has Downloads first. Leading with
+# Documents is therefore what "the filesystem owns an explicit path" looks like.
+LBUFFER="cd $_zroot/zsc_recent_Do"
+_smart_menu_candidates
+assert_eq "an explicit path is left to the filesystem completer" \
+    "${_SMART_MENU_CAND[1]}" "$_zroot/zsc_recent_Documents"
+LBUFFER="cd old zsc_recent_"
+_smart_menu_candidates
+_i_probe=0; _i_hit "$_zroot/*" && _i_probe=1
+assert_eq "cd's SECOND word (a substring rename) gets no recent directories" "$_i_probe" "0"
+SMART_RECENT_PATHS=false
+LBUFFER="cd zsc_recent_"
+_smart_menu_candidates
+_i_probe=0; _i_hit "$_zroot/*" && _i_probe=1
+assert_eq "SMART_RECENT_PATHS=false switches them off here too" "$_i_probe" "0"
+# A probe for the probes: the four controls above only mean something if the
+# same fixture DOES contribute those directories with the feature on.
+SMART_RECENT_PATHS=true
+LBUFFER="cd zsc_recent_"
+_smart_menu_candidates
+_i_probe=0; _i_hit "$_zroot/*" && _i_probe=1
+assert_eq "and turning it back on brings them back (the probe works)" "$_i_probe" "1"
+unset -f _i_hit
+[[ -n "$_zdot_save" ]] && { ZDOTDIR="$_zdot_save"; export ZDOTDIR; } || unset ZDOTDIR
+[[ -n "$_xdg_save" ]] && { XDG_DATA_HOME="$_xdg_save"; export XDG_DATA_HOME; } || unset XDG_DATA_HOME
+_SMART_RECENT_DIRS=()
+rm -rf "$_zroot"
 
 # --- 14f: THE single-column invariant ---------------------------------------
 # zsh's list renderer derives its column count from the widest DISPLAY string.

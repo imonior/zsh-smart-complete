@@ -111,10 +111,26 @@ typeset -ga _SMART_MENU_DISP=()
 # the parameter undefined, which would silently disable all throttling.
 zmodload -F zsh/datetime p:EPOCHREALTIME 2>/dev/null
 _smart_menu_now_ms() {
+    _smart_menu_now_ms_scan
+    print -r -- "$_SMART_MENU_NOW_MS"
+    return 0
+}
+
+# The scan form exists because the listing tick reads the clock twice per
+# keystroke, and `_smart_menu_now_ms`'s print costs a subshell fork (~0.4 ms
+# measured). Same digits, published through a global; the printing form stays
+# for status output and tests. Return code says whether a clock exists at all,
+# which is what _smart_menu_have_clock used to be asked on the tick path.
+typeset -g _SMART_MENU_NOW_MS=0
+_smart_menu_now_ms_scan() {
     local t="${EPOCHREALTIME:-}"
-    [[ -z "$t" ]] && { print -r -- 0; return 0; }
+    if [[ -z "$t" ]]; then
+        _SMART_MENU_NOW_MS=0
+        return 1
+    fi
     t="${t/./}"                      # 1789465211.123456 -> 1789465211123456
-    print -r -- "${t[1,13]}"         # first 13 digits = milliseconds
+    _SMART_MENU_NOW_MS="${t[1,13]}"  # first 13 digits = milliseconds
+    return 0
 }
 _smart_menu_have_clock() { [[ -n "${EPOCHREALTIME:-}" ]] }
 
@@ -148,10 +164,66 @@ _smart_menu_word() {
     print -r -- "${LBUFFER##*[[:space:]]}"
 }
 
-# _smart_menu_is_command_word -- are we completing the first word of the line?
+# _smart_menu_is_command_word -- is the word under the cursor in COMMAND
+# position, i.e. does the shell still have to choose what to run there?
+#
+# The first word of the line is the obvious case, and the one this function
+# used to cover completely. The others matter just as much when the live popup
+# is in single-column mode, because that mode has to decide for itself:
+#
+#   * after a separator   — `git log | gr`, `make && gi`, `ls -la ; ch`
+#   * after a wrapper     — `sudo gi`, `env FOO=1 vi`, `FOO=1 git`
+#
+# There, answering "second word, so it is a path" is wrong twice over: the
+# filesystem glob has nothing to do with what the user is typing, and zsh's own
+# completer does offer commands at those positions — so the generator, which
+# used to fall through there, can now draw that list vertically too.
+#
+# The test is deliberately conservative about everything else: every word
+# between the LAST separator and the cursor must be a wrapper or a `VAR=value`
+# prefix assignment. `sudo git st` is therefore NOT a command position — `git`
+# already owns that slot, `st` is a subcommand, and a subcommand is precisely
+# what this generator cannot produce. A word it mis-splits out of a quoted
+# argument is not on the list either, which is the same safe answer.
+#
+# COST, since this runs on the keystroke path. tests/test-perf.zsh section 5
+# guards it; on the same 8 GB laptop it measures ~19 us per call for an ordinary
+# two-word line (was ~4 us with the first-word-only test), less after a
+# separator — the clip below leaves nothing to split — and ~80 us for a
+# 350-character line with no separator at all, where the whole prefix has to be
+# split to discover that its first word is not a wrapper. Every one of those is
+# well under the ~400 us a single subshell fork costs in this codebase, which is
+# the unit these numbers are worth comparing to.
 _smart_menu_is_command_word() {
     local before="${LBUFFER%${LBUFFER##*[[:space:]]}}"
-    [[ -z "${before//[[:space:]]/}" ]]
+    [[ -n "${before//[[:space:]]/}" ]] || return 0
+    # Nothing before a separator can make this a command position, so drop it:
+    # that keeps the split below proportional to the command being typed, not
+    # to the length of the line.
+    before="${before##*[|;&]}"
+    [[ -n "${before//[[:space:]]/}" ]] || return 0
+    local -a bw
+    # (z) splits into SHELL words rather than at every byte of whitespace, and it
+    # keeps each word's original quoting. Both matter: a quoted argument stays
+    # one word (so a wrapper name inside it cannot match the list below), and a
+    # word that is quoted as a whole — `"sudo"` — does not match it either. Every
+    # such case answers "not a command position", which is the pre-existing
+    # behaviour, so the only positions this adds are the ordinary unquoted ones.
+    # zsh never re-globs an expansion either way, so a `*` in the line stays a
+    # character (asserted in tests/test-menu.zsh).
+    bw=("${(@z)before}")
+    local w
+    for w in "${bw[@]}"; do
+        case "$w" in
+            *=*) ;;
+            # The wrappers zsh itself keeps command completion for. Anything
+            # that takes an option before its command (`sudo -u x git`, `nice
+            # -n 10`) is not recognised, and falls through to the native grid.
+            sudo|doas|command|builtin|exec|env|time|nohup|nice|ionice|setsid|stdbuf|noglob|watch) ;;
+            *) return 1 ;;
+        esac
+    done
+    return 0
 }
 
 # _smart_menu_lister -- normalise SMART_MENU_LISTER to `builtin` or `fzf-tab`.
@@ -382,8 +454,11 @@ zle -C _smart_menu_list list-choices _smart_menu_list_main 2>/dev/null
 # candidates for the current word, generated directly (no compadd shadowing).
 #
 # Covers the common cases:
-#   * command word  -> commands + functions + aliases + builtins (prefix-filtered)
-#   * empty word after cd/pushd -> cd recent-directories (if enabled)
+#   * command position -> commands + functions + aliases + builtins
+#     (prefix-filtered). That includes the words after `|`, `&&` and `;`, and
+#     after a wrapper like `sudo`, because zsh completes commands there too.
+#   * the first word after cd/pushd -> cd recent-directories (if enabled), with
+#     an empty word and with a typed prefix
 #   * path / argument -> filesystem glob of the current word
 # Anything else (git subcommands, ssh hosts, option strings, …) yields an
 # empty list here, which makes _smart_menu_list_main fall through to the
@@ -397,7 +472,14 @@ _smart_menu_candidates() {
 
     if (( _is_cmd )); then
         _sc_out=( ${(k)commands} ${(k)functions} ${(k)aliases} ${(k)builtins} )
-        (( ${#w} > 0 )) && _sc_out=( ${(M)_sc_out:#${w}*} )
+        # `${(b)…}` for the same reason the path branch below uses it: the word
+        # is USER INPUT feeding a pattern. EXTENDED_GLOB — which several popular
+        # frameworks turn on — makes `#`, `^`, `(` and `<->` live pattern syntax
+        # on top of `[ ] * ?`, so an unescaped prefix can match names the typed
+        # text never contained, or be a bad pattern. With the escape, `git#`
+        # means the command `git#`, and a command position that has no literal
+        # match yields nothing and falls through to native, as it should.
+        (( ${#w} > 0 )) && _sc_out=( ${(M)_sc_out:#${(b)w}*} )
     else
         # cd / pushd with an empty word: offer recent directories first.
         if (( ${#w} == 0 )) && (( ${+functions[_smart_recent_cd_empty_ok]} )) \
@@ -406,6 +488,33 @@ _smart_menu_candidates() {
             _sc_out=( "${_SMART_RECENT_DIRS[@]}" )
         fi
         if (( ${#w} > 0 )); then
+            # cd / pushd with a word already typed: the same recent directories,
+            # prefix-matched. Without this the vertical list answers `cd Dow`
+            # with files in the current directory while the native grid answers
+            # it with ~/Documents — so the popup changed shape the moment the
+            # user typed the first letter after `cd `.
+            #
+            # Only for a word that is not already an explicit path: `cd /et` is
+            # the filesystem's question to answer, which is also what the
+            # completer in lib/engine/recent.zsh decides.
+            if (( ${+functions[_smart_recent_is_cd_arg]} )) \
+               && _smart_recent_is_cd_arg "$LBUFFER" \
+               && _smart_recent_enabled; then
+                case "$w" in
+                    /*|~*|./*|../*) ;;
+                    *)
+                        _smart_recent_load 2>/dev/null
+                        local _sc_d
+                        # Plain string prefixes, not patterns: neither the full
+                        # path nor its last segment has to be escaped here, and
+                        # that is worth the two comparisons.
+                        for _sc_d in "${_SMART_RECENT_DIRS[@]}"; do
+                            [[ "$_sc_d" == "$w"* || "${_sc_d:t}" == "$w"* ]] && \
+                                _sc_out+=( "$_sc_d" )
+                        done
+                        ;;
+                esac
+            fi
             # The typed word is USER INPUT and must never reach the glob engine
             # raw. Typing `[` used to build the pattern `[*`, and a bad pattern
             # is not a nomatch: it ABORTS this function and prints
@@ -497,6 +606,13 @@ _smart_menu_probe_main() {
     return 0
 }
 zle -C _smart_menu_probe complete-word _smart_menu_probe_main 2>/dev/null
+
+# The return slot of _smart_menu_probe_suffix. Declared here rather than left to
+# the assignment below: a bare write to an undeclared name still creates a global
+# (this file runs under `no_warn_create_global`), so without this line the global
+# existed only as a side effect and was invisible to anything that reads
+# declarations -- which is how it escaped every audit of the module's state.
+typeset -g _SMART_PROBE_SUFFIX_RET=''
 
 # _smart_menu_completion_suffix -- echo what completion would append, or "".
 #
@@ -660,7 +776,10 @@ _smart_menu_tick() {
     (( ++_SMART_MENU_TICKS ))
     _smart_display_show 2>/dev/null
 
-    local t0=$(_smart_menu_now_ms)
+    local t0=""
+    # Fork-free clock read; the printing form would cost a subshell per call
+    # and this path runs on every keystroke that reaches the listing.
+    _smart_menu_now_ms_scan && t0="$_SMART_MENU_NOW_MS"
     _SMART_MENU_LISTED=0
     # NOTE: no LISTMAX juggling here. It used to be scoped to -1 around this
     # call to suppress zsh's "do you wish to see all N possibilities" prompt;
@@ -696,8 +815,9 @@ _smart_menu_tick() {
     # Rows are on the screen and belong to the current word; the next tick that
     # draws nothing is the one that has to take them back.
     _SMART_MENU_ROWS=1
-    if _smart_menu_have_clock; then
-        _smart_menu_note_cost $(( $(_smart_menu_now_ms) - t0 ))
+    if [[ -n "$t0" ]]; then
+        _smart_menu_now_ms_scan
+        _smart_menu_note_cost $(( _SMART_MENU_NOW_MS - t0 ))
     fi
     return 0
 }

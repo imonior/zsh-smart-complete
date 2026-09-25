@@ -179,52 +179,51 @@ _first_hit() { # _first_hit <file> <needle>
     awk -v n="$2" 'index($0, n) { print substr($0, 1, 70); exit }' "$1" 2>/dev/null \
         | tr -d '\r\t'
 }
-# The four lines that FOLLOW the end of the options block, with their line
-# numbers — which is exactly the head of the integration block, shown as bytes
-# rather than as a yes/no. The counts above said the marker was absent while the
-# block's own comment lines were present, and only the text itself can tell
-# those two apart: a write that never happened, a marker that lost its leading
-# `# >>>`, or a block that landed somewhere other than where the assert looks.
-_block_head() {
-    awk 'f && c++ < 4 { printf "%d:%s+", NR, substr($0, 1, 44) }
-         index($0, "<<< zsh-smart-complete options <<<") { f = 1 }' "$1" 2>/dev/null \
-        | tr -d '\r\t' | cut -c1-190
-}
-# Where the written block STOPS: the config's last line, cut short. With the
-# head of the block, this brackets the failure — a block that lost only its two
-# marker lines is a different bug from one that ends halfway through.
+# Where the written block STOPS: the config's last non-empty line, cut short.
+# A block that lost only its marker lines is a different bug from one whose
+# content ends halfway through, and the file's own tail tells them apart.
 _tail_line() {
     awk 'NF { t = $0 } END { printf "%s", substr(t, 1, 44) }' "$1" 2>/dev/null \
         | tr -d '\r\t'
 }
-# Which of the five sentences the config writer prints for its branch. Digits in
+# The last line the installer tagged [INFO]/[OK]/[WARN] — where its narration
+# stopped. A run that took one of the config-write branches says so in one of
+# those lines, so `wrote=` coming back all zero while the config holds half a
+# block can only mean the run ended somewhere else, and this names it.
+_last_tagged() {
+    awk '/\[(INFO|OK|WARN)\]/ { if (match($0, /\[(INFO|OK|WARN)\].*/)) t = substr($0, RSTART, 62) }
+         END { printf "%s", t }' "$1" 2>/dev/null | tr -d '\r\t'
+}
+# Which of the six sentences the config writer prints for its branch. Digits, in
 # this order: plugin-only / no-zshrc-found / created-with-integration-block /
-# block-refreshed / updated-with-integration-block. Every label that reaches
-# here pins SMART_INSTALL_LANG=en, so the English strings are the ones to ask
-# for — and awk, not grep, because this reads a run's painted output.
+# block-refreshed / updated-with-integration-block / recommended-full-stack
+# (created OR replaced). Every label that reaches here pins
+# SMART_INSTALL_LANG=en, so the English strings are the ones to ask for — and
+# awk, not grep, because this reads a run's painted output.
 _wrote_which() {
     out="$1"
-    printf '%s%s%s%s%s' \
+    printf '%s%s%s%s%s%s' \
         "$(_marker_count "$out" 'Plugin-only install')" \
         "$(_marker_count "$out" 'No ~/.zshrc found')" \
         "$(_marker_count "$out" 'created with the zsh-smart-complete integration')" \
         "$(_marker_count "$out" 'block refreshed')" \
-        "$(_marker_count "$out" 'updated with the integration block')"
+        "$(_marker_count "$out" 'updated with the integration block')" \
+        "$(_marker_count "$out" 'recommended full-stack')"
 }
 # The fields are ordered by how much each one costs to lose: an annotation can be
-# cut off at the end of a long line, so the config file's own contents come
-# before anything else.
+# cut off at the end of a long line, so what the run said comes before what the
+# config file looks like at its end.
 _installed_evidence() {
     label="$1"; home="$TMP/h_$label"
-    printf 'rc=%s size=%s lines=%s opts=%s integ=%s baks=%s wrote=[%s] head=[%s] tail=[%s]' \
+    printf 'rc=%s size=%s lines=%s opts=%s integ=%s out=%s wrote=[%s] last=[%s] tail=[%s]' \
         "$(cat "$TMP/$label.rc" 2>/dev/null)" \
         "$(wc -c < "$home/.zshrc" 2>/dev/null | tr -d ' ')" \
         "$(wc -l < "$home/.zshrc" 2>/dev/null | tr -d ' ')" \
         "$(_marker_count "$home/.zshrc" '>>> zsh-smart-complete options (managed) >>>')" \
         "$(_marker_count "$home/.zshrc" '>>> zsh-smart-complete integration (managed) >>>')" \
-        "$(find "$home" -maxdepth 1 -name '.zshrc.bak.*' 2>/dev/null | wc -l | tr -d ' ')" \
+        "$(wc -c < "$TMP/$label.out" 2>/dev/null | tr -d ' ')" \
         "$(_wrote_which "$TMP/$label.out")" \
-        "$(_block_head "$home/.zshrc")" \
+        "$(_last_tagged "$TMP/$label.out")" \
         "$(_tail_line "$home/.zshrc")"
 }
 assert_installed() {

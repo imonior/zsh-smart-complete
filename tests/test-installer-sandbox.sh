@@ -609,53 +609,85 @@ fi
 echo ""
 echo "=== 9. install.sh hands the install over when opkg is on PATH ==="
 # The reason the stub farm has no opkg: one on PATH makes install.sh exec
-# install-entware.sh and stop being the script under test. That branch is real
-# and needs a witness, but the witness has to be the handover itself -- letting
-# the second installer run to completion here would mean installing against
-# stubs, into paths like /opt that this sandbox does not own. So the copy below
-# sits alone in a directory of its own: the guard fires, finds no
-# install-entware.sh next to install.sh, and says so instead of pressing on.
+# install-entware.sh and stop being the script under test. That branch needs its
+# own witness, and it has two halves the script only shows one at a time: with
+# the sibling present it says it is handing over and then becomes the other
+# script, with the sibling absent it names the missing file and stops. Both are
+# asserted here, in a directory of this run's own so `SCRIPT_DIR` points at the
+# copy rather than at the repository.
+#
+# What is NOT done is letting the real install-entware.sh run: it would install
+# against stubs into paths this sandbox does not own, like /opt. A two-line
+# stand-in records that the handover arrived, and what it carried.
 #
 # On macOS the guard excludes darwin before it ever looks at PATH, so the branch
 # is unreachable there; the label says it was skipped rather than quietly
 # counting a run that took a different path.
+run_handover() {   # run_handover <label> <dir holding the copy> <home>
+    label="$1"; dir="$2"; home="$3"
+    mkdir -p "$home" "$dir"
+    cp "$INSTALL" "$dir/install.sh"
+    : > "$STUB_LOG"
+    env -i PATH="$BIN_OPKG:$BIN:$CORE" \
+        HOME="$home" ZDOTDIR="$home" \
+        XDG_CONFIG_HOME="$home/.config" XDG_DATA_HOME="$home/.local/share" \
+        TERM="${TERM:-dumb}" TMPDIR="${TMPDIR:-/tmp}" \
+        NONINTERACTIVE=1 SMART_INSTALL_LANG=en \
+        bash "$dir/install.sh" > "$TMP/$label.out" 2>&1
+    printf '%s' "$?" > "$TMP/$label.rc"
+}
 case "${OSTYPE:-}" in
     darwin*)
         ok "handover: skipped on macOS, where the guard never consults PATH"
         ;;
     *)
-        HO=handover
-        hohome="$TMP/h_$HO"; hoarg="$TMP/h_$HO.d"
-        mkdir -p "$hohome" "$hoarg"
-        cp "$INSTALL" "$hoarg/install.sh"
-        : > "$STUB_LOG"
-        env -i PATH="$BIN_OPKG:$BIN:$CORE" \
-            HOME="$hohome" ZDOTDIR="$hohome" \
-            XDG_CONFIG_HOME="$hohome/.config" XDG_DATA_HOME="$hohome/.local/share" \
-            TERM="${TERM:-dumb}" TMPDIR="${TMPDIR:-/tmp}" \
-            NONINTERACTIVE=1 SMART_INSTALL_LANG=en \
-            bash "$hoarg/install.sh" > "$TMP/$HO.out" 2>&1
-        check "$HO: an absent handover target exits non-zero" "1" "$?"
-        if [ "$(_marker_count "$TMP/$HO.out" 'handing over to the dedicated installer')" != "0" ]; then
-            ok "$HO: opkg on PATH makes install.sh hand over"
+        HM=handover_missing
+        run_handover "$HM" "$TMP/h_$HM.d" "$TMP/h_$HM"
+        check "$HM: with no installer next to it, it exits non-zero" "1" "$(cat "$TMP/$HM.rc")"
+        if [ "$(_marker_count "$TMP/$HM.out" 'was not found next to install.sh')" != "0" ]; then
+            ok "$HM: and names the script it looked for"
         else
-            no "$HO: opkg on PATH makes install.sh hand over" \
+            no "$HM: and names the script it looked for" \
+               "$(_first_hit "$TMP/$HM.out" 'install-entware.sh')"
+        fi
+        # Nothing of ours belongs in that home: the guard runs before phase 1, so
+        # a config file or a logged package call would mean it installed as well,
+        # not instead.
+        if [ ! -e "$TMP/h_$HM/.zshrc" ] && [ ! -s "$STUB_LOG" ]; then
+            ok "$HM: it stopped before installing anything"
+        else
+            no "$HM: it stopped before installing anything" \
+               "zshrc=$(wc -c < "$TMP/h_$HM/.zshrc" 2>/dev/null | tr -d ' ') stubs=$(wc -c < "$STUB_LOG" | tr -d ' ')"
+        fi
+
+        HO=handover
+        mkdir -p "$TMP/h_$HO.d"
+        printf '#!/bin/bash\nprintf "stand-in lang=%%s args=%%s\\n" "${SMART_INSTALL_LANG:-unset}" "$*" >> "%s"\nexit 0\n' \
+            "$STUB_LOG" > "$TMP/h_$HO.d/install-entware.sh"
+        chmod +x "$TMP/h_$HO.d/install-entware.sh"
+        run_handover "$HO" "$TMP/h_$HO.d" "$TMP/h_$HO"
+        check "$HO: with the sibling present it exits with that script's code" \
+            "0" "$(cat "$TMP/$HO.rc")"
+        if [ "$(_marker_count "$TMP/$HO.out" 'handing over to the dedicated installer')" != "0" ]; then
+            ok "$HO: opkg on PATH makes install.sh say it hands over"
+        else
+            no "$HO: opkg on PATH makes install.sh say it hands over" \
                "$(_first_hit "$TMP/$HO.out" 'Entware')|$(tail -c 120 "$TMP/$HO.out")"
         fi
-        if [ "$(_marker_count "$TMP/$HO.out" 'was not found next to install.sh')" != "0" ]; then
-            ok "$HO: and it names the missing script instead of pressing on"
+        # The stand-in is what proves the exec landed rather than a sentence
+        # printed on the way to doing something else -- and it echoes back the
+        # language the parent promised to forward.
+        if [ "$(_marker_count "$STUB_LOG" 'stand-in lang=en')" != "0" ]; then
+            ok "$HO: and the other installer is the one that ran, with the language forwarded"
         else
-            no "$HO: and it names the missing script instead of pressing on" \
-               "$(_first_hit "$TMP/$HO.out" 'install-entware.sh')"
+            no "$HO: and the other installer is the one that ran, with the language forwarded" \
+               "$(tail -c 120 "$STUB_LOG" | tr '\n' '|')"
         fi
-        # Nothing of ours belongs in that home: the guard runs before phase 1,
-        # so a config file or a logged package call here would mean the handover
-        # decided to install as well, not instead.
-        if [ ! -e "$hohome/.zshrc" ] && [ ! -s "$STUB_LOG" ]; then
-            ok "$HO: it stopped before installing anything"
+        if [ ! -e "$TMP/h_$HO/.zshrc" ]; then
+            ok "$HO: install.sh itself wrote no config"
         else
-            no "$HO: it stopped before installing anything" \
-               "zshrc=$(wc -c < "$hohome/.zshrc" 2>/dev/null | tr -d ' ') stubs=$(wc -c < "$STUB_LOG" | tr -d ' ')"
+            no "$HO: install.sh itself wrote no config" \
+               "zshrc=$(wc -c < "$TMP/h_$HO/.zshrc" | tr -d ' ')"
         fi
         ;;
 esac

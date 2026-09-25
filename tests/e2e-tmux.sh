@@ -119,8 +119,13 @@ tmux new-session -d -s "$SESS" -x 140 -y 40 -c "$WORK" \
     "env ZDOTDIR=$ZD TERM=xterm-256color zsh -i"
 # Poll for the prompt instead of a fixed sleep: zsh cold-boot + sourcing the
 # plugin can exceed any single hard-coded delay on a loaded machine, which made
-# the "prompt rendered" assertion flaky. Wait up to ~10s.
-for _ in $(seq 1 40); do
+# the "prompt rendered" assertion flaky. Wait up to ~25s, and remember how long
+# it took -- the abort below reports that number, because "never rendered" and
+# "rendered at second 13" are different bugs and a fixed ceiling cannot tell
+# them apart once it is the thing being hit.
+boot_polls=0
+for _ in $(seq 1 100); do
+    boot_polls=$(( boot_polls + 1 ))
     tmux capture-pane -t "$SESS" -p 2>/dev/null | grep -qF 'READY>' && break
     sleep 0.25
 done
@@ -156,7 +161,16 @@ done
 if ! tmux capture-pane -t "$SESS" -p 2>/dev/null | grep -qF 'READY>'; then
     echo "FAIL: the harness zsh never rendered its prompt, so the plugin was never" >&2
     echo "      sourced (the signature of a failed \$ZD/.zshrc write). Aborting." >&2
-    tmux capture-pane -t "$SESS" -p 2>/dev/null | tail -6 >&2
+    # Whether the session still exists splits the two remaining causes -- zsh died
+    # on startup versus zsh booted and something in it never painted -- and the
+    # poll count says how long this runner actually had. All three have to ride on
+    # lines the CI annotation filter keeps (FAIL|TOTAL|SKIP): a dump of bare text
+    # never reaches the annotations, so every remote read of this abort has shown
+    # the symptom and none of the screen. One line each, because the channel
+    # truncates.
+    echo "FAIL: session alive after ${boot_polls} polls: $(tmux has-session -t "$SESS" 2>/dev/null && echo yes || echo no)" >&2
+    echo "FAIL: pane was [$(tmux capture-pane -t "$SESS" -p 2>/dev/null \
+        | grep -vE '^[[:space:]]*$' | tail -3 | tr '\n' ' ' | tr -s ' ')]" >&2
     exit 1
 fi
 

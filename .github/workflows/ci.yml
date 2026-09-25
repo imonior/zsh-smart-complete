@@ -8,8 +8,8 @@
 #   zsh-versions    the same suite on several PACKAGED zsh builds, because much
 #                   of this codebase documents behaviour as "measured on zsh
 #                   5.9" — a claim that was previously verified on exactly one
-#                   build per OS. Its two red cells (zsh 5.7.1, 5.8.1) are a
-#                   real, still-undiagnosed behaviour gap — see that job.
+#                   build per OS. All three of its cells are red; read that job
+#                   before concluding anything about what that means.
 #   e2e-advisory    the tmux end-to-end suite. NON-BLOCKING on purpose (see that
 #                   job): it asserts on a rendered screen, which no other suite
 #                   can do, but it also drives a real terminal with wall-clock
@@ -82,6 +82,13 @@ jobs:
           set -e
           if out="$(./tests/run-all.sh -v 2>&1)"; then
             printf '%s\n' "$out"
+            # Publish the tally even on a green run. The assertion counts quoted in
+            # README.md and in the release tag message are claims about a measured
+            # run, and reading them off a GREEN job means downloading its log --
+            # which needs authentication, while annotations do not. Without this,
+            # the only way to check those numbers is to run the suite somewhere
+            # else and hope the two environments agree.
+            printf '::notice::%s\n' "$(printf '%s\n' "$out" | grep '^run-all:' | tail -n 1)"
           else
             printf '%s\n' "$out"
             while IFS= read -r line; do
@@ -99,14 +106,22 @@ jobs:
     #   ubuntu:focal      -> zsh 5.7.1   ubuntu:jammy -> zsh 5.8.1
     #   debian:bookworm   -> zsh 5.9
     #
-    # BLOCKING, deliberately, even though focal and jammy are red right now.
-    # debian:bookworm is a container job too — same image mechanism, same absent
-    # tty, same sqlite3 — and it passes, which rules the environment out and
-    # leaves the zsh build itself as the only variable. That is a real behaviour
-    # gap on the two oldest builds this codebase has never been run on, which is
-    # precisely what this job was added to find; silencing it would put the
-    # finding back in the drawer. It stays red until the difference is fixed,
-    # and the step below makes it readable while it is red.
+    # BLOCKING, deliberately, even though all three cells are red right now.
+    #
+    # What the red actually says, measured 2026-09-26: at v2.3.0 (0fb7ea9) this
+    # job split focal+jammy red / bookworm GREEN, and that split was the whole
+    # argument — one container image passing while two older ones failed ruled the
+    # environment out and left the zsh build as the only variable. bookworm is red
+    # too now, at every commit from c14d4bf onward, and all three report only
+    # "Process completed with exit code 2" with none of the suite's own lines in
+    # the annotations. So the old inference has expired, and the two things this
+    # shape is consistent with — a suite that fails assertions, and a suite that
+    # never starts — are not yet separated. The step below exists to separate
+    # them: rc=2 with no tally is the second one.
+    #
+    # The job stays red and blocking regardless. A gap on the oldest builds this
+    # codebase has never been run on is exactly what it was added to find, and
+    # silencing it would put the finding back in the drawer.
     container:
       image: ${{ matrix.image }}
     strategy:
@@ -140,9 +155,23 @@ jobs:
           rc=$?
           printf '%s\n' "$out"
           if [ "$rc" -ne 0 ]; then
-            while IFS= read -r line; do
-              [ -n "$line" ] && printf '::error::%s\n' "$line"
-            done < <(printf '%s\n' "$out" | grep -E 'FAIL|TOTAL|SKIP|env:|run-all:' | tail -n 20)
+            hits="$(printf '%s\n' "$out" | grep -E 'FAIL|TOTAL|SKIP|env:|run-all:' | tail -n 20)"
+            if [ -n "$hits" ]; then
+              while IFS= read -r line; do
+                [ -n "$line" ] && printf '::error::%s\n' "$line"
+              done <<< "$hits"
+            fi
+            # And when the grep found nothing at all. run-all.sh only exits 2 on a
+            # usage error, and a shell that cannot parse the script returns 2 before
+            # any suite runs -- so there is no FAIL line to quote, and all three
+            # container cells have been reporting a bare "exit code 2" for every
+            # reader who cannot open the log. Name the rc, the toolchain this
+            # container resolved, and the first words of the output; those three
+            # distinguish a suite that failed from a suite that never started.
+            printf '::error::rc=%s bash=[%s] zsh=[%s] out=[%s]\n' "$rc" \
+              "$(bash --version 2>&1 | head -n 1)" \
+              "$(zsh --version 2>&1 | head -n 1)" \
+              "$(printf '%s' "$out" | tr '\n\t' '  ' | head -c 120)"
           fi
           exit "$rc"
 

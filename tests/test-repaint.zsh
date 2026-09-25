@@ -67,6 +67,15 @@ CAP=""                # file holding the raw bytes of the last keystroke(s)
 # capability probe below has to ask about this exact one, not about whatever the
 # CI shell happens to export.
 NESTED_TERM="xterm-256color"
+RH=""                 # file holding the region_highlight ZLE was about to draw
+# Installed into the first session only. `zle-line-pre-redraw` is a plain widget
+# the shell calls before it paints the line, so it sees exactly the
+# `region_highlight` that is about to be rendered — the only way to tell "the
+# plugin installed no highlight" apart from "the highlight was there and this
+# zsh wrote no colour for it". The plugin deliberately never uses this hook, so
+# registering it here cannot disturb the code under test, and the other sessions
+# run without it.
+PROBE_RC=$'_zsc_probe_rh() { print -rn -- "${(j:;:)region_highlight}" >| "${ZDOTDIR}/rh" }\nzle -N zle-line-pre-redraw _zsc_probe_rh'
 
 # _ok / _no -- tally
 _ok() { (( PASS++ )); print -r -- "  PASS  $1" }
@@ -81,6 +90,13 @@ _show() {
     print -rn -- "${s[1,200]}"
 }
 
+# _rh -- the region_highlight the probe left behind, one line, for failure text.
+_rh() {
+    [[ -n "$RH" && -f "$RH" ]] || { print -rn -- "not-probed"; return; }
+    local v="${mapfile[$RH]}"
+    print -rn -- "${v:-<empty>}"
+}
+
 # assert_painted_ghost -- the ghost is written, in the configured colour.
 assert_painted_ghost() {
     local b="${mapfile[$CAP]}"
@@ -93,7 +109,7 @@ assert_painted_ghost() {
     [[ "$b" == *"s -la /etc/"* ]] && _ok "ghost: the suggestion is written (${n} bytes)" \
                                  || _no "ghost: the suggestion is written" "(${n} bytes: $(_show "$b"))"
     [[ "$b" == *"38;5;110"* ]] && _ok "ghost: the suggestion is coloured" \
-                              || _no "ghost: the suggestion is coloured" "(colors=${_tf:-?}, ${n}B $(_show "$b"))"
+                              || _no "ghost: the suggestion is coloured" "(rh=$(_rh), colors=${_tf:-?}, ${n}B $(_show "$b"))"
 }
 
 # assert_one_line <name> -- the keystroke must not leave the line it is on.
@@ -132,6 +148,7 @@ _session_start() {
     ZD="$(mktemp -d /tmp/zsc_repaint.XXXXXX)"
     chmod go-w "$ZD"
     CAP="$ZD/last.bin"
+    RH="$ZD/rh"
     print -r -- ': 1700000000:0;ls -la /etc/' > "$ZD/.zsh_history"
     {
         print -r -- "HISTFILE=$ZD/.zsh_history"
@@ -233,12 +250,14 @@ _type() {
 # shell is this same zsh binary.
 #
 # The colour count is queried with the TERM the nested session boots with,
-# because that is the lookup ZLE performs. When terminfo cannot answer, zsh
-# drops EVERY attribute from the byte stream — the ghost still appears, just
-# uncoloured, which is indistinguishable from a plugin that stopped painting it.
-# A minimal container's terminfo set is exactly where that happens, so the
-# number is part of the failure message, not just this line: the CI annotation
-# carries assertion output and nothing else.
+# because that is the lookup ZLE performs: when terminfo cannot answer, zsh
+# drops EVERY attribute from the byte stream, and an uncoloured ghost from the
+# environment looks exactly like a plugin that stopped painting it. Measured on
+# the container matrix, the database is NOT the answer there — focal and jammy
+# both report 256 and still write no attribute — so the failure message carries
+# the region_highlight the shell was about to draw as well. Both numbers ride in
+# the message rather than this line because the CI annotation carries assertion
+# output and nothing else.
 _tf="$(TERM=$NESTED_TERM zsh -f -c \
     'zmodload -F zsh/terminfo p:terminfo 2>/dev/null && print -r -- "${terminfo[colors]:-unset}"' \
     2>/dev/null)"
@@ -250,7 +269,7 @@ trap cleanup EXIT
 # ---------------------------------------------------------------------------
 # 1. A keystroke that yields a ghost paints it, in colour, on the SAME line.
 # ---------------------------------------------------------------------------
-if _session_start ""; then
+if _session_start "$PROBE_RC"; then
     _type 'l'
     assert_painted_ghost
     assert_one_line "ghost: the keystroke stays on one line"

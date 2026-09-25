@@ -956,17 +956,34 @@ fi
 # TOML validity first (the heredoc must actually load), then — where the real
 # binary is present — a real render, because only starship itself can tell a
 # valid-TOML-but-invalid-format string from a good one.
+#
+# `tomllib` arrived in python 3.11. The interpreter a minimal container carries
+# is older (3.8 on focal, 3.10 on jammy), where the same parser exists only as
+# the third-party `tomli`. So the script exits 3 to say "I have no parser"
+# instead of tracebacking: that is a check this host cannot run, not a template
+# that failed to load, and without the distinction the two come out of CI
+# looking identical.
 if command -v python3 >/dev/null 2>&1 && [ -s "$TMP/starship.entware.toml" ]; then
-    if python3 - "$STPL" "$TMP/starship.entware.toml" 2>"$TMP/py.err" <<'PY'
-import sys, tomllib
+    python3 - "$STPL" "$TMP/starship.entware.toml" 2>"$TMP/py.err" <<'PY'
+import sys
+try:
+    import tomllib
+except ModuleNotFoundError:
+    try:
+        import tomli as tomllib
+    except ModuleNotFoundError:
+        sys.exit(3)
 for p in sys.argv[1:]:
     with open(p, "rb") as fh:
         fmt = tomllib.load(fh)["format"].strip()
     assert fmt == "$username \u203a $directory\n$character", (p, fmt)
 PY
-    then ok "both starship templates load as TOML with the expected format"
-    else no "a starship template is not valid TOML / has the wrong format: $(head -1 "$TMP/py.err")"
-    fi
+    toml_rc=$?
+    case "$toml_rc" in
+        0) ok "both starship templates load as TOML with the expected format" ;;
+        3) ok "no TOML parser on this host (python3 without tomllib/tomli) - skipped the load check" ;;
+        *) no "a starship template is not valid TOML / has the wrong format: $(head -1 "$TMP/py.err")" ;;
+    esac
 else
     ok "python3 unavailable - skipped the TOML load check"
 fi

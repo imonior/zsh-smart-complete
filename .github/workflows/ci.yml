@@ -165,11 +165,13 @@ jobs:
           # container missing them fails suites that are otherwise green — the
           # exact host-dependence the sandbox farm exists to remove.
           #
-          # ncurses-term is the same story one layer down: zsh drops every
-          # colour attribute when its terminfo lookup cannot find `setaf`, so a
-          # host whose compiled database lacks the requested TERM prints an
-          # uncoloured ghost and tests/test-repaint.zsh cannot tell that apart
-          # from a plugin that stopped painting it.
+          # ncurses-term is the compiled terminal database. zsh writes no colour
+          # attribute at all when its own terminfo lookup cannot find `setaf`, so
+          # a host whose database lacks the TERM a test asks for (here
+          # xterm-256color, in tests/test-repaint.zsh) renders an uncoloured
+          # ghost. Measured, that is not the whole story: with this package
+          # present focal and jammy still write no attribute while reporting 256
+          # colours, so the remaining difference is the zsh version itself.
           #
           # Minimal images also ship without any locale generated, so the suites'
           # Chinese section headers ("场景 1: …") would be truncated mid-character

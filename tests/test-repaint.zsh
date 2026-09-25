@@ -126,6 +126,7 @@ cleanup() {
 _session_start() {
     local extra="$1"
     ZD="$(mktemp -d /tmp/zsc_repaint.XXXXXX)"
+    chmod go-w "$ZD"
     CAP="$ZD/last.bin"
     print -r -- ': 1700000000:0;ls -la /etc/' > "$ZD/.zsh_history"
     {

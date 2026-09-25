@@ -134,8 +134,8 @@ jobs:
         # Minimal container images ship with the C locale, which makes grep and
         # awk choke on the Chinese section headers the suites print. Force a
         # UTF-8-capable locale so the text pipeline sees bytes it can match.
-        LANG: C.UTF-8
-        LC_ALL: C.UTF-8
+        LANG: en_US.UTF-8
+        LC_ALL: en_US.UTF-8
     strategy:
       fail-fast: false
       matrix:
@@ -149,7 +149,12 @@ jobs:
           export DEBIAN_FRONTEND=noninteractive
           apt-get update
           apt-get install -y --no-install-recommends \
-            ca-certificates git zsh sqlite3
+            ca-certificates git zsh sqlite3 locales
+          # Minimal container images ship without any locale generated. The test
+          # suites print Chinese section headers, so grep and awk need a UTF-8
+          # locale to avoid truncating multi-byte sequences mid-character.
+          sed -i '/en_US.UTF-8/s/^# //' /etc/locale.gen 2>/dev/null || true
+          locale-gen en_US.UTF-8 2>/dev/null || true
           zsh --version
 
       - name: Checkout Code

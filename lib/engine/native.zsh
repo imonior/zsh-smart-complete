@@ -71,22 +71,32 @@ _smart_native_have_compinit() {
 # ---------------------------------------------------------------------------
 
 # _smart_current_binding <keymap> <keyseq>
-# Echoes the widget name or "" if unbound.
+# Echoes the widget name, or "" if the sequence is unbound. THE ONLY binding
+# probe: lib/event/zle.zsh captures its ~30 originals through it as well (it
+# used to keep a copy of this function, and the two copies drifted in comment
+# detail if not in behaviour).
 _smart_current_binding() {
     local km="$1" seq="$2"
     local out
     out=$(bindkey -M "$km" -- "$seq" 2>/dev/null) || { print -r -- ""; return 0; }
-    # bindkey echoes `<key> <widget>` in ^X caret notation — the widget name is
-    # always the LAST field. Never match the key textually: for a raw-byte key
-    # sequence the echo does not contain those bytes, and the key text would be
-    # mistaken for the widget. (See the identical note in lib/event/zle.zsh.)
+    # bindkey echoes `<key> <widget>`; the widget is ALWAYS the last field.
+    #
+    # Do NOT try to strip the key by matching $seq textually: bindkey always
+    # prints the key in ^X caret notation, so for a sequence given as raw bytes
+    # (e.g. the terminfo value $'\eOC') the match fails and the key text is
+    # mistaken for the widget name. That silently poisons the saved originals
+    # and the key is never restored on unbind.
     local w="${out##* }"
-    # "undefined-key" = no single binding for this seq/range. Report UNBOUND
-    # so callers fall back to the real default instead of restoring/dispatching
-    # to the no-op pseudo-widget.
+    # A range/seq with no single binding reports the pseudo-widget
+    # "undefined-key" (e.g. `bindkey -M emacs "^@-^_"` → `"^@-^_" undefined-key`).
+    # Treat it as UNBOUND so the caller's `[[ -z ]] && <default>` fallback
+    # applies. Dispatching to `zle undefined-key` is a no-op that silently
+    # swallows the keystroke — this is what broke typing printable ASCII.
     case "$w" in undefined-key|undefined) w="" ;; esac
-    # Never treat one of OUR OWN widgets as an "original" (a capture that runs
-    # after our bind would otherwise report our wrapper back to us).
+    # Never accept one of OUR OWN widgets as an "original". If a capture ever
+    # runs after we already bound a key, bindkey reports our wrapper — and
+    # dispatching to it would recurse. Treat it as unbound so the caller's
+    # built-in default is used instead.
     case "$w" in _smart_*|smart-*) w="" ;; esac
     print -r -- "$w"
 }

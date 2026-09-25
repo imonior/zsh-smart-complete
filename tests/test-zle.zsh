@@ -47,6 +47,12 @@ assert_contains() {
 
 source "${ROOT}/lib/config.zsh"
 source "${ROOT}/lib/state.zsh"
+# Sourced for ONE function: _smart_current_binding, the binding probe
+# _smart_event_capture_originals runs ~20 times. It lives in native.zsh (the
+# loader sources that module first), and zle.zsh used to carry a copy of it.
+# Everything else this module defines is mocked below, so the mocks must stay
+# after this source.
+source "${ROOT}/lib/engine/native.zsh"
 
 # We can't source event/zle.zsh directly without all deps, so we test
 # the function definitions that don't require ZLE context.
@@ -157,11 +163,11 @@ assert_eq "suggestion recomputed on new buffer" \
 
 # ---------------------------------------------------------------------------
 print -r -- ""
-print -r -- "=== 场景 5: _smart_evt_binding probe ==="
-# _smart_evt_binding returns the widget name bound to a key sequence.
+print -r -- "=== 场景 5: _smart_current_binding probe ==="
+# _smart_current_binding returns the widget name bound to a key sequence.
 # In a non-interactive shell, most bindings are empty.
 local b
-b=$(_smart_evt_binding emacs "^?" 2>/dev/null)
+b=$(_smart_current_binding emacs "^?" 2>/dev/null)
 # It should return something (even if empty) without crashing.
 assert_eq "binding probe returns without crash" "$?" "0"
 
@@ -174,9 +180,9 @@ print -r -- "=== 场景 5b: regression — printable-ASCII range must not become
 # `zle undefined-key` and every printable keystroke is swallowed. The capture
 # must normalise it to empty so the caller falls back to real `self-insert`.
 local rng
-rng=$(_smart_evt_binding emacs "^@-^_" 2>/dev/null)
+rng=$(_smart_current_binding emacs "^@-^_" 2>/dev/null)
 assert_eq "range query normalises undefined-key -> empty" "$rng" ""
-rng=$(_smart_evt_binding viins "^@-^_" 2>/dev/null)
+rng=$(_smart_current_binding viins "^@-^_" 2>/dev/null)
 assert_eq "viins range query normalises undefined-key -> empty" "$rng" ""
 _smart_event_capture_originals 2>/dev/null
 assert_eq "captured emacs self-insert is self-insert (not undefined-key)" \

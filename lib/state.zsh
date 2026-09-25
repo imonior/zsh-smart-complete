@@ -2,15 +2,44 @@
 #
 # Central state container.
 #
-# RULE: Every piece of mutable, cross-module runtime data lives in one of the
-# associative arrays declared here. You will never see `_smart_some_thing=foo`
-# as a standalone scalar variable anywhere else in this codebase.
+# RULE: mutable RUNTIME STATE that crosses module boundaries lives in one of the
+# arrays below, addressed by one of the accessors at the end of this file. A
+# module that needs such a value adds a key here instead of inventing a scalar.
 #
-# Why a single state object?
-#   * It is trivial to dump / snapshot / reset for debugging.
+# The rule used to be stated as "every piece of mutable, cross-module runtime
+# data lives here, and you will never see a standalone `_smart_thing=foo`
+# anywhere else in this codebase". That was never true: dozens of globals are
+# declared outside this file (`tools/check-module-globals.sh --list` prints the
+# current set). The count was not the problem, the missing boundary was — so the
+# boundary is now stated where it can be checked:
+#
+#   tools/check-module-globals.sh  compares every global declaration in lib/
+#   against the register at the bottom of this file, and CI runs it through
+#   tests/test-module-globals.sh. A new global therefore needs a reason.
+#
+# What belongs here is decided by LIFECYCLE, not by tidiness:
+#   * The container is rebuilt from nothing by _smart_history_rebuild, and
+#     _smart_state_reset() empties all three arrays. Anything stored here must be
+#     meaningless until something refills it and safe to lose on a reset.
+#   * Four kinds of global fail that test, and moving them here would COST
+#     something rather than rearrange furniture:
+#       - binding snapshots: the widget a key called before we wrapped it, read
+#         on every keystroke. lib/state.zsh is sourced BEFORE lib/event/zle.zsh
+#         (see the loader), so a reset after the capture would delete data that
+#         only the user's keymaps can supply.
+#       - out-parameters: the slot a callback fills when its caller cannot take
+#         a return value. Those are a function signature drawn in the only
+#         namespace zsh gives a by-reference write, not state.
+#       - constants and key tables.
+#       - probes with a documented lifetime of one rebuild or one shell.
+#
+# Why keep a container at all, if half the data stays out of it?
+#   * It is trivial to dump / snapshot / reset for debugging, and the history
+#     index is the one part that genuinely needs all three.
 #   * It maps 1:1 onto a future struct SmartState in the independent shell.
 #   * It prevents the "37 unrelated global scalars" rot that kills every
-#     zsh plugin past 1000 LoC.
+#     zsh plugin past 1000 LoC. The register is what stops that number from
+#     silently becoming 51 unrelated globals again.
 
 emulate -L zsh
 setopt extended_glob no_warn_create_global
@@ -45,7 +74,7 @@ typeset -gA _SMART_CMDS_FIRST=()
 #                                                change detection)
 #   cursor                 number             -- last-seen CURSOR copy
 #   suggestion.text        string             -- current inline suggestion
-#   suggestion.source      "history|atuin|native" -- where it came from
+#   suggestion.source      "history|completion" -- where it came from ("" = none)
 #   suggestion.score       "0.000"-like       -- fixed-point score
 #   history.count          number             -- distinct commands indexed
 #   history.rebuilt_at     epoch seconds      -- last index rebuild
@@ -53,13 +82,20 @@ typeset -gA _SMART_CMDS_FIRST=()
 #   history.max_freq       number             -- for ranking normalisation
 #   history.max_recency    number             -- upper bound on any age
 #   history.tick           number             -- monotonic last-use counter
-#   last_err               string             -- last silent error, for debug
+#
+# The three list-like shapes below are not free-form: a key that no code uses
+# here was twice as misleading as useful (this doc once named `history.freq` for
+# a map called `history.frequency`, and a `history.first_char` that was written
+# by nothing after _SMART_CMDS_FIRST superseded it), so check-module-globals.sh
+# now fails a documented key that has no writer or reader in lib/.
 
-# Canonical sub-maps in _SMART_STATE_A:
-#   history.freq           cmd -> occurrence count
+# Canonical sub-maps in _SMART_STATE_A (addressed as "<submap>|<key>"):
+#   history.frequency      cmd -> occurrence count
 #   history.recency        cmd -> last-use tick (see history.max_recency;
 #                          age = tick - stored, 0 = just used)
-#   history.first_char     "git" -> "g d c l ..."  -- TODO: for future trie
+#   history.cwd            cmd -> directory it last ran in
+#   history.host           cmd -> host it last ran on
+#   history.exit           cmd -> its last exit status
 
 # Canonical lists in _SMART_STATE_L:
 #   history.cmds           distinct commands; recency ORDER lives in the
@@ -68,8 +104,26 @@ typeset -gA _SMART_CMDS_FIRST=()
 # ---------------------------------------------------------------------------
 # Accessors
 # ---------------------------------------------------------------------------
-# All modules read/write state through these helpers so we can validate,
-# log or migrate keys in one place.
+# Write through these helpers so validation, logging and a future key migration
+# all have one place to happen.
+#
+# READING ON THE KEYSTROKE PATH IS THE EXCEPTION, AND IT IS FORK-SHAPED: these
+# helpers `print`, so using them means a command substitution, so ~0.4 ms per
+# call (the same cost that moved _smart_menu_now_ms off its printing form). A
+# hot reader therefore subscripts the array directly:
+#
+#     local text="${_SMART_STATE[suggestion.text]}"
+#
+# Measured per read against a plain global, 300k iterations, zsh 5.9 / arm64:
+#   plain global scalar            ~0.2 us
+#   _SMART_STATE, literal key      ~0.6 us
+#   _SMART_STATE, key in variable  ~0.8 us
+#   $(_smart_state_get …)          ~400 us  <- the only number worth avoiding
+#
+# So a subscript is never a good excuse to add a module global (it costs less
+# than a microsecond), and never a reason not to read one directly either. Keys
+# containing `|` must be built in a variable first: assoc["a|b"]=x stores the
+# quotes as part of the key, which makes the entry unreachable by assoc[a|b].
 
 _smart_state_get() {
     local key="$1" default="${2:-}"
@@ -193,7 +247,13 @@ _smart_cmds_rebucket() {
 }
 
 # ---------------------------------------------------------------------------
-# Full reset (used by smart-reindex + tests)
+# Full reset
+#
+# Called once when this file is sourced (see the bottom) and by the test
+# suites that need a known-empty container. NOT on a rebuild:
+# _smart_history_rebuild clears exactly the history slots it is about to
+# refill, because a reset here would also drop `enabled`, `buffer` and the
+# cursor bookkeeping that the wrapper widgets compare against.
 # ---------------------------------------------------------------------------
 _smart_state_reset() {
     _SMART_STATE=()
@@ -219,3 +279,108 @@ _smart_state_reset() {
 
 # Initialise on first load.
 _smart_state_reset
+
+# ---------------------------------------------------------------------------
+# Register: every _SMART_* global that lives OUTSIDE this container
+# ---------------------------------------------------------------------------
+# Format, read by tools/check-module-globals.sh:
+#
+#     # GLOBAL: <name-or-glob>  <why it stays a global>
+#
+# One entry per line; the reason is set off by TWO spaces (that is how the
+# parser knows where the name ends, and a single space reports as "no reason").
+# The check runs both ways — an unregistered global fails, and so does an entry
+# that matches nothing — so this is a contract rather than a snapshot: adding a
+# global means saying here why it is not state, and moving one into the
+# container means deleting its line.
+#
+# Grouping is by LIFECYCLE, which is the question the container asks. Several of
+# the groups below are out-parameters: a caller that cannot take a return value
+# still has to put it somewhere, and the container is the wrong place for a
+# value whose whole life is one function call. Cost is not the argument
+# anywhere: a direct subscript reads in well under a microsecond (see "READING
+# ON THE KEYSTROKE PATH" above), so this register argues lifetime, never speed.
+
+# The container itself.
+# GLOBAL: _SMART_STATE  scalar slots, one string each
+# GLOBAL: _SMART_STATE_A  associative sub-maps, addressed as "sub|key"
+# GLOBAL: _SMART_STATE_L  list slots, stored newline-joined
+# GLOBAL: _SMART_CMDS  mirror of history.cmds, rebuilt and cleared with it
+# GLOBAL: _SMART_CMDS_FIRST  its first-char buckets, so a prefix read takes a
+#   bucket instead of splitting a string
+
+# Binding snapshots, in three shapes. Captured from the USER's keymaps once per
+# shell, then read on every wrapped keystroke. This file is sourced before
+# lib/event/zle.zsh, so a reset here would delete what nothing but the user's
+# own config can supply again.
+# GLOBAL: _SMART_EVT_ORIG_*  widget behind a wrapped key, per keymap
+# GLOBAL: _SMART_NATIVE_ORIG_TAB_*  widget behind Tab, per keymap
+# GLOBAL: _SMART_EVT_SAVED  same for the multi-sequence keys, "<keymap>|<seq>"
+
+# Key tables: every byte sequence one logical key can arrive as, derived from
+# terminfo plus the two fallbacks (see the multi-sequence note in
+# lib/event/zle.zsh). Constant for the life of the shell.
+# GLOBAL: _SMART_EVT_*_SEQS  terminal key encodings, built once
+
+# Sentinel for "the capture above has run in this shell". Deliberately not
+# derived from the values it guards: a stale one must not skip the capture.
+# GLOBAL: _SMART_EVT_CAPTURED  one capture per shell
+
+# A CONSTANT, not state: the region_highlight memo that marks the ghost as ours.
+# GLOBAL: _SMART_RH_MARKER  fixed marker string, never written again
+
+# Out-parameters for the history backends (lib/history/zsh.zsh,
+# lib/history/atuin.zsh): pluggable, so the rebuild cannot take their result as
+# a return value. Opened and `unset` inside one rebuild, and moving 20k+
+# commands through a string-keyed map would re-add the round-trip _SMART_CMDS
+# exists to avoid.
+# GLOBAL: _SMART_BUILD_*  backend out-param, one rebuild wide
+
+# Out-parameters again. The `_scan` halves of printing functions, kept because
+# wrapping them in $() costs a fork on the keystroke path (~0.4 ms), plus the
+# candidate rows one menu function fills for the next one.
+# GLOBAL: _SMART_SCORE_RET  fork-free return for the scoring helpers
+# GLOBAL: _SMART_PROBE_SUFFIX_RET  fork-free return for the completion probe
+# GLOBAL: _SMART_MENU_LISTER_RET  fork-free return for the lister decision
+# GLOBAL: _SMART_MENU_NOW_MS  fork-free return for the clock read
+# GLOBAL: _SMART_MENU_CAND  candidate rows, generator -> lister
+# GLOBAL: _SMART_MENU_DISP  their padded display strings
+# The per-compute context below reaches the candidate callback through globals
+# because the callback is *a callback*: history iteration calls it once per
+# matching command with the command and its stats, and anything else it needs
+# has no parameter to arrive in.
+# GLOBAL: _SMART_SUGGEST_BEST_TEXT  best candidate so far, per compute
+# GLOBAL: _SMART_SUGGEST_BEST_SCORE  and its score
+# GLOBAL: _SMART_SUGGEST_QUERY  the prefix being matched, per compute
+# GLOBAL: _SMART_SUGGEST_MAX_REC  normalisation bounds, per compute
+# GLOBAL: _SMART_SUGGEST_MAX_FREQ  normalisation bounds, per compute
+# GLOBAL: _SMART_SUGGEST_CURRENT_HOST  host boost target, per compute
+# GLOBAL: _SMART_ATUIN_CURRENT_HOST  hostname probe, cached once per shell
+
+# What our own lister has drawn and when it may draw again. These survive a
+# widget call because the rows they describe do: `smart-menu status` prints the
+# first group, the throttle decision needs the second, and
+# _smart_menu_forget_rows asks the third "is what is below the prompt mine?".
+# GLOBAL: _SMART_MENU_NMATCHES  last listing's outcome, for `smart-menu status`
+# GLOBAL: _SMART_MENU_LISTED  rows the current tick drew
+# GLOBAL: _SMART_MENU_TRUNCATED  a listing refused for being too big
+# GLOBAL: _SMART_MENU_TICKS  throttle bookkeeping
+# GLOBAL: _SMART_MENU_SKIPS  throttle bookkeeping
+# GLOBAL: _SMART_MENU_COOLDOWN  throttle bookkeeping
+# GLOBAL: _SMART_MENU_LAST_MS  throttle bookkeeping
+# GLOBAL: _SMART_MENU_ROWS  our rows still on screen, across ticks
+
+# Our undo record for the user's completer zstyle: what was there, whether they
+# had set it at all, and whether we are the ones installed. Uninstall has to
+# restore "no zstyle" rather than a hard-coded default when the answer is "they
+# never set one", and none of that is rebuildable from history.
+# GLOBAL: _SMART_RECENT_SAVED  the completer list to go back to
+# GLOBAL: _SMART_RECENT_HAD_STYLE  whether the user had one at all
+# GLOBAL: _SMART_RECENT_INSTALLED  the install sentinel: the flag, not the array
+# GLOBAL: _SMART_RECENT_DIRS  zsh calls the $zsh_directory_name hook by name,
+#   so the table it reads cannot be a local
+
+# native.zsh's own Tab lifecycle flag, read by nothing outside that file. A
+# reset between the arming Tab and the Enter that consumes it is exactly how
+# half a completion got run once already (see lib/event/zle.zsh:600).
+# GLOBAL: _SMART_COMPLETION_ACTIVE  one Tab sequence, module-private

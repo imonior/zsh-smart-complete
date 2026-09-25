@@ -35,7 +35,7 @@ setopt extended_glob no_warn_create_global
 # the previous code: entries accumulated one per redraw (8 after 5 keystrokes,
 # 171 with a syntax highlighter loaded), and the stale zero-length leftovers
 # were what killed the ghost's colour.
-_SMART_RH_MARKER="zsh-smart-complete:suggestion"
+typeset -g _SMART_RH_MARKER="zsh-smart-complete:suggestion"
 
 # ---------------------------------------------------------------------------
 # Helpers

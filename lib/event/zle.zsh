@@ -127,35 +127,13 @@ _smart_evt_build_seq_lists() {
 # losing the native Tab bindings and every other key's original too.
 typeset -g _SMART_EVT_CAPTURED=0
 
-# Helper reusing the binding probe from native.zsh.
-_smart_evt_binding() {
-    local km="$1" seq="$2"
-    local out
-    out=$(bindkey -M "$km" -- "$seq" 2>/dev/null) || { print -r -- ""; return 0; }
-    # bindkey echoes `<key> <widget>`; the widget is ALWAYS the last field.
-    #
-    # Do NOT try to strip the key by matching $seq textually: bindkey always
-    # prints the key in ^X caret notation, so for a sequence given as raw bytes
-    # (e.g. the terminfo value $'\eOC') the match fails and the key text is
-    # mistaken for the widget name. That silently poisons the saved originals
-    # and the key is never restored on unbind.
-    local w="${out##* }"
-    # A range/seq with no single binding reports the pseudo-widget
-    # "undefined-key" (e.g. `bindkey -M emacs "^@-^_"` → `"^@-^_" undefined-key`).
-    # Treat it as UNBOUND so the caller's `[[ -z ]] && <default>` fallback
-    # applies. Dispatching to `zle undefined-key` is a no-op that silently
-    # swallows the keystroke — this is what broke typing printable ASCII.
-    case "$w" in undefined-key|undefined) w="" ;; esac
-    # Never accept one of OUR OWN widgets as an "original". If a capture ever
-    # runs after we already bound a key, bindkey reports our wrapper — and
-    # dispatching to it would recurse. Treat it as unbound so the caller's
-    # built-in default is used instead.
-    case "$w" in _smart_*|smart-*) w="" ;; esac
-    print -r -- "$w"
-}
-
+# The binding probe this capture needs is _smart_current_binding, defined once
+# in lib/engine/native.zsh (which the loader sources before this file). This
+# module used to carry its own copy of it, byte for byte, down to the two
+# guards that only exist because of past regressions -- so a fix landing on one
+# copy silently left the other broken.
 _smart_event_capture_originals() {
-    _SMART_EVT_ORIG_SELF_EMACS=$(_smart_evt_binding emacs "^@"-"^_" | head -n 1)
+    _SMART_EVT_ORIG_SELF_EMACS=$(_smart_current_binding emacs "^@"-"^_" | head -n 1)
     # self-insert-command is implicitly bound for all printable chars; we
     # don't rebind individual printable keys. Instead we capture what
     # bindkey's "magic" range thinks the widget is (usually self-insert).
@@ -163,49 +141,49 @@ _smart_event_capture_originals() {
     [[ -z "$_SMART_EVT_ORIG_SELF_EMACS" ]] && _SMART_EVT_ORIG_SELF_EMACS="self-insert"
     _SMART_EVT_ORIG_SELF_VIINS="$_SMART_EVT_ORIG_SELF_EMACS"
 
-    _SMART_EVT_ORIG_BACKDEL_EMACS=$(_smart_evt_binding emacs "^?")
+    _SMART_EVT_ORIG_BACKDEL_EMACS=$(_smart_current_binding emacs "^?")
     [[ -z "$_SMART_EVT_ORIG_BACKDEL_EMACS" ]] && _SMART_EVT_ORIG_BACKDEL_EMACS="backward-delete-char"
-    _SMART_EVT_ORIG_BACKDEL_VIINS=$(_smart_evt_binding viins "^?")
+    _SMART_EVT_ORIG_BACKDEL_VIINS=$(_smart_current_binding viins "^?")
     [[ -z "$_SMART_EVT_ORIG_BACKDEL_VIINS" ]] && _SMART_EVT_ORIG_BACKDEL_VIINS="backward-delete-char"
-    _SMART_EVT_ORIG_DEL_EMACS=$(_smart_evt_binding emacs "^[[3~")
+    _SMART_EVT_ORIG_DEL_EMACS=$(_smart_current_binding emacs "^[[3~")
     [[ -z "$_SMART_EVT_ORIG_DEL_EMACS" ]] && _SMART_EVT_ORIG_DEL_EMACS="delete-char"
-    _SMART_EVT_ORIG_DEL_VIINS=$(_smart_evt_binding viins "^[[3~")
+    _SMART_EVT_ORIG_DEL_VIINS=$(_smart_current_binding viins "^[[3~")
     [[ -z "$_SMART_EVT_ORIG_DEL_VIINS" ]] && _SMART_EVT_ORIG_DEL_VIINS="delete-char"
 
-    _SMART_EVT_ORIG_FWDCHAR_EMACS=$(_smart_evt_binding emacs "^[[C")
+    _SMART_EVT_ORIG_FWDCHAR_EMACS=$(_smart_current_binding emacs "^[[C")
     [[ -z "$_SMART_EVT_ORIG_FWDCHAR_EMACS" ]] && _SMART_EVT_ORIG_FWDCHAR_EMACS="forward-char"
-    _SMART_EVT_ORIG_FWDCHAR_VIINS=$(_smart_evt_binding viins "^[[C")
+    _SMART_EVT_ORIG_FWDCHAR_VIINS=$(_smart_current_binding viins "^[[C")
     [[ -z "$_SMART_EVT_ORIG_FWDCHAR_VIINS" ]] && _SMART_EVT_ORIG_FWDCHAR_VIINS="forward-char"
 
-    _SMART_EVT_ORIG_KILLWORD_EMACS=$(_smart_evt_binding emacs "^[d")
+    _SMART_EVT_ORIG_KILLWORD_EMACS=$(_smart_current_binding emacs "^[d")
     [[ -z "$_SMART_EVT_ORIG_KILLWORD_EMACS" ]] && _SMART_EVT_ORIG_KILLWORD_EMACS="kill-word"
-    _SMART_EVT_ORIG_KILLWORD_VIINS=$(_smart_evt_binding viins "^[d")
+    _SMART_EVT_ORIG_KILLWORD_VIINS=$(_smart_current_binding viins "^[d")
     [[ -z "$_SMART_EVT_ORIG_KILLWORD_VIINS" ]] && _SMART_EVT_ORIG_KILLWORD_VIINS="kill-word"
 
-    _SMART_EVT_ORIG_BKWORDS_EMACS=$(_smart_evt_binding emacs "^[^?")
+    _SMART_EVT_ORIG_BKWORDS_EMACS=$(_smart_current_binding emacs "^[^?")
     [[ -z "$_SMART_EVT_ORIG_BKWORDS_EMACS" ]] && _SMART_EVT_ORIG_BKWORDS_EMACS="backward-kill-word"
-    _SMART_EVT_ORIG_BKWORDS_VIINS=$(_smart_evt_binding viins "^[^?")
+    _SMART_EVT_ORIG_BKWORDS_VIINS=$(_smart_current_binding viins "^[^?")
     [[ -z "$_SMART_EVT_ORIG_BKWORDS_VIINS" ]] && _SMART_EVT_ORIG_BKWORDS_VIINS="backward-kill-word"
 
-    _SMART_EVT_ORIG_YANK_EMACS=$(_smart_evt_binding emacs "^Y")
+    _SMART_EVT_ORIG_YANK_EMACS=$(_smart_current_binding emacs "^Y")
     [[ -z "$_SMART_EVT_ORIG_YANK_EMACS" ]] && _SMART_EVT_ORIG_YANK_EMACS="yank"
-    _SMART_EVT_ORIG_YANK_VIINS=$(_smart_evt_binding viins "^Y")
+    _SMART_EVT_ORIG_YANK_VIINS=$(_smart_current_binding viins "^Y")
     [[ -z "$_SMART_EVT_ORIG_YANK_VIINS" ]] && _SMART_EVT_ORIG_YANK_VIINS="yank"
 
-    _SMART_EVT_ORIG_UNDO_EMACS=$(_smart_evt_binding emacs "^_")
+    _SMART_EVT_ORIG_UNDO_EMACS=$(_smart_current_binding emacs "^_")
     [[ -z "$_SMART_EVT_ORIG_UNDO_EMACS" ]] && _SMART_EVT_ORIG_UNDO_EMACS="undo"
-    _SMART_EVT_ORIG_UNDO_VIINS=$(_smart_evt_binding viins "^_")
+    _SMART_EVT_ORIG_UNDO_VIINS=$(_smart_current_binding viins "^_")
     [[ -z "$_SMART_EVT_ORIG_UNDO_VIINS" ]] && _SMART_EVT_ORIG_UNDO_VIINS="undo"
 
-    _SMART_EVT_ORIG_HISTUP_VIINS=$(_smart_evt_binding viins "^[[A")
+    _SMART_EVT_ORIG_HISTUP_VIINS=$(_smart_current_binding viins "^[[A")
     [[ -z "$_SMART_EVT_ORIG_HISTUP_VIINS" ]] && _SMART_EVT_ORIG_HISTUP_VIINS="up-line-or-history"
-    _SMART_EVT_ORIG_HISTDOWN_VIINS=$(_smart_evt_binding viins "^[[B")
+    _SMART_EVT_ORIG_HISTDOWN_VIINS=$(_smart_current_binding viins "^[[B")
     [[ -z "$_SMART_EVT_ORIG_HISTDOWN_VIINS" ]] && _SMART_EVT_ORIG_HISTDOWN_VIINS="down-line-or-history"
 
     # Alt+→ (accept one word). Same probe, per keymap.
-    _SMART_EVT_ORIG_FWDWORD_EMACS=$(_smart_evt_binding emacs "^[[1;3C")
+    _SMART_EVT_ORIG_FWDWORD_EMACS=$(_smart_current_binding emacs "^[[1;3C")
     [[ -z "$_SMART_EVT_ORIG_FWDWORD_EMACS" ]] && _SMART_EVT_ORIG_FWDWORD_EMACS="forward-word"
-    _SMART_EVT_ORIG_FWDWORD_VIINS=$(_smart_evt_binding viins "^[[1;3C")
+    _SMART_EVT_ORIG_FWDWORD_VIINS=$(_smart_current_binding viins "^[[1;3C")
     [[ -z "$_SMART_EVT_ORIG_FWDWORD_VIINS" ]] && _SMART_EVT_ORIG_FWDWORD_VIINS="forward-word"
 
     # Every extra byte sequence for the arrows / Alt+→ gets its own original.
@@ -216,7 +194,7 @@ _smart_event_capture_originals() {
                    "${_SMART_EVT_UP_SEQS[@]}" "${_SMART_EVT_DOWN_SEQS[@]}"; do
             [[ -z "$seq" ]] && continue
             seqkey="${km2}|${seq}"
-            _SMART_EVT_SAVED[$seqkey]="$(_smart_evt_binding "$km2" "$seq")"
+            _SMART_EVT_SAVED[$seqkey]="$(_smart_current_binding "$km2" "$seq")"
         done
     done
 
@@ -244,7 +222,7 @@ _smart_event_capture_originals() {
                    '^L' '^M' '^N' '^O' '^P' '^Q' '^R' '^S' '^T' '^U' '^V' \
                    '^W' '^X' '^Y' '^Z' '^[' '^\' '^]' '^^' '^_'; do
             seqkey="${km2}|${_ck}"
-            _SMART_EVT_SAVED[$seqkey]="$(_smart_evt_binding "$km2" "$_ck")"
+            _SMART_EVT_SAVED[$seqkey]="$(_smart_current_binding "$km2" "$_ck")"
         done
     done
 

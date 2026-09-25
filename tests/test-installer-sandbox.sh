@@ -65,10 +65,25 @@ trap 'rm -rf -- "$TMP"' EXIT
 # and the linux-debian branch of install_pkg_soft calls it directly.
 BIN="$TMP/bin"; mkdir -p "$BIN"
 STUB_LOG="$TMP/stubs.log"; : > "$STUB_LOG"
-for c in curl wget git brew apt apt-get opkg chsh stow sudo; do
+# `opkg` is NOT in this dir, though it is a package tool like the ones here.
+# install.sh decides whether to hand the whole install over to
+# install-entware.sh by asking `command -v opkg` on any non-macOS system, so a
+# stub for it here silently swapped the script under test on every Linux run:
+# the labels below assert install.sh's contract, and were reading a config
+# written by the other installer -- whose integration block carries no managed
+# markers at all, by its own design. macOS took the guard's `darwin` exit
+# instead and stayed green, which is the host-dependence this allowlist exists
+# to prevent. The handover is still covered, by the PATH below and section 9.
+for c in curl wget git brew apt apt-get chsh stow sudo; do
     printf '#!/bin/sh\nprintf "%%s %%s\\n" "%s" "$*" >> "%s"\nexit 0\n' "$c" "$STUB_LOG" > "$BIN/$c"
     chmod +x "$BIN/$c"
 done
+# The only place `opkg` exists, and it is prepended to PATH by the one label
+# that wants the Entware branch: a directory of its own rather than a name in
+# the shared farm, so no other run can trip over it.
+BIN_OPKG="$TMP/bin-opkg"; mkdir -p "$BIN_OPKG"
+printf '#!/bin/sh\nprintf "%%s %%s\\n" "opkg" "$*" >> "%s"\nexit 0\n' "$STUB_LOG" > "$BIN_OPKG/opkg"
+chmod +x "$BIN_OPKG/opkg"
 
 # --- the core farm: the only other thing a run is allowed to see ------------
 # Resolved from THIS shell's PATH once, into symlinks, so a run gets a fixed
@@ -356,7 +371,10 @@ fi
 # The witness for the allowlist: the probes that used to answer "whatever this
 # machine has" now answer the same way on every machine. Both halves are
 # asserted, because an empty farm would satisfy the first half for free.
-for c in fzf starship atuin zoxide zinit; do
+# `opkg` is in this list for the same reason as the five above and a sharper
+# consequence: it decides which installer runs at all, so a run must not be able
+# to see it unless a section asks for it.
+for c in fzf starship atuin zoxide zinit opkg; do
     if env -i PATH="$BIN:$CORE" sh -c "command -v $c" >/dev/null 2>&1; then
         no "the sandbox cannot see $c, so that probe is not a host sample"
     else
@@ -373,21 +391,17 @@ fi
 
 echo ""
 echo "=== 6. the entware installer reaches its own guard, cleanly ==="
-# The script decides "am I on Entware" with `command -v opkg`, so the opkg stub
-# has to be absent for this branch to be reachable — with $BIN on PATH it
+# The script decides "am I on Entware" with `command -v opkg`, so that name has
+# to be absent for this branch to be reachable — with it on PATH the script
 # happily "detects Entware", installs against a stub and rewrites .zshrc, which
-# asserts nothing we can trust (a real opkg has feeds, a root and a /opt). Copy
-# the other stubs in: any downloader it does reach must still be logged rather
-# than missed. This guard path is the only part of install-entware.sh reachable
-# on a normal machine, and it still proves the shared preamble runs under -u.
-BIN_ENT="$TMP/bin-no-opkg"; mkdir -p "$BIN_ENT"
-for c in "$BIN"/*; do
-    [ "$(basename -- "$c")" = opkg ] && continue
-    cp "$c" "$BIN_ENT/"
-done
+# asserts nothing we can trust (a real opkg has feeds, a root and a /opt). $BIN
+# keeps every other stub, so any downloader this run does reach is still logged
+# rather than missed. This guard path is the only part of install-entware.sh
+# reachable on a normal machine, and it still proves the shared preamble runs
+# under -u.
 ehome="$TMP/h_entware"; mkdir -p "$ehome"; : > "$ehome/.zshrc"
 : > "$STUB_LOG"
-env -i PATH="$BIN_ENT:$CORE" HOME="$ehome" ZDOTDIR="$ehome" \
+env -i PATH="$BIN:$CORE" HOME="$ehome" ZDOTDIR="$ehome" \
     TERM=dumb NONINTERACTIVE=1 bash "$ENTWARE" > "$TMP/entware.out" 2>&1
 ent_rc=$?
 check "entware: refuses without opkg (exit 1)" "1" "$ent_rc"
@@ -591,6 +605,60 @@ else
     no "$UL: and the no-op run did not stack a second backup or edit the config" \
        "backups $baks_before -> $baks_now: $(find "$u_home" -maxdepth 1 -name '.zshrc.bak.*' 2>/dev/null | sort | tr '\n' ' ')"
 fi
+
+echo ""
+echo "=== 9. install.sh hands the install over when opkg is on PATH ==="
+# The reason the stub farm has no opkg: one on PATH makes install.sh exec
+# install-entware.sh and stop being the script under test. That branch is real
+# and needs a witness, but the witness has to be the handover itself -- letting
+# the second installer run to completion here would mean installing against
+# stubs, into paths like /opt that this sandbox does not own. So the copy below
+# sits alone in a directory of its own: the guard fires, finds no
+# install-entware.sh next to install.sh, and says so instead of pressing on.
+#
+# On macOS the guard excludes darwin before it ever looks at PATH, so the branch
+# is unreachable there; the label says it was skipped rather than quietly
+# counting a run that took a different path.
+case "${OSTYPE:-}" in
+    darwin*)
+        ok "handover: skipped on macOS, where the guard never consults PATH"
+        ;;
+    *)
+        HO=handover
+        hohome="$TMP/h_$HO"; hoarg="$TMP/h_$HO.d"
+        mkdir -p "$hohome" "$hoarg"
+        cp "$INSTALL" "$hoarg/install.sh"
+        : > "$STUB_LOG"
+        env -i PATH="$BIN_OPKG:$BIN:$CORE" \
+            HOME="$hohome" ZDOTDIR="$hohome" \
+            XDG_CONFIG_HOME="$hohome/.config" XDG_DATA_HOME="$hohome/.local/share" \
+            TERM="${TERM:-dumb}" TMPDIR="${TMPDIR:-/tmp}" \
+            NONINTERACTIVE=1 SMART_INSTALL_LANG=en \
+            bash "$hoarg/install.sh" > "$TMP/$HO.out" 2>&1
+        check "$HO: an absent handover target exits non-zero" "1" "$?"
+        if [ "$(_marker_count "$TMP/$HO.out" 'handing over to the dedicated installer')" != "0" ]; then
+            ok "$HO: opkg on PATH makes install.sh hand over"
+        else
+            no "$HO: opkg on PATH makes install.sh hand over" \
+               "$(_first_hit "$TMP/$HO.out" 'Entware')|$(tail -c 120 "$TMP/$HO.out")"
+        fi
+        if [ "$(_marker_count "$TMP/$HO.out" 'was not found next to install.sh')" != "0" ]; then
+            ok "$HO: and it names the missing script instead of pressing on"
+        else
+            no "$HO: and it names the missing script instead of pressing on" \
+               "$(_first_hit "$TMP/$HO.out" 'install-entware.sh')"
+        fi
+        # Nothing of ours belongs in that home: the guard runs before phase 1,
+        # so a config file or a logged package call here would mean the handover
+        # decided to install as well, not instead.
+        if [ ! -e "$hohome/.zshrc" ] && [ ! -s "$STUB_LOG" ]; then
+            ok "$HO: it stopped before installing anything"
+        else
+            no "$HO: it stopped before installing anything" \
+               "zshrc=$(wc -c < "$hohome/.zshrc" 2>/dev/null | tr -d ' ') stubs=$(wc -c < "$STUB_LOG" | tr -d ' ')"
+        fi
+        ;;
+esac
 
 echo "INSTALLER-SANDBOX TOTAL PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

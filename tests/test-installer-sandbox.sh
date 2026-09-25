@@ -141,15 +141,16 @@ assert_run() {
     fi
     check "$label: exit code" "$want" "$(cat "$TMP/$label.rc")"
     out_file="$TMP/$label.out"
-    # `-a` because these four read a run's painted output, and an error scan that
-    # silently reads nothing is worse than no scan at all (see _marker_count).
-    if grep -a -q "unbound variable" "$out_file"; then
-        no "$label: no unbound variable under set -u" "$(grep -a -m1 'unbound variable' "$out_file")"
+    # Scanned with awk, not grep: a run's output is painted with carriage returns
+    # and SGR sequences, and an error scan whose probe can silently read nothing
+    # is a check that passes by not looking. See _marker_count.
+    if [ "$(_marker_count "$out_file" 'unbound variable')" != "0" ]; then
+        no "$label: no unbound variable under set -u" "$(_first_hit "$out_file" 'unbound variable')"
     else
         ok "$label: no unbound variable under set -u"
     fi
-    if grep -a -qE "command not found" "$out_file"; then
-        no "$label: no missing command (a zsh-ism in bash?)" "$(grep -a -m1 'command not found' "$out_file")"
+    if [ "$(_marker_count "$out_file" 'command not found')" != "0" ]; then
+        no "$label: no missing command (a zsh-ism in bash?)" "$(_first_hit "$out_file" 'command not found')"
     else
         ok "$label: no missing command (a zsh-ism in bash?)"
     fi
@@ -162,40 +163,48 @@ assert_run() {
 # annotations of a check run are not, and only a reported line reaches an
 # annotation.
 #
-# Whether a marker is in a file is asked of awk's index(), never of grep. The
-# installers paint their progress with carriage returns and SGR sequences, and a
-# GNU grep that meets bytes it cannot decode in the current locale stops treating
-# the file as text — and then prints "Binary file matches" where `-o` should have
-# printed the match, which is how the branch probe below came back empty for a
-# sentence the run had certainly written. BSD grep on macOS has no such mode, so
-# the same file answers "the marker is not in .zshrc" on ubuntu and "of course it
-# is" on macOS, and neither answer is evidence about the installer until the tool
-# is one that cannot give up. index() has no concept of a binary file. The greps
-# that still read a run's prose keep `-a`, which is the same claim made per-call.
+# Whether a marker is in a file is asked of awk's index(), never of grep, and
+# the same goes for anything read out of a run's painted output. The installers
+# write carriage returns and SGR sequences; a GNU grep that meets bytes it
+# cannot decode in the runner's locale stops treating such a file as text, and
+# `-o` then reports "binary file matches" where the match should have been
+# printed. BSD grep on macOS has no such mode. A probe whose answer depends on
+# which grep the machine happens to ship is not evidence about the installer,
+# and index() has no concept of a binary file to get wrong.
 _marker_count() { # _marker_count <file> <needle>
     awk -v n="$2" 'index($0, n) { c++ } END { print c + 0 }' "$1" 2>/dev/null
 }
-# Every line of the written config that mentions the plugin, flattened and
-# truncated: what the file actually contains, rather than what one probe claims.
-_marker_lines() {
-    awk '/zsh-smart-complete/ { printf "%s+", substr($0, 1, 40) }' "$1" 2>/dev/null \
-        | tr -d '\r\t' | cut -c1-200
+# The line a scan hit, shortened to something a FAIL detail can carry.
+_first_hit() { # _first_hit <file> <needle>
+    awk -v n="$2" 'index($0, n) { print substr($0, 1, 70); exit }' "$1" 2>/dev/null \
+        | tr -d '\r\t'
+}
+# The four lines that FOLLOW the end of the options block, with their line
+# numbers — which is exactly the head of the integration block, shown as bytes
+# rather than as a yes/no. The counts above said the marker was absent while the
+# block's own comment lines were present, and only the text itself can tell
+# those two apart: a write that never happened, a marker that lost its leading
+# `# >>>`, or a block that landed somewhere other than where the assert looks.
+_block_head() {
+    awk 'f && c++ < 4 { printf "%d:%s+", NR, substr($0, 1, 44) }
+         index($0, "<<< zsh-smart-complete options <<<") { f = 1 }' "$1" 2>/dev/null \
+        | tr -d '\r\t' | cut -c1-190
 }
 # The fields are ordered by how much each one costs to lose: an annotation can be
 # cut off at the end of a long line, so the config file's own contents come
 # before the installer's prose.
 _installed_evidence() {
     label="$1"; home="$TMP/h_$label"
-    printf 'rc=%s size=%s opts=%s integ=%s baks=%s zsc=[%s] branch=[%s] ph0=%s' \
+    printf 'rc=%s size=%s opts=%s integ=%s b_int=%s e_int=%s baks=%s head=[%s] ph0=%s' \
         "$(cat "$TMP/$label.rc" 2>/dev/null)" \
         "$(wc -c < "$home/.zshrc" 2>/dev/null | tr -d ' ')" \
         "$(_marker_count "$home/.zshrc" '>>> zsh-smart-complete options (managed) >>>')" \
         "$(_marker_count "$home/.zshrc" '>>> zsh-smart-complete integration (managed) >>>')" \
+        "$(_marker_count "$home/.zshrc" 'integration (managed)')" \
+        "$(_marker_count "$home/.zshrc" 'integration <<<')" \
         "$(find "$home" -maxdepth 1 -name '.zshrc.bak.*' 2>/dev/null | wc -l | tr -d ' ')" \
-        "$(_marker_lines "$home/.zshrc")" \
-        "$(grep -aoE 'Plugin-only install|config already present|No .*zshrc found|recommended full-stack|block refreshed|integration block|restored|nothing to uninstall' \
-              "$TMP/$label.out" 2>/dev/null | sort -u | tr '\n' '+' | cut -c1-90)" \
-        "$(grep -ac 'Phase 0/5' "$TMP/$label.out" 2>/dev/null)"
+        "$(_block_head "$home/.zshrc")" \
+        "$(_marker_count "$TMP/$label.out" 'Phase 0/5')"
 }
 assert_installed() {
     label="$1"
@@ -328,13 +337,13 @@ env -i PATH="$BIN_ENT:$CORE" HOME="$ehome" ZDOTDIR="$ehome" \
     TERM=dumb NONINTERACTIVE=1 bash "$ENTWARE" > "$TMP/entware.out" 2>&1
 ent_rc=$?
 check "entware: refuses without opkg (exit 1)" "1" "$ent_rc"
-if grep -q "unbound variable" "$TMP/entware.out"; then
-    no "entware: no unbound variable before the guard" "$(grep -m1 'unbound variable' "$TMP/entware.out")"
+if [ "$(_marker_count "$TMP/entware.out" 'unbound variable')" != "0" ]; then
+    no "entware: no unbound variable before the guard" "$(_first_hit "$TMP/entware.out" 'unbound variable')"
 else
     ok "entware: no unbound variable before the guard"
 fi
-if grep -q "command not found" "$TMP/entware.out"; then
-    no "entware: no missing command before the guard" "$(grep -m1 'command not found' "$TMP/entware.out")"
+if [ "$(_marker_count "$TMP/entware.out" 'command not found')" != "0" ]; then
+    no "entware: no missing command before the guard" "$(_first_hit "$TMP/entware.out" 'command not found')"
 else
     ok "entware: no missing command before the guard"
 fi
@@ -497,10 +506,11 @@ if [ -n "$bak" ] && [ "$(_marker_count "$bak" '>>> zsh-smart-complete')" != "0" 
 else
     no "$UL: a backup was taken before the edit, and it still holds the managed blocks" "bak=[$bak]"
 fi
-if grep -q "Restart zsh" "$TMP/$U2.out"; then
+if [ "$(_marker_count "$TMP/$U2.out" 'Restart zsh')" != "0" ]; then
     ok "$UL: and it tells the user the change needs a new shell"
 else
-    no "$UL: and it tells the user the change needs a new shell" "$(tail -3 "$TMP/$U2.out")"
+    no "$UL: and it tells the user the change needs a new shell" \
+       "$(_first_hit "$TMP/$U2.out" 'Restart zsh')|$(tail -c 120 "$TMP/$U2.out")"
 fi
 
 # Again, with nothing left of ours: it must say so rather than report a cleanup.
@@ -514,10 +524,11 @@ baks_before="$(find "$u_home" -maxdepth 1 -name '.zshrc.bak.*' 2>/dev/null | wc 
 U3="${UL}_again"
 run_uninstall "$U3" "$u_home" NONINTERACTIVE=1 SMART_INSTALL_LANG=en
 assert_run "$U3" 0
-if grep -q "Nothing to uninstall" "$TMP/$U3.out"; then
+if [ "$(_marker_count "$TMP/$U3.out" 'Nothing to uninstall')" != "0" ]; then
     ok "$UL: a second run says there is nothing to uninstall"
 else
-    no "$UL: a second run says there is nothing to uninstall" "$(tail -3 "$TMP/$U3.out")"
+    no "$UL: a second run says there is nothing to uninstall" \
+       "$(_first_hit "$TMP/$U3.out" 'Nothing to uninstall')|$(tail -c 120 "$TMP/$U3.out")"
 fi
 baks_now="$(find "$u_home" -maxdepth 1 -name '.zshrc.bak.*' 2>/dev/null | wc -l | tr -d ' ')"
 if [ "$baks_now" = "$baks_before" ] && cmp -s "$u_home/.zshrc" "$TMP/$UL.seed"; then

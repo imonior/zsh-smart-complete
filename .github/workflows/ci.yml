@@ -8,7 +8,8 @@
 #   zsh-versions    the same suite on several PACKAGED zsh builds, because much
 #                   of this codebase documents behaviour as "measured on zsh
 #                   5.9" — a claim that was previously verified on exactly one
-#                   build per OS.
+#                   build per OS. Its two red cells (zsh 5.7.1, 5.8.1) are a
+#                   real, still-undiagnosed behaviour gap — see that job.
 #   e2e-advisory    the tmux end-to-end suite. NON-BLOCKING on purpose (see that
 #                   job): it asserts on a rendered screen, which no other suite
 #                   can do, but it also drives a real terminal with wall-clock
@@ -57,6 +58,17 @@ jobs:
           zsh --version
           which zsh
 
+      - name: Check the generated installer blocks
+        run: |
+          # install.sh and install-entware.sh each carry one block generated from
+          # lib/install/core.sh, and both files are committed because the
+          # documented install is `curl … | bash` — there is no build step for a
+          # user to trigger. A block that no longer matches its source is there-
+          # fore a shipped defect rather than a stale build artifact. The suite
+          # covers this too (tests/test-installer-shared.sh); the separate step
+          # exists so the failure names the command that fixes it.
+          bash tools/build-installers.sh --check
+
       - name: Run Complete Test Suite
         run: |
           # One command, and it discovers the suites (see the header). Output is
@@ -86,6 +98,15 @@ jobs:
     # Each image brings its own packaged zsh, which is the point:
     #   ubuntu:focal      -> zsh 5.7.1   ubuntu:jammy -> zsh 5.8.1
     #   debian:bookworm   -> zsh 5.9
+    #
+    # BLOCKING, deliberately, even though focal and jammy are red right now.
+    # debian:bookworm is a container job too — same image mechanism, same absent
+    # tty, same sqlite3 — and it passes, which rules the environment out and
+    # leaves the zsh build itself as the only variable. That is a real behaviour
+    # gap on the two oldest builds this codebase has never been run on, which is
+    # precisely what this job was added to find; silencing it would put the
+    # finding back in the drawer. It stays red until the difference is fixed,
+    # and the step below makes it readable while it is red.
     container:
       image: ${{ matrix.image }}
     strategy:
@@ -108,7 +129,22 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run Complete Test Suite
-        run: ./tests/run-all.sh -v
+        run: |
+          # Same trick as the gate job: the log needs authentication to read, the
+          # annotations of the check run do not. A red job that nobody can read
+          # is just noise, so every failure line goes out twice — once in the
+          # log, once as an annotation. The job still fails: the exit code is the
+          # suite's own.
+          set +e
+          out="$(./tests/run-all.sh -v 2>&1)"
+          rc=$?
+          printf '%s\n' "$out"
+          if [ "$rc" -ne 0 ]; then
+            while IFS= read -r line; do
+              [ -n "$line" ] && printf '::error::%s\n' "$line"
+            done < <(printf '%s\n' "$out" | grep -E 'FAIL|TOTAL|SKIP|env:|run-all:' | tail -n 20)
+          fi
+          exit "$rc"
 
       - name: Report the zsh build this run actually tested
         if: always()

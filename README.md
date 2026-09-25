@@ -385,12 +385,13 @@ commit both installers. `tools/build-installers.sh --check` is what CI runs;
 files, including the list of duplications that remain on purpose.
 
 **Test summary:** `./tests/run-all.sh` runs every suite and prints the file and
-assertion counts it measured; the run is green, 0 failures.
+assertion counts it measured; on ubuntu-latest the run is green with 1366
+assertions and 0 failures.
 The installer also now **scans other startup files** (`.zprofile`, `.zshenv`, `conf.d/*.zsh`, `.zshrc.d/*`, `/etc/zsh/zshrc`) for left-over loaders of `zsh-autocomplete` / `zsh-autosuggestions` after cleaning `~/.zshrc`, and **warns** (with exact `file:line`) if it finds any — it never edits those files. See CHANGELOG `[v2.2.5]`.
 
 
 Key behaviours are additionally verified end-to-end against a real `zsh -i` in a
-tmux pane, asserting on the rendered screen (51/51 green). That suite scored
+tmux pane, asserting on the rendered screen. That suite scored
 **24/49 on v2.1.6** back when it held 49 assertions — one of those 49 is not even
 reached there, because its section stops after a failure — while the two
 scenarios added since check the single-column list, which v2.1.6 does not draw at
@@ -408,7 +409,7 @@ list still "passes" every look-at-the-screen check. The harness ships in the rep
 (auto-skips without `tmux`):
 
 ```zsh
-./tests/e2e-tmux.sh                              # 51 assertions
+./tests/e2e-tmux.sh                              # advisory; asserts on the rendered screen
 ./tests/e2e-tmux.sh /tmp/zsc-v216               # A/B an older release
 ```
 

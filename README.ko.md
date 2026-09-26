@@ -3,7 +3,7 @@
 > Zsh 용 현대적인 스마트 완성 및 제안 레이어.
 > 미래의 독립 셸 프런트엔드로 설계됨.
 >
-> **v2.4.0** — 설치 스크립트는 미러 URL 을 더 이상 코드로 다루지 않습니다. 도중에 실패한 설치는 되돌린 뒤에 물러나고, `./install.sh --uninstall` (또는 `SMART_UNINSTALL=1`) 은 자기가 쓴 것만 지웁니다. 옵트인인 세로 목록은 입력을 이어가도 모양을 유지합니다: `|`, `&&`, `;` 나 `sudo` 처럼 명령을 감싸는 명령어 뒤에서도 명령을 내밀고, `cd` 최근 디렉터리는 입력한 접두어에 답합니다 — 친 `#` 는 패턴이 아니라 글자 그대로입니다. `tests/` 에 스위트가 셋, 그리고 새 global 에게 스스로를 설명하게 하는 lint 가 늘었습니다.
+> **v2.4.1** — 고스트 제안이 zsh 5.8 / 5.8.1 에서도 색을 지킵니다——하필 그것에 이름을 붙이던 마커가 속성을 지우고 있었습니다. zsh 버전 매트릭스는 세 이미지 모두 초록이고, 붉은 CI job 은 한 개가 아니라 실패한 모든 단언을 공개하므로 아래 단언 수도 그것을 측정한 실행과 대조할 수 있습니다.
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------ | ------ |
 | 빌드 및 테스트 (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | 릴리스 | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| 버전 | 2.4.0 |
+| 버전 | 2.4.1 |
 
 ## 왜 이 플러그인인가
 
@@ -22,7 +22,7 @@
 - **두 부분, 하나의 엔진 (v2.2.0)** — 입력하는 동안 후보 목록이 **즉시 팝업**됩니다(zsh-autocomplete 동작)과 동시에 행 내부의 회색 제안은 남습니다. `→`는 전체를, `Alt+→`는 한 단어를 수락합니다(zsh-autosuggestions 동작). 하나의 플러그인, 하나의 키맵, 두 채널 — "두 플러그인이 충돌한다"는 근본적인 해결책입니다.
 - **외부 의존성 없음** — 코어 플러그인은 자체 완결적이며, Atuin은 선택 사항.
 - **화살표 키 모든 인코딩 바인딩** — `ESC [ C`와 `ESC O C`(애플리케이션 커서 키 모드, `TERM=xterm-256color`에서 터미널이 실제로 보내는 형식) 모두 바인딩되어 "회색 글자는 보이는데 화살표가 안 먹힌다"가 일어나지 않습니다.
-- **구문 강조와 친화적** — `region_highlight` 항목을 최대 하나만 차지하고 `memo=zsh-smart-complete:suggestion`으로 표시하며 자기 항목만 제거하므로 다른 하이라이터를 덮어쓰지 않습니다.
+- **구문 강조와 친화적** — `region_highlight` 항목을 최대 하나만 차지하고 자기 항목만 제거하므로 다른 하이라이터를 덮어쓰지 않습니다. zsh 5.9 이상에서는 해당 항목에 `memo=zsh-smart-complete:suggestion` 표시를 붙이지만, 그 이전 빌드에서는 붙이지 않습니다 — 붙이면 해당 항목에서 색이 사라지기 때문입니다.
 
 ## 아키텍처
 

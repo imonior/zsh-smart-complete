@@ -5,6 +5,66 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [v2.4.1] - 2026-09-26
+
+### Fixed
+- **The suggestion lost its colour on zsh 5.8 and 5.8.1, and the cause was the
+  marker that named it.** `region_highlight` entries are re-rendered from their
+  attribute bits, so a highlighter that wants to find its own entry again has to
+  leave something in the text — we wrote `… fg=8 memo=zsh-smart-complete:suggestion`.
+  `memo=` is parsed only by zsh 5.9 and later (`Src/Zle/zle_refresh.c`); on 5.8,
+  `Src/prompt.c: match_highlight()` reaches `else if (*teststr) break;` *before* it
+  stores the colour, so any token after the colour that is not a comma throws away
+  the rest of the scan. The entry was stored with **no** attributes — measured as
+  `rh=1 12 none` in a session whose own `terminfo[colors]` was 256, which is also
+  what ruled out the terminfo theory the first two fixes had chased. The marker is
+  now written only when the running zsh can carry it; on older builds the module
+  identifies its entry by remembering what it wrote, and where that began, because
+  a completion-list redraw clips a range back to the end of `BUFFER` and the
+  remembered text stops matching. What the README promises holds on both branches:
+  one entry at most, and only that one removed.
+- **The version-matrix cells were red for three reasons that belong to the host,
+  not to the code.** The shared fixture farm put `opkg` on `PATH`, so `install.sh`
+  handed over to `install-entware.sh` on every Linux run — the script under test
+  had been swapped by its own fixtures, and the "half-written `.zshrc`" that looked
+  like a Linux-only installer bug was the *other* installer's file, which carries
+  no managed markers by design. `tools/check-module-globals.sh` extracted its
+  documented key list with a `{n,}` interval expression, and the `awk` of a
+  Debian/Ubuntu image is mawk, which ignores intervals outside POSIX mode: it
+  extracted zero keys, and every dead-key assertion passed by checking nothing. Two
+  installer suites needed `python3` and `ps`, which a minimal image does not ship.
+  The cells stay blocking — the colour bug above is exactly what only they could
+  find.
+
+### Changed
+- **A red job now names every failure it has.** Reading a job log from outside the
+  runner needs authentication; the annotations of its check run do not. Three jobs
+  each carried their own copy of that packing and each lost part of what it found:
+  `tail -n 5` over a broad grep published one failing assertion out of seven (two
+  runs came back byte-identical, because nobody could read them), the end-to-end
+  step's `tail -n 20` filled its slots with quoted pane text and dropped the
+  failures, and the release gate — which had none of this — said only `Process
+  completed with exit code 1` for the v2.4.0 failure. `tools/annotate.sh` is now the
+  single implementation: it folds a long field into several annotations at *entry*
+  boundaries (cutting at a column interleaves two assertion names and leaves neither
+  readable), and publishes one `name:passed/failed` pair per suite even when
+  everything is green — which is what makes the assertion count quoted in README
+  checkable from the run that measured it. It always exits 0: a diagnostic that can
+  fail a build is a second build system.
+- The v2.3.0 entry stated that the matrix images package zsh 5.7.1 / 5.8.1 / 5.9.
+  Each cell's own `zsh --version` reports **5.8** / 5.8.1 / 5.9, so the number for
+  `ubuntu:focal` was wrong; it now reads 5.8 in all five languages, and the workflow
+  says where those numbers come from.
+
+### Added
+- `tests/test-annotate.sh`: 39 assertions over fixture logs, including that no
+  annotation is wider than the script's own budget — measured on the bytes the tool
+  really emits, since an assertion against a re-implementation of the packing would
+  pass however the script folded. `tests/test-display.zsh` grew a scenario (55 → 74
+  assertions) that forces the no-marker branch and checks that the entry does not
+  stack one per keystroke, that a clipped leftover is still recognised and removed,
+  and that the version gate reads `5.10` as newer than `5.9` rather than as `5.1`.
+
 ## [v2.4.0] - 2026-09-26
 
 ### Fixed

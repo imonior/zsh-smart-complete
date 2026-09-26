@@ -3,7 +3,7 @@
 > Zsh 向けのモダンなスマート補完・候補提示レイヤー。
 > 将来の独立シェルのフロントエンドとして設計。
 >
-> **v2.4.0** — インストーラーはミラー URL をもうコードとして扱いません。途中で失敗したインストールは巻き戻してから去り、`./install.sh --uninstall`（または `SMART_UNINSTALL=1`）は自分が書いたものだけを消します。オプトインの縦一覧は、入力を続けても形を保つようになりました：`|`、`&&`、`;` や `sudo` のようなコマンドをくるむ語の後でもコマンドを出し、`cd` の最近ディレクトリは入力済みの接頭辞に答えます ——打った `#` はパターンではなく文字どおりです。`tests/` にスイートが 3 つ、そして新しい global には自分自身を説明させる lint が増えました。
+> **v2.4.1** — ゴースト候補が zsh 5.8 / 5.8.1 でも色を保つようになりました——まさにそれに名前を付けていたマーカーが属性を消していたのです。zsh バージョンマトリクスは 3 つのイメージすべてで緑になり、赤い CI job は 1 件ではなく失敗した全アサーションを公開するので、下の断言数もそれを計測した実行と照合できます。
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------ | ------ |
 | ビルドとテスト (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | リリース | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| バージョン | 2.4.0 |
+| バージョン | 2.4.1 |
 
 ## なぜこれを選ぶか
 
@@ -22,7 +22,7 @@
 - **二つの半身、一つのエンジン（v2.2.0）** — 入力中に候補リストが**即座にポップアップ**します（zsh-autocomplete の挙動）と同時に、行内の灰色サジェストは残ります。`→` は全体を受け入れ、`Alt+→` は単語一つを受け入れます（zsh-autosuggestions の挙動）。一つのプラグイン、一つのキーマップ、二つのチャンネル——これが「二つのプラグインが衝突する」根本的な解決策です。
 - **外部依存ゼロ** — コアプラグインは自己完結、Atuin はオプション。
 - **矢印キーの全エンコーディングをバインド** — `ESC [ C` と `ESC O C`（アプリケーションカーソルキーモード、`TERM=xterm-256color` で端末が実際に送る形式）の両方をバインドしているため、「灰色文字は出るのに矢印が効かない」は起きません。
-- **シンタックスハイライトと共存** — `region_highlight` を最大 1 枠だけ使い、`memo=zsh-smart-complete:suggestion` で印を付けて、自分の枠のみ除去するため、他のハイライターを上書きしません。
+- **シンタックスハイライトと共存** — `region_highlight` を最大 1 枠だけ使い、自分の枠のみ除去するため、他のハイライターを上書きしません。zsh 5.9 以上ではその枠に `memo=zsh-smart-complete:suggestion` タグを付けますが、それ以前のビルドでは付けません——付けるとその枠から色が失われるためです。
 
 ## アーキテクチャ
 

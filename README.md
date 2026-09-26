@@ -3,7 +3,7 @@
 > A modern smart completion & suggestion layer for Zsh.
 > Engineered as the frontend of a future independent shell.
 >
-> **v2.4.0** — The installers stopped treating a mirror URL as code, an install that fails halfway rolls itself back, and `./install.sh --uninstall` (or `SMART_UNINSTALL=1`) removes exactly what was written. The opt-in vertical completion list now holds its shape while you type: commands still come after `|`, `&&`, `;` and a wrapper like `sudo`, and `cd`'s recent directories answer a typed prefix — and a `#` you type is a literal, not a pattern. `tests/` gained three suites, plus a linter that makes every new global justify itself.
+> **v2.4.1** — The ghost keeps its colour on zsh 5.8 and 5.8.1, where the very marker that named it was deleting the attribute; the zsh version matrix is green on all three images; and a red CI job publishes every failing assertion instead of one, so an assertion count like the one below can be checked against the run that measured it.
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------- | ------ |
 | Build & test (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | Release | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| Version | 2.4.0 |
+| Version | 2.4.1 |
 
 ## Why
 
@@ -22,7 +22,7 @@ Replaces both `zsh-autocomplete` and `zsh-autosuggestions` in a single plugin wi
 - **Two halves, one engine (v2.2.0)** — while you type, the candidate list pops up *immediately* (the `zsh-autocomplete` behaviour) while the inline grey suggestion stays; `→` accepts it all, `Alt+→` accepts one word (the `zsh-autosuggestions` behaviour). One plugin, one keymap, two channels — the real fix for "the two plugins conflict".
 - **Zero external dependencies** — the core plugin is self-contained; Atuin is optional.
 - **Every arrow-key encoding is bound** — both `ESC [ C` and `ESC O C` (application cursor-keys mode, what `TERM=xterm-256color` actually sends) are bound, so you never get "grey text shows but the arrow does nothing".
-- **Syntax-highlighting friendly** — claims at most one `region_highlight` entry, tagged `memo=zsh-smart-complete:suggestion`, and removes only that entry, so other highlighters are never clobbered.
+- **Syntax-highlighting friendly** — claims at most one `region_highlight` entry and removes only that one, so other highlighters are never clobbered. On zsh 5.9+ that entry is tagged `memo=zsh-smart-complete:suggestion`; on older builds the tag is left off, because there writing it costs the entry its colour.
 
 ## Architecture
 
@@ -385,8 +385,8 @@ commit both installers. `tools/build-installers.sh --check` is what CI runs;
 files, including the list of duplications that remain on purpose.
 
 **Test summary:** `./tests/run-all.sh` runs every suite and prints the file and
-assertion counts it measured; on ubuntu-latest the run is green with 1366
-assertions and 0 failures.
+assertion counts it measured; on ubuntu-latest the run is green with 1424
+assertions in 20 suites and 0 failures.
 The installer also now **scans other startup files** (`.zprofile`, `.zshenv`, `conf.d/*.zsh`, `.zshrc.d/*`, `/etc/zsh/zshrc`) for left-over loaders of `zsh-autocomplete` / `zsh-autosuggestions` after cleaning `~/.zshrc`, and **warns** (with exact `file:line`) if it finds any — it never edits those files. See CHANGELOG `[v2.2.5]`.
 
 

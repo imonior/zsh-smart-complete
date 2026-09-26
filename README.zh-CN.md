@@ -3,7 +3,7 @@
 > 一个现代化的智能补全和建议层，专为 Zsh 设计。
 > 作为未来独立 shell 的前端引擎。
 >
-> **v2.4.0** — 安装器不再把镜像地址当成代码执行；装到一半失败的安装在回滚之后再退出；`./install.sh --uninstall`（或 `SMART_UNINSTALL=1`）只删它自己写过的东西。可选的竖向补全列表在你继续输入时不再换形状：`|`、`&&`、`;` 和 `sudo` 这类包装词之后照样给出命令，`cd` 的最近目录也会对已输入的前缀作答——你打的 `#` 是字面量，不是模式。`tests/` 多了三套测试，还有一个让每个新 global 交代自己理由的检查器。
+> **v2.4.1** — 幽灵建议在 zsh 5.8 和 5.8.1 上保住了颜色：恰恰是给它起名字的那个标记把属性删掉了；zsh 版本矩阵在三个镜像上全绿；而 CI 变红时会公布每一条失败的断言而不是其中一条——这样下面引用的断言数量就能对着做出该测量的那次运行核对。
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------ | ------ |
 | 构建与测试 (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | 发布 | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| 版本 | 2.4.0 |
+| 版本 | 2.4.1 |
 
 ## 为什么选择我们
 
@@ -22,7 +22,7 @@
 - **两部分合为一体（v2.2.0）** — 打字时**立即弹出候选列表**（zsh-autocomplete 的行为），同时保留行内灰字建议，`→` 全量接受、`Alt+→` 一次接受一个词（zsh-autosuggestions 的行为）。同一个插件、同一套键位、两个通道，这正是"两个插件互相冲突"的根本解法。
 - **零外部依赖** — 核心插件自包含；可选 Atuin 增强。
 - **箭头键全编码绑定** — `ESC [ C` 与 `ESC O C`（应用光标键模式，`TERM=xterm-256color` 下终端实际发送的形式）都绑定，不会出现"灰字在、右箭头没反应"。
-- **与语法高亮兼容** — 最多只占用一条 `region_highlight` 条目，用 `memo=zsh-smart-complete:suggestion` 标记，且只移除自己那条，不会覆盖其他 highlighter。
+- **与语法高亮兼容** — 最多只占用一条 `region_highlight` 条目，且只移除自己那条，不会覆盖其他 highlighter。在 zsh 5.9 及以上，该条目额外带有 `memo=zsh-smart-complete:suggestion` 标记；更早的版本上不写这个标记，因为在那些版本上写它会让这条高亮失去颜色。
 
 ## 架构
 

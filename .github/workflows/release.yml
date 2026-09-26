@@ -69,7 +69,31 @@ jobs:
           sudo apt-get install -y --no-install-recommends zsh sqlite3
 
       - name: Run the full test suite
-        run: ./tests/run-all.sh -v
+        # The gate is the one job that releases bytes nobody has ever seen fail
+        # or pass, and the v2.4.0 gate failure published exactly one thing about
+        # itself: "Process completed with exit code 1." Nothing else was
+        # annotatable, because a job log needs authentication to read while the
+        # annotations of its check run do not. So capture the log and hand it to
+        # the same packer the CI jobs use -- guarded, because this step checks out
+        # the TAGGED tree, and a tag from before that tool exists has no
+        # tools/annotate.sh to run. Absence is reported rather than being silent,
+        # since "no annotations because the tool was not there" and "no
+        # annotations because nothing failed" are different findings. The verdict
+        # stays the suite's own exit code.
+        shell: bash
+        run: |
+          log="$RUNNER_TEMP/suite.log"
+          set +e
+          ./tests/run-all.sh -v > "$log" 2>&1
+          rc=$?
+          cat "$log"
+          if [ -f tools/annotate.sh ]; then
+            # Always exits 0: this is a diagnostic, not a second build system.
+            bash tools/annotate.sh "$log"
+          else
+            printf '::warning::annotate: not present in this tree, so rc=%s has no annotations beside it\n' "$rc"
+          fi
+          exit "$rc"
 
       - name: VERSION must match the tag
         # Nothing else pins these two together, so a release could go out with a

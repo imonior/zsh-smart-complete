@@ -72,70 +72,64 @@ jobs:
       - name: Run Complete Test Suite
         shell: bash
         run: |
-          # One command, and it discovers the suites (see the header). Output is
-          # captured rather than streamed so a failure can be surfaced TWICE: in
-          # this log, and as workflow annotations. The annotations matter because
-          # downloading a job log needs authentication, while the annotations of
-          # a check run are readable with a plain unauthenticated GET
+          # One command, and it discovers the suites (see the header). Its output
+          # goes to a file so that the annotations can be derived from it
+          # afterwards: a failure has to be readable from OUTSIDE the runner,
+          # because downloading a job log needs authentication while the
+          # annotations of its check run do not
           # (/repos/{owner}/{repo}/check-runs/{id}/annotations). Without them a
-          # failure that only reproduces on one runner is unreadable from
-          # outside that runner.
+          # red that only happens on one platform is not a finding, it is a
+          # rumour — and the counts quoted in README.md and in release tags are
+          # only checkable this way.
           #
-          # The pipe below used to be `done < <(...)`, and a process substitution
-          # is the one construct that can kill a step before it says anything: an
-          # unparseable line exits 2 with the message only in the log. Kept as a
-          # plain pipe so a red run always reaches its annotations.
+          # The packing itself lives in tools/annotate.sh, shared with the
+          # zsh-versions job and covered by tests/test-annotate.sh, because both
+          # jobs used to carry their own copy of these pipes and both used to lose
+          # part of what they had found. It folds a long field into several
+          # annotations at ENTRY boundaries rather than trimming it, and it emits
+          # the per-suite tallies on a green run too, so "how many assertions is
+          # the README quoting" is answerable from the run that made the claim.
+          log="$RUNNER_TEMP/suite.log"
+          set +e
+          ./tests/run-all.sh -v > "$log" 2>&1
+          rc=$?
           set -e
-          if out="$(./tests/run-all.sh -v 2>&1)"; then
-            printf '%s\n' "$out"
-            # Publish the tally even on a green run. The assertion counts quoted in
-            # README.md and in the release tag message are claims about a measured
-            # run, and reading them off a GREEN job means downloading its log --
-            # which needs authentication, while annotations do not. Without this,
-            # the only way to check those numbers is to run the suite somewhere
-            # else and hope the two environments agree.
-            printf '%s\n' "$out" | grep '^run-all:' | tail -n 1 | \
-              while IFS= read -r line; do printf '::notice::%s\n' "$line"; done
-          else
-            printf '%s\n' "$out"
-            # Same packing as the zsh-versions job: name every failing assertion
-            # in one annotation and the per-suite tallies in another, so a red on
-            # one runner is legible from outside it. run-all -v indents each
-            # suite's own output with '| ', which is what separates an assertion
-            # line from run-all's own `FAIL rc=` summary.
-            printf '%s\n' "$out" \
-              | grep -E '\|[[:space:]]+FAIL[[:space:]]' \
-              | sed -E 's/^[[:space:]]*\|[[:space:]]+FAIL[[:space:]]+//; s/[[:space:]]+$//' \
-              | cut -c1-90 | tr '\n' ';' | \
-              { IFS= read -r line; printf '::error::FAILING ASSERTIONS: %s\n' "$line"; }
-            printf '%s\n' "$out" | grep -E 'TOTAL|FAILED suites' | tr '\n' ';' | \
-              { IFS= read -r line; printf '::error::SUITE TALLIES: %s\n' "$line"; }
-            exit 1
-          fi
+          cat "$log"
+          # Always exits 0: the suite's own status is the only verdict here.
+          bash tools/annotate.sh "$log"
+          exit "$rc"
 
   zsh-versions:
     name: Zsh ${{ matrix.image }}
     runs-on: ubuntu-latest
-    # Each image brings its own packaged zsh, which is the point:
-    #   ubuntu:focal      -> zsh 5.7.1   ubuntu:jammy -> zsh 5.8.1
+    # Each image brings its own packaged zsh, which is the point. The versions
+    # below are what each cell's own `zsh --version` reported, not what the
+    # distro's package page claims:
+    #   ubuntu:focal      -> zsh 5.8      ubuntu:jammy -> zsh 5.8.1
     #   debian:bookworm   -> zsh 5.9
     #
-    # BLOCKING, deliberately, even though all three cells are red right now.
+    # BLOCKING, on purpose.
     #
-    # What the red actually says, measured 2026-09-26: at v2.3.0 (0fb7ea9) this
-    # job split focal+jammy red / bookworm GREEN, and that split was the whole
-    # argument — one container image passing while two older ones failed ruled the
-    # environment out and left the zsh build as the only variable. bookworm is red
-    # too now, at every commit from c14d4bf onward, and all three report only
-    # "Process completed with exit code 2" with none of the suite's own lines in
-    # the annotations. So the old inference has expired, and the two things this
-    # shape is consistent with — a suite that fails assertions, and a suite that
-    # never starts — are not yet separated. The step below exists to separate
-    # them: rc=2 with no tally is the second one.
+    # These three cells were red for four separate reasons, and three of them were
+    # the harness, not the code: the shared stub farm put `opkg` on PATH (see the
+    # note in tests/test-installer-sandbox.sh), the awk of a Debian/Ubuntu image is
+    # mawk, which does not honour interval expressions, so a document extractor
+    # silently extracted nothing and reported green (tools/check-module-globals.sh),
+    # and two suites needed tools a minimal image lacks — python3 and `ps`.
     #
-    # The job stays red and blocking regardless. A gap on the oldest builds this
-    # codebase has never been run on is exactly what it was added to find, and
-    # silencing it would put the finding back in the drawer.
+    # The fourth was real, and only these cells could show it: on zsh 5.8/5.8.1 the
+    # ghost lost its colour because our region_highlight `memo=` marker made those
+    # builds parse the entry as having NO attributes at all. Measured as
+    # `rh=1 12 none` with 256 colours available, i.e. not a terminfo problem;
+    # 5.8's Src/prompt.c breaks out of the attribute scan — before storing the
+    # colour — on any byte after a colour token that is not a comma. `memo=` is
+    # only understood by 5.9 and later (Src/Zle/zle_refresh.c), so the marker is
+    # now written only when the running zsh can carry it. The gate is
+    # _smart_display_memo_supported in lib/display/display.zsh.
+    #
+    # Whether that is the whole story is this run's answer. The job stays blocking
+    # either way: a gap on the oldest builds this codebase runs on is exactly what
+    # it was added to find, and silencing it puts the finding back in the drawer.
     container:
       image: ${{ matrix.image }}
       env:
@@ -165,13 +159,13 @@ jobs:
           # container missing them fails suites that are otherwise green — the
           # exact host-dependence the sandbox farm exists to remove.
           #
-          # ncurses-term is the compiled terminal database. zsh writes no colour
-          # attribute at all when its own terminfo lookup cannot find `setaf`, so
-          # a host whose database lacks the TERM a test asks for (here
-          # xterm-256color, in tests/test-repaint.zsh) renders an uncoloured
-          # ghost. Measured, that is not the whole story: with this package
-          # present focal and jammy still write no attribute while reporting 256
-          # colours, so the remaining difference is the zsh version itself.
+          # ncurses-term is the compiled terminal database. tests/test-repaint.zsh
+          # boots its nested session as xterm-256color, which a minimal image does
+          # not ship a description of, and zsh writes no colour attribute at all
+          # when its terminfo lookup cannot find `setaf`. Install it for that
+          # reason, not as a fix for the uncoloured ghost: with this package
+          # present focal and jammy still reported 256 colours and still wrote no
+          # attribute. That one was the zsh version — see the note above.
           #
           # Minimal images also ship without any locale generated, so the suites'
           # Chinese section headers ("场景 1: …") would be truncated mid-character
@@ -187,43 +181,29 @@ jobs:
         id: suite
         shell: bash
         run: |
-          # Same trick as the gate job: the log needs authentication to read, the
-          # annotations of the check run do not. A red job that nobody can read
-          # is just noise, so every failure line goes out twice — once in the
-          # log, once as an annotation. The job still fails: the exit code is the
-          # suite's own.
+          # Same as the test job, down to the one implementation of the packing
+          # (tools/annotate.sh) and the reason for it: the log needs authentication
+          # to read, the annotations of the check run do not. The job still fails:
+          # the exit code is the suite's own.
           #
-          # The output goes to a file as well as to the log, and the rc is
-          # recorded as a step output, because the last several reds here said
-          # nothing at all: the step exited 2 without emitting one annotation.
-          # Only a script that died before its first command can do that -- a
-          # process substitution or herestring is parsed when the shell reaches
-          # it, so an unsupported one aborts mid-step, and its syntax error lands
-          # in the log alone. Everything below is plain pipes, and the step after
-          # this one reports what survived.
+          # The rc is recorded as a step output because the last several reds here
+          # said nothing at all: the step exited 2 before its first annotation. Only
+          # a script that died before its first command can do that -- a process
+          # substitution or herestring is parsed when the shell reaches it, so an
+          # unsupported one aborts mid-step and its syntax error lands in the log
+          # alone. Plain pipes, and the step after this one reports what survived.
+          log="$RUNNER_TEMP/suite.log"
           set +e
-          ./tests/run-all.sh -v > "$RUNNER_TEMP/suite.log" 2>&1
+          ./tests/run-all.sh -v > "$log" 2>&1
           rc=$?
-          cat "$RUNNER_TEMP/suite.log"
+          cat "$log"
           printf 'rc=%s\n' "$rc" >> "$GITHUB_OUTPUT"
-          if [ "$rc" -ne 0 ]; then
-            # The suites' OWN assertion-failure lines are the whole finding, but
-            # they are scattered through ~1700 lines of verbose output, and a
-            # check run shows only ~ten annotations. The previous `tail -n 5` over
-            # a broad grep kept just the run-all summary and the last suite total,
-            # which named exactly one assertion and left the rest to guesswork --
-            # and two runs came back byte-identical, because nothing was ever read.
-            # So pack every failing assertion into one annotation (they are indented
-            # with '| ' by run-all -v, unlike run-all's own summary lines), then the
-            # per-suite tallies into another. Plain pipes only, per the note above.
-            log="$RUNNER_TEMP/suite.log"
-            fails="$(grep -E '\|[[:space:]]+FAIL[[:space:]]' "$log" \
-              | sed -E 's/^[[:space:]]*\|[[:space:]]+FAIL[[:space:]]+//; s/[[:space:]]+$//' \
-              | cut -c1-90 | tr '\n' ';')"
-            printf '::error::FAILING ASSERTIONS: %s\n' "$fails"
-            totals="$(grep -E 'TOTAL|FAILED suites' "$log" | tr '\n' ';')"
-            printf '::error::SUITE TALLIES: %s\n' "$totals"
-          fi
+          # Green or red, this names every suite that ran with its own
+          # passed/failed pair, and every assertion that failed with its name.
+          # Before this existed, a red here reported one assertion out of seven
+          # because a `tail -n 5` over a broad grep kept the summary lines -- and
+          # two runs came back byte-identical, because nothing was ever read.
+          bash tools/annotate.sh "$log"
           exit "$rc"
 
       - name: Report the zsh build and what the suite step left behind
@@ -271,12 +251,16 @@ jobs:
           set +e
           ./tests/e2e-tmux.sh 2>&1 | tee "$RUNNER_TEMP/e2e.log"
           rc=${PIPESTATUS[0]}
-          # One annotation line per failure so the result is readable from the
-          # API without a job log (same rationale as in the `test` job).
-          grep -E 'FAIL|TOTAL|SKIP' "$RUNNER_TEMP/e2e.log" | tail -n 20 | \
-            while IFS= read -r line; do
-              printf '::warning::%s\n' "$line"
-            done
+          # One readable annotation per failure, folded at entry boundaries by the
+          # same tool the gating jobs use. This step used to pack them with
+          # `tail -n 20` over a grep that also matched every PASS and every
+          # quoted pane line -- so the 20 slots filled up with noise and the
+          # failures themselves were the part that got dropped. The pattern is
+          # anchored on purpose: FAIL/SKIP only at a line's own indent, plus the
+          # harness's total. --failures never takes a verdict, and this job is
+          # advisory anyway, so the rc still goes to the step output below.
+          bash tools/annotate.sh --failures warning "E2E RESULT" \
+            '^[[:space:]]*(FAIL|SKIP)|E2E TOTAL' "$RUNNER_TEMP/e2e.log"
           echo "rc=$rc" >> "$GITHUB_OUTPUT"
           exit 0
 

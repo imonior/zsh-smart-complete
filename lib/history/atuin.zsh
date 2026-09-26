@@ -84,22 +84,28 @@ _smart_history_backend_atuin_build() {
     # cwd contains spaces (commands may contain TABS rarely, but we
     # tolerate by limiting to 4 fields per line).
     local sep=$'\t'
-    local raw command cwd exit_code hostname
+    local raw command cwd exit_code hostname f
     local rec_rank=0 max_freq=0
 
     while IFS="$sep" read -r command cwd exit_code hostname; do
         [[ -z "$command" ]] && continue
 
-        # New command → push to order list.
+        # The frequency travels through a scalar, exactly as in
+        # _smart_history_backend_zsh_build: `command` is arbitrary text from the
+        # database, and a bare $command inside (( )) makes zsh evaluate it as an
+        # arithmetic expression -- executing any $(...) it contains, and losing
+        # the increment to "bad math expression" on a command with an unbalanced
+        # ']'.
         if [[ -z "${_SMART_BUILD_SEEN[$command]}" ]]; then
             _SMART_BUILD_SEEN[$command]=1
             _SMART_BUILD_ORDER+=("$command")
-            _SMART_BUILD_FREQ[$command]=1
             _SMART_BUILD_REC_RANKS[$command]=$rec_rank
             (( rec_rank++ ))
+            f=1
         else
-            _SMART_BUILD_FREQ[$command]=$(( _SMART_BUILD_FREQ[$command] + 1 ))
+            f=$(( ${_SMART_BUILD_FREQ[$command]} + 1 ))
         fi
+        _SMART_BUILD_FREQ[$command]=$f
 
         # v0.2.0: Record cwd / host / exit metadata. For duplicate cmds we
         # keep the LAST-SEEN (most recent) row's values because the query
@@ -112,8 +118,8 @@ _smart_history_backend_atuin_build() {
             _SMART_BUILD_META_EXIT[$command]="${exit_code:-0}"
         fi
 
-        if (( _SMART_BUILD_FREQ[$command] > max_freq )); then
-            max_freq=${_SMART_BUILD_FREQ[$command]}
+        if (( f > max_freq )); then
+            max_freq=$f
         fi
         true   # keep while-return-code stable even if previous cond was false
     done < <(sqlite3 -separator "$sep" "$db_path" "$SQL" 2>/dev/null) || return 1

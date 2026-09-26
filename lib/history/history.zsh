@@ -106,10 +106,13 @@ _smart_history_rebuild() {
     # ticks continue upward from base.
     local base="${_SMART_STATE[history.tick]:-0}"
     (( base < _SMART_BUILD_REC )) && base=$_SMART_BUILD_REC
-    local c
+    local c r
     for c in "${_SMART_BUILD_ORDER[@]}"; do
         _smart_state_a_set history.frequency "$c" "${_SMART_BUILD_FREQ[$c]}"
-        _smart_state_a_set history.recency   "$c" "$(( base - _SMART_BUILD_REC_RANKS[$c] ))"
+        # $r rather than $c: inside $(( )) a bare subscript is re-evaluated as an
+        # arithmetic expression, and $c here is a whole history line.
+        r="${_SMART_BUILD_REC_RANKS[$c]}"
+        _smart_state_a_set history.recency   "$c" "$(( base - r ))"
         # v0.2.0: Persist metadata (cwd/host/exit) if present.
         # Only write non-empty values; tests & zsh backend may leave empty.
         [[ -n "${_SMART_BUILD_META_CWD[$c]+s}"  && -n "${_SMART_BUILD_META_CWD[$c]}" ]] \

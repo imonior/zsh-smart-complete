@@ -23,7 +23,7 @@ setopt extended_glob no_warn_create_global
 
 _smart_history_backend_zsh_build() {
     local limit="$1"
-    local line cmd
+    local line cmd f
     local rec_rank=0 max_freq=0
 
     while IFS= read -r line || [[ -n "$line" ]]; do
@@ -31,17 +31,28 @@ _smart_history_backend_zsh_build() {
         cmd="${line#"${line%%[![:space:]]*}"}"
         [[ -z "$cmd" ]] && continue
 
+        # NEVER put $cmd bare inside (( )) or $(( )) -- not even as a subscript:
+        # zsh re-evaluates the subscript as an arithmetic expression. Measured on
+        # 5.9 against a seeded history file: a line containing `$(touch f)' had
+        # that substitution EXECUTED during indexing, and a line with an
+        # unbalanced `]' raised "bad math expression" -- and on one real user's
+        # 912-line history the evaluation never returned at all, which left the
+        # index empty and, because _smart_bootstrap_once binds its ZLE widgets
+        # only after the rebuild, disabled the whole plugin. Callers discard
+        # stderr, so none of that was visible. The count therefore travels
+        # through a scalar, which is only ever read as text.
         if [[ -z "${_SMART_BUILD_SEEN[$cmd]}" ]]; then
             _SMART_BUILD_SEEN[$cmd]=1
             _SMART_BUILD_ORDER+=("$cmd")
-            _SMART_BUILD_FREQ[$cmd]=1
             _SMART_BUILD_REC_RANKS[$cmd]=$rec_rank
             (( rec_rank++ ))
+            f=1
         else
-            _SMART_BUILD_FREQ[$cmd]=$(( _SMART_BUILD_FREQ[$cmd] + 1 ))
+            f=$(( ${_SMART_BUILD_FREQ[$cmd]} + 1 ))
         fi
-        if (( _SMART_BUILD_FREQ[$cmd] > max_freq )); then
-            max_freq=${_SMART_BUILD_FREQ[$cmd]}
+        _SMART_BUILD_FREQ[$cmd]=$f
+        if (( f > max_freq )); then
+            max_freq=$f
         fi
         true   # keep while-return stable
     done < <(fc -ln -r -${limit} 2>/dev/null)

@@ -177,5 +177,51 @@ assert_eq "迭代器 stdout 干净(无 key= 泄漏)" "$leaked" ""
 assert_eq "回调调用次数=4"                   "${#COLLECT}" "4"
 
 print -r -- ""
+print -r -- "=== 场景 10: 回归——历史行的文本不得被当作算术表达式求值 ==="
+# 背景: 后端原先写的是 `(( _SMART_BUILD_FREQ[$cmd] > max_freq ))`，而 zsh 在算术
+# 上下文里会把下标内容再当一次表达式求值。$cmd 是用户的一整行历史，于是:
+#   * 含 `$(...)` 的历史行在建索引时被真的执行;
+#   * 含不成对 `]` 的历史行让算术求值报错、整个 while 中断，而所有调用点都带
+#     2>/dev/null，所以现场只剩一个 0 条目的索引。0 条目又让 bootstrap 永远走不到
+#     _smart_event_bind，行内灰色提示因此完全不出现。
+#     （实测于一台 Ubuntu: zsh 5.9、912 行历史、history.count=0、每次 precmd 挂起。）
+# 修复: 计数先取进标量，再进算术上下文。
+# 为什么这样测: 场景 8 只做数字合法性检查、而且没有 source 后端文件，所以它调用的是
+# 一个不存在的函数——真正读历史的那段循环从来不在覆盖范围内。这里用 fc -R 把敌意行
+# 喂进真的后端，是这条路径唯一可复现的入口。
+# 挡不住什么: 只有前两条(未执行、stderr 干净)钉住机制,在未修复的代码上实测双双失败;
+# 后面几条锁的是修复后 dedup/freq/max 不变,它们在同一缺陷下也可能通过——历史内容不同,
+# 这条算术错误落的位置就不同(用户机器上是 precmd 直接挂住,这里是报错后继续)。
+# 也不验证 20000 行规模的耗时(另有性能场景),不验证 atuin 后端(它的同处已一并修掉)。
+# 成本: 一个临时历史文件 + 一次重建，毫秒级。
+# 撤回: 删掉本场景即可;run-all 自动发现套件，无其他文件引用它。
+_HDIR="${TMPDIR:-/tmp}/zsc_hist_math.$$_$RANDOM"
+_MARK="${_HDIR}/executed-marker"
+_ERRF="${_HDIR}/stderr"
+mkdir -p "$_HDIR"
+# 第一行与第三行故意重复，用来同时验证去重与 freq 累加（原先也走算术下标）。
+{
+    print -r -- 'git status'
+    print -r -- 'print "x ] ( ; while :; do :; done"'
+    print -r -- "echo \$(touch ${_MARK})"
+    print -r -- 'git status'
+} > "${_HDIR}/history"
+
+source "${ROOT}/lib/history/zsh.zsh"
+_smart_state_reset
+fc -R "${_HDIR}/history"
+SMART_SUGGEST_HISTORY_LIMIT=100 _smart_history_rebuild 2>"$_ERRF"
+assert_eq "历史行里的 \$(...) 没有被执行" \
+    "$([[ -e "$_MARK" ]] && echo yes || echo no)" "no"
+assert_eq "重建过程 stderr 干净(无 bad math expression)" \
+    "$(wc -c < "$_ERRF" | tr -d ' ')" "0"
+assert_eq "敌意行全部入索引(去重后 3 条)"  "$(_smart_state_get history.count)"    "3"
+assert_eq "重复行 freq 累加"              "$(_smart_state_a_get history.frequency "git status")" "2"
+assert_eq "最大 freq 正确"                "$(_smart_state_get history.max_freq)" "2"
+assert_eq "不成对 ] 的那行按字符串存住"    \
+    "$(_smart_state_a_get history.frequency 'print "x ] ( ; while :; do :; done"')" "1"
+rm -rf "$_HDIR"
+
+print -r -- ""
 print -r -- "=== TOTAL: $PASS passed, $FAIL failed ==="
 (( FAIL == 0 )) && exit 0 || exit 1

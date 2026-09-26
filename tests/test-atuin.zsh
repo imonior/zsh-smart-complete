@@ -13,6 +13,8 @@
 #   4. Exit penalty: failed command (exit=1) vs success (exit=0) → success wins
 #   5. CWD + host combined → combined multipliers stack
 #   6. SMART_ATUIN_SUCCESS_ONLY=true → exit != 0 rows filtered
+#   7. regression: command text from the DB must never be evaluated as an
+#      arithmetic expression (see 场景 7 for the measured story)
 #
 # If sqlite3 is not available on PATH, scenarios 2-6 are SKIP'd (exit 0).
 
@@ -248,6 +250,52 @@ unset _SMART_BUILD_ORDER _SMART_BUILD_FREQ _SMART_BUILD_SEEN \
       _SMART_BUILD_META_EXIT _SMART_BUILD_META_SEEN_META 2>/dev/null
 SMART_ATUIN_SUCCESS_ONLY=false
 rm -f "$TEST_DB2"
+
+# ---------------------------------------------------------------------------
+# 场景 7: 回归——数据库里的命令行不得被当作算术表达式求值
+# atuin 后端与 zsh 后端同源:原先都写 `(( _SMART_BUILD_FREQ[$command] > max_freq ))`,
+# 而 (( )) 里下标会被再求值一次,所以历史文本里的 `$(...)` 会在建索引时被执行、
+# 不成对的 `]` 会让算术报错。这里喂两行敌意命令进真的后端。
+# 挡不住什么: 未修复时实测失败的是「marker 被创建」「stderr 非空」「freq=1 而非 2」
+# 三条；rc 与去重两条在缺陷下仍通过，它们锁的是修复后的行为而不是机制。
+# 成本: 一个三行的临时 DB，毫秒级。撤回: 删掉本场景。
+print -r -- ""
+print -r -- "=== 场景 7: 命令行文本不被当作算术求值 ==="
+TEST_DB3="$(mktemp)"
+MARK3="${TEST_DB3}.executed"
+sqlite3 "$TEST_DB3" <<SQL 2>/dev/null
+CREATE TABLE history (id TEXT PRIMARY KEY, command TEXT, cwd TEXT, exit INTEGER, hostname TEXT, timestamp INTEGER);
+INSERT INTO history VALUES ('1','echo \$(touch ${MARK3})','/',0,'my-laptop',100);
+INSERT INTO history VALUES ('2','print "x ] ( ; while :; do :; done"','/',0,'my-laptop',200);
+INSERT INTO history VALUES ('3','echo \$(touch ${MARK3})','/',0,'my-laptop',300);
+SQL
+SMART_ATUIN_DB_PATH="$TEST_DB3"
+typeset -ga _SMART_BUILD_ORDER=()
+typeset -gA _SMART_BUILD_FREQ=()
+typeset -gA _SMART_BUILD_SEEN=()
+typeset -gA _SMART_BUILD_REC_RANKS=()
+typeset -gi _SMART_BUILD_MAX_F=0
+typeset -gi _SMART_BUILD_REC=0
+typeset -gA _SMART_BUILD_META_CWD=()
+typeset -gA _SMART_BUILD_META_HOST=()
+typeset -gA _SMART_BUILD_META_EXIT=()
+typeset -gA _SMART_BUILD_META_SEEN_META=()
+_at_errf="${TEST_DB3}.err"
+# 不能把后端放进 $() —— 子 shell 会让 _SMART_BUILD_* 写不回主进程（场景 9 同理）。
+_smart_history_backend_atuin_build 100 2>"$_at_errf"
+_at_rc=$?
+assert_eq "敌意命令行没有被执行" \
+    "$([[ -e "$MARK3" ]] && echo yes || echo no)" "no"
+assert_eq "后端对敌意行返回 0"     "$_at_rc" "0"
+assert_eq "构建过程 stderr 干净"   "$(wc -c < "$_at_errf" | tr -d ' ')" "0"
+assert_eq "去重后 2 条"            "${#_SMART_BUILD_ORDER[@]}" "2"
+assert_eq "重复行 freq 累加"       "${_SMART_BUILD_FREQ[echo \$(touch ${MARK3})]}" "2"
+unset _SMART_BUILD_ORDER _SMART_BUILD_FREQ _SMART_BUILD_SEEN \
+      _SMART_BUILD_REC_RANKS _SMART_BUILD_MAX_F _SMART_BUILD_REC \
+      _SMART_BUILD_META_CWD _SMART_BUILD_META_HOST \
+      _SMART_BUILD_META_EXIT _SMART_BUILD_META_SEEN_META 2>/dev/null
+rm -f "$TEST_DB3" "$MARK3" "$_at_errf"
+
 SMART_ATUIN_DB_PATH="$saved_path"
 fi  # HAS_SQLITE
 

@@ -254,7 +254,12 @@ _reset_screen
 _smart_state_set suggestion.text "git commit -a"
 BUFFER="git"; CURSOR=3
 POSTDISPLAY=" commit -a"
-region_highlight=("$( _want 3 13)" "0 3 bold fg=yellow")
+# Seeded THROUGH the module, because on a zsh with no marker the only way the
+# module knows an entry is its own is having written it: a bare
+# `region_highlight=("$( _want 3 13)" …)` would leave the cleanup below looking
+# for an identity that was never recorded, and the entry would count as foreign.
+region_highlight=("0 3 bold fg=yellow")
+_smart_display_rh_put 3 13
 assert_rc "accept_word" 0 _smart_display_accept_word
 _scan_rh
 assert_eq "accept_word clears our entry" "$_own_n" "0"

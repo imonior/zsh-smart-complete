@@ -5,6 +5,57 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/)，并遵循
 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [v2.4.2] - 2026-09-26
+
+### 修复
+- **索引历史的时候把历史当成代码执行了：所谓「灰色提示不见了」，其实是整个插件已经废了。**
+  两个历史后端比较每条命令出现次数的写法一样是 `(( _SMART_BUILD_FREQ[$cmd] > max_freq ))`（atuin 那边写作 `$command`）。
+  而在 `(( ))`——以及 `$(( ))`——里面，zsh 并不会把作为下标出现的裸参数替换掉：
+  它先把文本展开，然后再把**展开后的文本当算术表达式重新解析**。这里的文本是一整行历史命令。
+  在上报者的机器上（zsh 5.9，912 行历史）逐函数跟踪看到求值走到了
+  `((  _SMART_BUILD_FREQ[functions -T _smart_cmds_rebucket] > max_freq  ))`，
+  也就是对 shell 语法做算术运算。由此产生三件事，而它们只表现为一个症状：
+
+  1. 含 `$(…)` 的那行历史，在**建索引过程中被真的执行了**。本机用一份人工种下的历史文件复现：
+     该行指向的 marker 文件随后存在；新增的 atuin 场景在未修复代码上就是以此报 `FAIL` 的。
+  2. 含不成对 `]` 的行会抛 `bad math expression: illegal character: ]`——这正是用户看到的报错。
+     所有调用方都会丢弃 rebuild 的 `stderr`，于是唯一留下的痕迹就是一个空索引。
+  3. 在这位用户的历史上，求值**再也没有返回**：rebuild 只能靠 Ctrl-C 打断，而且每条命令都要打断一次，
+     因为 `_smart_bootstrap_once` 是在 rebuild **之后**才把自己从 `precmd_functions` 里摘掉，
+     而 `count == 0` 的空索引又会让按键路径重试一次完整 rebuild。
+
+  由于同一处 bootstrap 是在 rebuild **之后**才安装 ZLE 包装函数，widget 从未被绑定
+  （`_SMART_EVT_CAPTURED=0`）：没有行内灰色建议、没有菜单、什么都没有——
+  `smart-status` 显示 `history indexed: 0`、`last rebuild: 0`、`last suggestion []`。
+  v2.4.1 的两个颜色修复与此事无关：那位用户的会话报告的是 `memo_ok=1 color=fg=110`、
+  terminfo 256 色，也就是当时已经正确的那条分支。
+
+  现在计数改经一个标量传递，算术表达式只会把它当数字读：`_SMART_BUILD_FREQ[$cmd]=$f`
+  加 `if (( f > max_freq ))`。`_smart_history_backend_atuin_build` 用同样写法修好；
+  `_smart_history_rebuild` 的持久化循环也一样，那里的
+  `$(( base - _SMART_BUILD_REC_RANKS[$c] ))` 因为 `$c` 是一整行历史而存在同一类下标求值问题。
+  这也是增量 upsert 路径本来就用的写法，于是两条写入路径现在终于一致了。
+
+### 新增
+- `tests/test-history.zsh` 场景 10（28 → 34 条断言）与 `tests/test-atuin.zsh` 场景 7
+  （26 → 31 条断言）各种子一份历史，其中包含一行不成对 `]` 和一行含 `$(touch <marker>)`
+  的命令，然后跑**真正的** rebuild——zsh 场景在非交互 shell 里用 `fc -R` 种历史，
+  atuin 场景用一个临时 SQLite 库——并断言：marker 没有被创建、rebuild 没有向 `stderr` 写任何东西、
+  敌意行按字符串原样存成 key、以及各条 freq 数值正确。
+
+  在未修复的树上实测（zsh 5.9）：atuin 场景 5 条新断言里有 3 条失败——
+  `敌意命令行没有被执行 got=[yes] want=[no]`（命令替换真的跑了）、
+  `构建过程 stderr 干净 got=[97] want=[0]`、以及 `重复行 freq 累加 got=[1] want=[2]`——
+  因为 `$(( _SMART_BUILD_FREQ[$command] + 1 ))` 这一行自己抛错，重复那条就没被计上。
+  history 场景比「红一条断言」更糟：整个运行停在场景标题处，留下 180 字节内容：
+  `_smart_history_backend_zsh_build:19: bad math expression: operator expected at
+  '( ; while ...'` 和 `_smart_history_rebuild:67: …`，外加它创建出来的那个 marker 文件。
+
+  它们**不**覆盖的部分：上报用户实际碰到的那种形态——求值再也没有返回。那是在他的机器上
+  观察到的，本机并未复现；本机同样这两行 fixture 只会大声失败，而发现这个 bug 靠的也正是那声失败。
+  要断言「不返回」，就要么把测试挂住，要么在测试里放一个墙钟时间上限，而带时间上限的断言就是一个有名字的 flake。
+  成本：本机 0.5 秒与 0.3 秒。撤回方式：删掉以 `场景 10` / `场景 7` 开头的两段。
+
 ## [v2.4.1] - 2026-09-26
 
 ### 修复

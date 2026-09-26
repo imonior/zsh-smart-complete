@@ -5,6 +5,76 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [v2.4.2] - 2026-09-26
+
+### Fixed
+- **Indexing history evaluated it: the suggestion was never missing, the plugin
+  was dead.** Both history backends compared each command's count the same way,
+  `(( _SMART_BUILD_FREQ[$cmd] > max_freq ))` (the atuin one spells it `$command`).
+  Inside `(( ))` — and inside `$(( ))` — zsh does not substitute a *bare*
+  parameter that appears as a subscript: it expands the text and then re-parses
+  that text as an arithmetic expression. Here the text was a whole command line
+  from history. Traced on the reporting machine (zsh 5.9, 912 history lines), the
+  evaluation reached
+  `((  _SMART_BUILD_FREQ[functions -T _smart_cmds_rebucket] > max_freq  ))`, so
+  arithmetic was being run over shell syntax. Three things followed from that, and
+  they arrived as one symptom:
+
+  1. A history line containing `$(…)` had that substitution **executed** during
+     indexing. Measured locally against a seeded history file: the marker file the
+     line named existed afterwards, and the new atuin scenario reproduces it as a
+     `FAIL` on the pre-fix code.
+  2. A line with an unbalanced `]` raised `bad math expression: illegal
+     character: ]` — which is what the user saw. Every caller discards the
+     rebuild's `stderr`, so the only trace was an empty index.
+  3. On that user's history the evaluation **never returned**: the rebuild had to
+     be interrupted with Ctrl-C, on every command, because `_smart_bootstrap_once`
+     removes itself from `precmd_functions` only *after* the rebuild, and a
+     `count == 0` index makes the keystroke path retry a full rebuild.
+
+  Because the same bootstrap installs the ZLE wrappers *after* the rebuild, the
+  widgets were never bound (`_SMART_EVT_CAPTURED=0`): no inline grey suggestion,
+  no menu, nothing — `smart-status` read `history indexed: 0`, `last
+  rebuild: 0`, `last suggestion []`. Neither of v2.4.1's two colour fixes was
+  involved; that user's session reported `memo_ok=1 color=fg=110` and 256
+  terminfo colours, i.e. the branch that was already correct.
+
+  The count now travels through a scalar, which arithmetic only ever reads as a
+  number: `_SMART_BUILD_FREQ[$cmd]=$f` and `if (( f > max_freq ))`. Same shape in
+  `_smart_history_backend_atuin_build`, and in `_smart_history_rebuild`'s persist
+  loop, where `$(( base - _SMART_BUILD_REC_RANKS[$c] ))` had the same
+  subscript-under-arithmetic problem with `$c` a full history line. That is also
+  the house style the incremental upsert path already used, so the two write paths
+  now agree.
+
+### Added
+- `tests/test-history.zsh` 场景 10 (28 → 34 assertions) and `tests/test-atuin.zsh`
+  场景 7 (26 → 31) seed a history that contains one line with an unbalanced `]`
+  and one line carrying `$(touch <marker>)`, then run the real rebuild — the zsh
+  suite through `fc -R` in a non-interactive shell, the atuin suite through a
+  throwaway SQLite database — and assert: the marker was not created, the rebuild
+  wrote nothing to `stderr`, the hostile line is stored verbatim as a key, and the
+  frequencies came out right.
+
+  Measured on the pre-fix tree (zsh 5.9): the atuin scenario reports 3 of its 5
+  new assertions failing — `敌意命令行没有被执行 got=[yes] want=[no]` (the
+  substitution ran), `构建过程 stderr 干净 got=[97] want=[0]`, and
+  `重复行 freq 累加 got=[1] want=[2]` — the increment line
+  `$(( _SMART_BUILD_FREQ[$command] + 1 ))` raised, so the duplicate was never
+  counted. The history scenario is worse than a red assertion: the run stops at
+  the scenario header, leaving 180 bytes behind that read
+  `_smart_history_backend_zsh_build:19: bad math expression: operator expected at
+  '( ; while ...'` and `_smart_history_rebuild:67: …`, plus the marker file it had
+  created.
+
+  What they do **not** cover: the shape the reporting user hit, where the
+  evaluation never returned at all. That was observed on their machine and is not
+  reproduced here — locally these same two fixture lines fail loudly instead,
+  which is what caught the bug. Asserting on a non-return would mean hanging the
+  suite or putting a wall-clock bound in it, and a time-bound assertion is a flake
+  with a name. Cost: 0.5 s and 0.3 s locally. To remove: delete the blocks headed
+  `场景 10` / `场景 7`.
+
 ## [v2.4.1] - 2026-09-26
 
 ### Fixed

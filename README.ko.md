@@ -3,7 +3,7 @@
 > Zsh 용 현대적인 스마트 완성 및 제안 레이어.
 > 미래의 독립 셸 프런트엔드로 설계됨.
 >
-> **v2.4.1** — 고스트 제안이 zsh 5.8 / 5.8.1 에서도 색을 지킵니다——하필 그것에 이름을 붙이던 마커가 속성을 지우고 있었습니다. zsh 버전 매트릭스는 세 이미지 모두 초록이고, 붉은 CI job 은 한 개가 아니라 실패한 모든 단언을 공개하므로 아래 단언 수도 그것을 측정한 실행과 대조할 수 있습니다.
+> **v2.4.2** — 히스토리 인덱스를 만들려면 히스토리를 **실행**해야 했습니다. `(( ))` 안 첨자 자리의 맨 명령줄은 산술식으로 다시 파싱되므로 인덱싱 중 `$(…)` 이 실제로 실행됐고, 한 사용자에서는 위젯이 끝까지 한 번도 연결되지 않았습니다——회색 제안은 어디에도 없고 명령마다 Ctrl-C 였습니다. 카운트는 이제 스칼라를 거쳐 전달되고, 새로 더한 두 시나리오는 이전 형태에서 크게 실패합니다.
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------ | ------ |
 | 빌드 및 테스트 (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | 릴리스 | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| 버전 | 2.4.1 |
+| 버전 | 2.4.2 |
 
 ## 왜 이 플러그인인가
 

@@ -3,7 +3,7 @@
 > 一个现代化的智能补全和建议层，专为 Zsh 设计。
 > 作为未来独立 shell 的前端引擎。
 >
-> **v2.4.1** — 幽灵建议在 zsh 5.8 和 5.8.1 上保住了颜色：恰恰是给它起名字的那个标记把属性删掉了；zsh 版本矩阵在三个镜像上全绿；而 CI 变红时会公布每一条失败的断言而不是其中一条——这样下面引用的断言数量就能对着做出该测量的那次运行核对。
+> **v2.4.2** — 以前给历史建索引其实是在**执行**历史：`(( ))` 里作为下标出现的裸命令行会被当作算术表达式重新解析，于是索引过程中 `$(…)` 真的跑了起来；一位用户的插件因此从头到尾没有绑定过 widget——到处都没有灰色提示，而且每条命令都得 Ctrl-C。计数现在改经一个标量传递，新增的两个场景会在旧写法上大声失败。
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------ | ------ |
 | 构建与测试 (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | 发布 | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| 版本 | 2.4.1 |
+| 版本 | 2.4.2 |
 
 ## 为什么选择我们
 

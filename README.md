@@ -3,7 +3,7 @@
 > A modern smart completion & suggestion layer for Zsh.
 > Engineered as the frontend of a future independent shell.
 >
-> **v2.4.1** — The ghost keeps its colour on zsh 5.8 and 5.8.1, where the very marker that named it was deleting the attribute; the zsh version matrix is green on all three images; and a red CI job publishes every failing assertion instead of one, so an assertion count like the one below can be checked against the run that measured it.
+> **v2.4.2** — Building the history index used to *run* your history: inside `(( ))` a bare command line is re-parsed as arithmetic, so `$(…)` executed while indexing, and one user's plugin never bound its widgets at all — no grey ghost anywhere, and a Ctrl-C on every command. The count now travels through a scalar, and two new scenarios fail loudly on the old shape.
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------- | ------ |
 | Build & test (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | Release | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| Version | 2.4.1 |
+| Version | 2.4.2 |
 
 ## Why
 
@@ -385,7 +385,7 @@ commit both installers. `tools/build-installers.sh --check` is what CI runs;
 files, including the list of duplications that remain on purpose.
 
 **Test summary:** `./tests/run-all.sh` runs every suite and prints the file and
-assertion counts it measured; on ubuntu-latest the run is green with 1424
+assertion counts it measured; on ubuntu-latest the run is green with 1435
 assertions in 20 suites and 0 failures.
 The installer also now **scans other startup files** (`.zprofile`, `.zshenv`, `conf.d/*.zsh`, `.zshrc.d/*`, `/etc/zsh/zshrc`) for left-over loaders of `zsh-autocomplete` / `zsh-autosuggestions` after cleaning `~/.zshrc`, and **warns** (with exact `file:line`) if it finds any — it never edits those files. See CHANGELOG `[v2.2.5]`.
 

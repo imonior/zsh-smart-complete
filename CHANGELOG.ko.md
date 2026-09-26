@@ -5,6 +5,57 @@
 형식은 [Keep a Changelog](https://keepachangelog.com/)을 따르며, 이 프로젝트는
 [의미론적 버전](https://semver.org/lang/ko/)을 준수합니다.
 
+## [v2.4.2] - 2026-09-26
+
+### 수정
+- **히스토리를 인덱싱하는 과정이 히스토리를 실행하고 있었다. 「회색 제안이 안 나온다」의 정체는 플러그인 전체가 죽어 있었다는 것이다.**
+  두 히스토리 백엔드 모두 각 행의 출현 횟수를 같은 형태, `(( _SMART_BUILD_FREQ[$cmd] > max_freq ))`（atuin 쪽은 `$command`）로 비교했다.
+  `(( ))` —— 그리고 `$(( ))` —— 안에서 첨자 자리에 놓인 맨 파라미터는 단순한 치환으로 끝나지 않는다.
+  **치환된 텍스트가 산술식으로 다시 파싱된다.** 여기서의 텍스트는 히스토리 한 줄 전체였다.
+  제보자의 기계（zsh 5.9, 히스토리 912 줄）에서 함수 단위 추적으로 확인한 결과, 평가는
+  `((  _SMART_BUILD_FREQ[functions -T _smart_cmds_rebucket] > max_freq  ))` 까지 내려가 있었다.
+  shell 구문에 산술을 하고 있었던 셈이다. 여기서 세 가지 결과가 나왔고, 사용자에게는 하나의 증상으로만 보였다：
+
+  1. `$(…)` 를 포함한 줄은 **인덱스를 만드는 도중에 실제로 실행되었다**. 심은 히스토리 파일로 로컬에서 재현
+     （그 줄이 가리키던 marker 파일이 그 뒤로 존재했다）。새로운 atuin 시나리오는 수정 전 코드에서 이 때문에 `FAIL` 이 된다.
+  2. `]` 가 닫히지 않은 줄은 `bad math expression: illegal character: ]` 를 던진다——사용자가 본 그 오류다.
+     호출측은 rebuild 의 `stderr` 를 모두 버리므로, 남은 흔적은 빈 인덱스뿐이었다.
+  3. 이 사용자의 히스토리에서는 평가가 **돌아오지 않았다**: rebuild 는 Ctrl-C 로 중단해야 하고, 그것도 명령마다 한 번씩.
+     `_smart_bootstrap_once` 는 rebuild **뒤에** 자기 자신을 `precmd_functions` 에서 빼기 때문에 `precmd` 에 계속 남아 있다.
+     게다가 `count == 0` 인 빈 인덱스는 키 입력 경로에 완전한 rebuild 를 다시 시도하게 만든다.
+
+  같은 bootstrap 이 ZLE 래퍼를 설치하는 시점도 rebuild **뒤**이므로 위젯은 한 번도 연결되지 않았다
+  （`_SMART_EVT_CAPTURED=0`）: 인라인 회색 제안도 메뉴도 없다. `smart-status` 는
+  `history indexed: 0`、`last rebuild: 0`、`last suggestion []` 을 표시했다. v2.4.1 의 두 색상 수정은 무관했다:
+  이 사용자의 세션은 `memo_ok=1 color=fg=110`、terminfo 256 색, 즉 그때 이미 맞던 가지를 타고 있었다.
+
+  카운트는 이제 스칼라를 지나 전달된다. 산술은 그것을 숫자로만 읽는다: `_SMART_BUILD_FREQ[$cmd]=$f` 에
+  `if (( f > max_freq ))`. `_smart_history_backend_atuin_build` 도 같은 형태로 고쳤다.
+  `_smart_history_rebuild` 의 영속화 루프도 마찬가지인데, 거기에 있는
+  `$(( base - _SMART_BUILD_REC_RANKS[$c] ))` 는 `$c` 가 히스토리 한 줄 전체라서 같은 첨자 평가 문제를 안고 있었다.
+  이것은 증분 upsert 경로가 이미 쓰던 표현과도 같은 형태라서, 이제 두 쓰기 경로의 모양이 일치했다.
+
+### 추가
+- `tests/test-history.zsh` 의 시나리오 10（28 → 34 어서션）과 `tests/test-atuin.zsh` 의 시나리오 7
+  （26 → 31）은 `]` 가 닫히지 않은 줄과 `$(touch <marker>)` 를 포함한 줄을 넣은 히스토리를 심고,
+  **실제** rebuild 를 돌린다——zsh 쪽은 비대화형 shell 에서 `fc -R`、atuin 쪽은 버릴 SQLite DB——、
+  그리고 다음을 확인한다: marker 가 만들어지지 않았을 것、rebuild 가 `stderr` 에 아무것도 쓰지 않았을 것、
+  적대적인 줄이 key 로 텍스트 그대로 저장될 것、각 freq 의 값이 맞을 것.
+
+  수정 전 트리에서 실측（zsh 5.9）: atuin 시나리오는 새로 늘어난 5 개 중 3 개가 떨어진다——
+  스위트 자신의 라벨로 `敌意命令行没有被执行 got=[yes] want=[no]`（치환이 실행되었다）、
+  `构建过程 stderr 干净 got=[97] want=[0]`、`重复行 freq 累加 got=[1] want=[2]`.
+  `$(( _SMART_BUILD_FREQ[$command] + 1 ))` 줄 자체가 예외를 던지므로 두 번째 세기가 들어가지 않는다.
+  history 시나리오는 「1 개가 빨간색」보다 나쁘다: 실행이 시나리오 제목에서 멈추고 180 바이트가 남는다. 내용은
+  `_smart_history_backend_zsh_build:19: bad math expression: operator expected at
+  '( ; while ...'` 와 `_smart_history_rebuild:67: …`、그리고 만들어진 marker 파일.
+
+  이들이 **덮지 못하는** 것: 제보 사용자가 실제로 겪은 형태, 즉 평가가 아예 돌아오지 않는 상태.
+  그것은 그쪽 기계에서 관찰된 것이고 이쪽에서는 재현하지 않았다——같은 두 줄의 fixture 는 로컬에서 크게 실패할 뿐이고,
+  이 버그를 찾아낸 것도 그 실패다. 「돌아오지 않음」을 확인하려면 테스트를 걸리게 두거나 실시간 상한을 넣어야 하는데,
+  시간 상한 어서션은 이름 붙은 flake 다. 비용: 로컬에서 0.5 초와 0.3 초.
+  되돌리기: `场景 10` / `场景 7` 제목으로 시작하는 두 블록을 삭제.
+
 ## [v2.4.1] - 2026-09-26
 
 ### 수정

@@ -3,7 +3,7 @@
 > Zsh 向けのモダンなスマート補完・候補提示レイヤー。
 > 将来の独立シェルのフロントエンドとして設計。
 >
-> **v2.4.1** — ゴースト候補が zsh 5.8 / 5.8.1 でも色を保つようになりました——まさにそれに名前を付けていたマーカーが属性を消していたのです。zsh バージョンマトリクスは 3 つのイメージすべてで緑になり、赤い CI job は 1 件ではなく失敗した全アサーションを公開するので、下の断言数もそれを計測した実行と照合できます。
+> **v2.4.2** —— 履歴のインデックス作成は、歴史上のコマンド行を `(( ))` の添子に置いていたため、それを算術式として再解析＝**実行**していました。インデックス中に `$(…)` が実際に走り、あるユーザーではウィジェットが最後まで一度も有効にならないまま——グレーの候補はどこにも出ず、コマンドごとに Ctrl-C が必要でした。カウントは現在スカラー経由で渡され、追加した 2 つのシナリオは旧来の書き方で大きな音で失敗します。
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文](./README.zh-TW.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md)
 
@@ -13,7 +13,7 @@
 | ------ | ------ |
 | ビルドとテスト (CI) | [![CI](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/ci.yml) |
 | リリース | [![Release](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml/badge.svg)](https://github.com/imonior/zsh-smart-complete/actions/workflows/release.yml) |
-| バージョン | 2.4.1 |
+| バージョン | 2.4.2 |
 
 ## なぜこれを選ぶか
 

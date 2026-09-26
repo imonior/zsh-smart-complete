@@ -37,6 +37,11 @@ setopt extended_glob no_warn_create_global
 # were what killed the ghost's colour.
 typeset -g _SMART_RH_MARKER="zsh-smart-complete:suggestion"
 
+# That marker is only written when this zsh can carry it. On 5.8 and older it
+# costs the colour it is supposed to protect, and it does not identify the entry
+# afterwards either — the whole measurement, and what replaces the marker there,
+# is in the region_highlight plumbing below.
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -83,8 +88,75 @@ _smart_display_color() {
 # ---------------------------------------------------------------------------
 # region_highlight plumbing
 #
-# One entry of ours, always at most one, identified by memo=$_SMART_RH_MARKER.
+# One entry of ours, always at most one. It is identified by its memo where the
+# memo survives and by its own text where it does not.
 # ---------------------------------------------------------------------------
+
+# _SMART_RH_MEMO_OK -- does this zsh carry a `memo=` token without damaging the
+# entry in front of it? 5.9 and newer: yes. Anything older: no.
+#
+# MEASURED on 5.7.1 and 5.8.1, the entry
+#     1 12 fg=110  memo=zsh-smart-complete:suggestion
+# read back as `1 12 none` and ZLE emitted no SGR sequence at all -- the ghost
+# was on screen, uncoloured, on a terminal reporting 256 colours. Src/prompt.c
+# match_highlight() scans the attribute list and, on any byte after a colour
+# token that is not a comma, breaks out of the loop BEFORE the store (its
+# `*on_var |= atr` is never reached), so a trailing token throws away the colour
+# in front of it. 5.9 relaxed that to tolerate a space as well -- and 5.9 is also
+# the release that added `memo=` parsing, so before it the marker buys no
+# identification either: the token is dropped and the entry comes back as
+# `start end colour`.
+#
+# So the entry is tagged where the tag survives, and plain where it does not. A
+# version that will not parse as two integers takes the plain form too: wrong in
+# that direction costs a marker, wrong the other way costs the colour.
+#
+# The version arrives as an argument for the same reason _smart_display_color_auto
+# takes one: $ZSH_VERSION is read-only, so the rule has to be testable with
+# explicit inputs.
+_smart_display_memo_supported() {
+    local v="${1:-$ZSH_VERSION}"
+    # The first two components, each read as a WHOLE integer -- "5.10" is not
+    # "5.1". A version whose minor part is not a bare integer ("5.9-dev", a
+    # pre-release of the very version that added the feature, so genuinely
+    # unclear) takes the plain form, which loses a marker and nothing else.
+    local major="${v%%.*}" minor="${v#*.}"
+    minor="${minor%%.*}"
+    [[ "$major" == <-> && "$minor" == <-> ]] || return 1
+    (( major > 5 || ( major == 5 && minor >= 9 ) ))
+}
+typeset -g _SMART_RH_MEMO_OK=0
+_smart_display_memo_supported && _SMART_RH_MEMO_OK=1
+
+# _SMART_RH_SELF -- the text our entry has in the array right now, "" when we
+# have none on screen.
+#
+# This is what a zsh without `memo=` support has to go on. It is deliberately
+# read back from $region_highlight rather than copied from the string we just
+# wrote: zsh stores an entry as attribute bits and RE-RENDERS the text when the
+# array is read, so the two are not the same bytes (a user's
+# `fg=cyan,bold` comes back in zsh's own order and spacing). Matching on the
+# written text would silently match nothing -- which is exactly how the old
+# `#comment` marker let entries pile up one per keystroke.
+typeset -g _SMART_RH_SELF=""
+
+# _SMART_RH_START -- where that entry begins, kept because a completion-list
+# redraw rewrites its END (see _smart_display_reassert_rh) and the re-written
+# entry then matches neither the memo nor _SMART_RH_SELF.
+typeset -g _SMART_RH_START=""
+
+# _smart_display_rh_ours <entry> -- is this array entry one we put there?
+_smart_display_rh_ours() {
+    local r="$1"
+    [[ "$r" == *"memo=${_SMART_RH_MARKER}"* ]] && return 0
+    [[ -n "$_SMART_RH_SELF" && "$r" == "$_SMART_RH_SELF" ]] && return 0
+    # Our own entry, clipped to zero length by a list redraw: zsh moves the end
+    # to the end of BUFFER and leaves the start alone. A zero-length entry
+    # paints nothing, so dropping one can never take colour away from anyone --
+    # which is the only reason this rule may touch text that is not ours.
+    [[ -n "$_SMART_RH_START" && "$r" == "${_SMART_RH_START} ${_SMART_RH_START} "* ]] && return 0
+    return 1
+}
 
 # _smart_display_rh_put <start> <end> -- (re)write our single entry, dropping a
 # previous one of ours and leaving every foreign entry untouched.
@@ -95,25 +167,35 @@ _smart_display_rh_put() {
     local -a clean=()
     local r
     for r in "${rh[@]}"; do
-        [[ "$r" == *"memo=${_SMART_RH_MARKER}"* ]] && continue
+        _smart_display_rh_ours "$r" && continue
         clean+=("$r")
     done
-    clean+=("$1 $2 ${color}  memo=${_SMART_RH_MARKER}")
+    if (( _SMART_RH_MEMO_OK )); then
+        clean+=("$1 $2 ${color}  memo=${_SMART_RH_MARKER}")
+    else
+        # No marker here: on this zsh the token would delete the colour (see
+        # _SMART_RH_MEMO_OK), and it would not identify the entry afterwards.
+        clean+=("$1 $2 ${color}")
+    fi
     region_highlight=("${clean[@]}")
+    _SMART_RH_SELF="${region_highlight[-1]}"
+    _SMART_RH_START="${_SMART_RH_SELF%% *}"
     return 0
 }
 
 # _smart_display_rh_drop -- remove our entry, keep everything else.
 _smart_display_rh_drop() {
-    (( ${+region_highlight} )) || return 0
+    (( ${+region_highlight} )) || { _SMART_RH_SELF=""; _SMART_RH_START=""; return 0; }
     local -a rh=("${region_highlight[@]}")
     local -a clean=()
     local r
     for r in "${rh[@]}"; do
-        [[ "$r" == *"memo=${_SMART_RH_MARKER}"* ]] && continue
+        _smart_display_rh_ours "$r" && continue
         clean+=("$r")
     done
     region_highlight=("${clean[@]}")
+    _SMART_RH_SELF=""
+    _SMART_RH_START=""
     return 0
 }
 

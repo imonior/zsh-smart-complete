@@ -85,9 +85,14 @@ SAVEHIST=2000
 autoload -Uz compinit && compinit -u -d $ZD/.zcompdump
 zstyle ':chpwd:' recent-dirs-file $RDB
 source $REPO/zsh-smart-complete.plugin.zsh
-# Probe (scenario 12/13): dump region_highlight verbatim on F12. It must be
-# bound AFTER the plugin so the plugin's ^@-^_ self-insert sweep cannot eat it,
-# and its name must not collide with any plugin widget.
+# Probe (scenario 12/13): dump region_highlight on F12, prefixing entries the
+# plugin recognises as ours with "OUR " -- asking the module which entries it
+# would remove is the only version-agnostic way to count them, because on zsh
+# <= 5.8 our entry carries no marker at all (there the memo also deletes the
+# colour; see _SMART_RH_MEMO_OK in display.zsh).
+#
+# The widget must be bound AFTER the plugin, so the plugin's ^@-^_ self-insert
+# sweep cannot eat it, and its name must not collide with any plugin widget.
 # NOTE: this heredoc is UNQUOTED, so bash performs parameter expansion AND
 # command substitution on it while writing the file -- comments included. There
 # are two ways that silently ruins the whole run:
@@ -99,9 +104,17 @@ source $REPO/zsh-smart-complete.plugin.zsh
 # Either way .zshrc is never created, zsh boots with its DEFAULT prompt, the
 # plugin is never sourced, and every "nothing happened" assertion passes
 # vacuously (measured: PASS=10 FAIL=35, all of it this one comment block).
-# So: no backticks anywhere in this heredoc, and the expansion below stays
-# escaped. Do not write the raw form here.
-_dump_rh() { print -rl -- "\${region_highlight[@]}" > "$ZD/rh.txt"; }
+# So: no backticks anywhere in this heredoc, and every expansion of a nested-zsh
+# value below stays escaped. Do not write the raw form here.
+_dump_rh() {
+    local _r
+    {
+        for _r in "\${region_highlight[@]}"; do
+            if _smart_display_rh_ours "\$_r"; then print -r -- "OUR \$_r"
+            else print -r -- "    \$_r"; fi
+        done
+    } > "$ZD/rh.txt"
+}
 zle -N _dump_rh
 bindkey -M emacs '^[[24~' _dump_rh
 PROMPT='READY> '
@@ -688,14 +701,15 @@ R=$(rows_below_prompt)
 echo "== 13. region_highlight holds exactly ONE entry of ours, spanning POSTDISPLAY =="
 # The unbounded growth (1 entry per redraw) is invisible on screen, which is
 # exactly why it survived: it only shows up as stale ranges and a longer array
-# on every keystroke. Count our memo, and require end > start for it.
+# on every keystroke. The probe tags the entries the plugin considers its own;
+# count those, and require end > start for it.
 key F12; sleep 0.6
 RHF="$ZD/rh.txt"
 if [ -f "$RHF" ]; then
-    N=$(grep -cF 'memo=zsh-smart-complete:suggestion' "$RHF")
+    N=$(grep -c '^OUR ' "$RHF" || true)
     [ "$N" -eq 1 ] && ok "13 exactly one entry of ours ($N)" \
                    || no "13 our entries accumulated: $N (want 1)"
-    OUR=$(grep -F 'memo=zsh-smart-complete:suggestion' "$RHF" | tail -1)
+    OUR=$(grep '^OUR ' "$RHF" | sed 's/^OUR //')
     S=$(echo "$OUR" | awk '{print $1}'); E=$(echo "$OUR" | awk '{print $2}')
     if [ -n "$S" ] && [ -n "$E" ] && [ "$E" -gt "$S" ]; then
         ok "13 our entry spans the ghost ($S $E, not zero-length)"

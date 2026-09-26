@@ -328,6 +328,12 @@ _smart_state_reset
 
 # A CONSTANT, not state: the region_highlight memo that marks the ghost as ours.
 # GLOBAL: _SMART_RH_MARKER  fixed marker string, never written again
+# Whether this zsh keeps that memo without losing the colour in front of it, and
+# the one entry of ours as the array currently shows it. Written on every ghost
+# redraw and read back on the next one; see the note in lib/display/display.zsh.
+# GLOBAL: _SMART_RH_MEMO_OK  terminal capability of the running zsh, decided once
+# GLOBAL: _SMART_RH_SELF  text of our one highlight entry, "" when none is shown
+# GLOBAL: _SMART_RH_START  where that entry begins, to find it after a clip
 
 # Out-parameters for the history backends (lib/history/zsh.zsh,
 # lib/history/atuin.zsh): pluggable, so the rebuild cannot take their result as
